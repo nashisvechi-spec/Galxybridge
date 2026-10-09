@@ -168,8 +168,9 @@
 `tests/android-protocol/WireTest.java` executes real Wire/Pairing parser code on
 JVM with reference org.json. It validates QR fields, Unicode, chunked reads and
 hostile frame lengths; it does not test camera, Android network routing, MediaStore
-or accessibility. Portable C# tests add LAN frame bounds/fragmentation but have
-not been run locally. The manual workflow runs the C# tests before publishing.
+or accessibility. Portable C# tests add LAN frame bounds/fragmentation. After the CS0136 fix,
+the actual core/test sources were compiled directly with Roslyn and all 2164
+assertions passed locally (no Windows EXE or APK produced). The manual workflow runs the C# tests before publishing.
 
 Run these JVM tests with JDK 17 using `./scripts/Test-LanProtocol.ps1`; the manual
 workflow also runs them. The reference org.json JAR is checksum-pinned, used only

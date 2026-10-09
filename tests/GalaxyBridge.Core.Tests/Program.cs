@@ -282,12 +282,12 @@ Check(LanProtocol.SafeName("Икона (2).jpg") && !LanProtocol.SafeName("../x"
 Check(LanProtocol.HexSecret(new string('a', 64)) && !LanProtocol.HexSecret(new string('A', 64)), "LAN strict secret encoding");
 Check(LanProtocol.Identifier(new string('a', 32)) && !LanProtocol.Identifier(new string('a', 31)), "LAN identifier bounds");
 Reject(() => LanProtocol.Encode(new { text = new string('x', LanProtocol.MaxFrame) }), "LAN excessive outbound frame");
-foreach (int length in new[] { -1, 0, 1, LanProtocol.MaxFrame + 1, int.MaxValue })
+foreach (int lanFrameLength in new[] { -1, 0, 1, LanProtocol.MaxFrame + 1, int.MaxValue })
 {
-    byte[] header = new byte[4]; BinaryPrimitives.WriteInt32BigEndian(header, length); bool invalid = false;
+    byte[] header = new byte[4]; BinaryPrimitives.WriteInt32BigEndian(header, lanFrameLength); bool lanFrameRejected = false;
     try { using var result = await LanProtocol.ReadAsync(new MemoryStream(header), CancellationToken.None); }
-    catch (InvalidDataException) { invalid = true; }
-    Check(invalid, "LAN reject hostile length before allocation");
+    catch (InvalidDataException) { lanFrameRejected = true; }
+    Check(lanFrameRejected, "LAN reject hostile length before allocation");
 }
 byte[] arrayFrame = new byte[] { 0, 0, 0, 2, (byte)'[', (byte)']' }; bool arrayRejected = false;
 try { using var result = await LanProtocol.ReadAsync(new MemoryStream(arrayFrame), CancellationToken.None); }
