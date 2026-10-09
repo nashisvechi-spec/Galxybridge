@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/GalaxyBridge.Windows/LanIdentity.cs" Link="LanIdentity.cs" />
+    <Compile Include="../../src/GalaxyBridge.Core/LanProtocol.cs" Link="LanProtocol.cs" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+</Project>

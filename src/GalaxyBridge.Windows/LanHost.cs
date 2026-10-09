@@ -64,6 +64,7 @@ internal sealed class LanHost : IAsyncDisposable
     private async Task ServeAsync(TcpClient client)
     {
         LanSession? session = null;
+        string stage = "TLS";
         await Task.Yield();
         try
         {
@@ -73,8 +74,11 @@ internal sealed class LanHost : IAsyncDisposable
                 client.NoDelay = true;
                 using CancellationTokenSource hello = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                 hello.CancelAfter(TimeSpan.FromSeconds(8));
+                State?.Invoke("Телефон открыл соединение. Проверяем TLS…");
                 await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
-                { ServerCertificate = identity.Certificate, EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13 }, hello.Token);
+                { ServerCertificate = identity.Certificate, EnabledSslProtocols = SslProtocols.Tls12 }, hello.Token);
+                stage = "запрос сопряжения";
+                State?.Invoke("TLS установлен. Ожидаем запрос телефона…");
                 using var message = await LanProtocol.ReadAsync(stream, hello.Token);
                 var root = message.RootElement;
                 string kind = root.GetProperty("type").GetString() ?? "";
@@ -85,29 +89,42 @@ internal sealed class LanHost : IAsyncDisposable
                 string? token = null;
                 lock (gate)
                 {
-                    if (paused) return;
+                    if (paused) { State?.Invoke("Соединение отклонено: подключение остановлено."); return; }
                     if (kind == "pair")
                     {
                         string supplied = root.GetProperty("ticket").GetString() ?? "";
                         if (ticket is null || Environment.TickCount64 >= expires || !LanProtocol.HexSecret(supplied) ||
-                            !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(supplied), Convert.FromHexString(ticket))) return;
+                            !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(supplied), Convert.FromHexString(ticket)))
+                        { State?.Invoke("QR истёк или заменён. Покажите новый QR и подтвердите ноутбук на телефоне."); return; }
                         ticket = null; token = identity.Remember(phone);
                     }
-                    else if (kind != "hello" || !identity.Authorize(phone, root.GetProperty("token").GetString() ?? "")) return;
+                    else if (kind != "hello" || !identity.Authorize(phone, root.GetProperty("token").GetString() ?? ""))
+                    { State?.Invoke("Сохранённое сопряжение не принято. Повторите сопряжение новым QR."); return; }
                     session = new LanSession(client, stream, name);
                     current?.Close(); current = session;
                 }
                 await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId }), hello.Token);
                 // Explicit acknowledgement proves the phone saved its new token before any control session is accepted.
+                stage = "подтверждение телефона";
+                State?.Invoke("Ожидаем подтверждение сохранения сопряжения…");
                 using var saved = await LanProtocol.ReadAsync(stream, hello.Token);
                 if (saved.RootElement.GetProperty("type").GetString() != "saved") return;
-                session.Start(); Connected?.Invoke(session);
+                stage = "связь";
+                session.Start(); State?.Invoke("Сопряжение подтверждено телефоном."); Connected?.Invoke(session);
                 await session.Completion;
             }
         }
         catch (Exception ex) when (ex is IOException or SocketException or AuthenticationException or OperationCanceledException or
             System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException or FormatException or CryptographicException or UnauthorizedAccessException)
-        { State?.Invoke("Подключение не завершено или потеряно. Ожидаем телефон."); }
+        {
+            if (!lifetime.IsCancellationRequested)
+            {
+                Exception detail = ex.GetBaseException();
+                int code = detail is System.ComponentModel.Win32Exception native ? native.NativeErrorCode : detail.HResult;
+                // Only local stage/type/code: never show a QR, token, packet or file content.
+                State?.Invoke($"Ошибка: {stage}; {detail.GetType().Name}, 0x{code:X8}. Повторите подключение. Если ошибка остаётся, пришлите эту строку.");
+            }
+        }
         finally
         {
             if (session is not null) { session.Close(); await session.Completion; lock (gate) { if (current == session) current = null; } }

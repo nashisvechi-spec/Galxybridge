@@ -27,6 +27,8 @@ jobs:
         run: python scripts/check_sources.py
       - name: Run portable protocol tests
         run: dotnet run --project tests/GalaxyBridge.Core.Tests/GalaxyBridge.Core.Tests.csproj -c Release
+      - name: Test LAN certificate import and TLS on Windows
+        run: dotnet run --project tests/GalaxyBridge.LanTls.Tests/GalaxyBridge.LanTls.Tests.csproj -c Release
       - name: Publish Windows x64
         run: >-
           dotnet publish src/GalaxyBridge.Windows/GalaxyBridge.Windows.csproj

@@ -19,6 +19,7 @@ internal sealed class LanForm : Form
     private readonly ComboBox side = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
     private readonly PictureBox qr = new() { Size = new Size(340, 340), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White };
     private readonly Label state = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
+    private readonly Label connectionDetail = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly Button toggle = new() { Enabled = false, Text = "Управлять телефоном", AutoSize = true }, files = new() { Enabled = false, Text = "Отправить файлы…", AutoSize = true };
     private readonly CheckBox edgeEntry = new() { Text = "Вход через край экрана", AutoSize = true };
     private readonly Label transferState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
@@ -31,11 +32,12 @@ internal sealed class LanForm : Form
     public LanForm(Settings settings)
     {
         this.settings = settings; host = new();
-        Text = "Galaxy Bridge • Wi-Fi без отладки • 0.6.0"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • Wi-Fi без отладки • 0.6.1"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterParent; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
         page.Controls.Add(state);
+        page.Controls.Add(connectionDetail);
         Button renew = new() { Text = "Показать новый QR (2 минуты)", AutoSize = true };
         FlowLayoutPanel pair = new() { AutoSize = true }; pair.Controls.Add(addresses); pair.Controls.Add(renew); page.Controls.Add(pair); page.Controls.Add(qr);
         side.Items.AddRange(["Справа", "Слева", "Сверху", "Снизу"]); side.SelectedIndex = (int)settings.PhoneSide;
@@ -58,7 +60,7 @@ internal sealed class LanForm : Form
         side.SelectedIndexChanged += (_, _) => { capture?.Stop(); settings.PhoneSide = (PhoneSide)side.SelectedIndex; armed = false; };
         edgeEntry.CheckedChanged += (_, _) => settings.EdgeEntryEnabled = edgeEntry.Checked;
         toggle.Click += (_, _) => Toggle(); files.Click += async (_, _) => await ChooseFilesAsync();
-        host.Connected += candidate => Ui(() => Attach(candidate)); host.State += text => Ui(() => { if (session?.IsAlive != true) state.Text = text; });
+        host.Connected += candidate => Ui(() => Attach(candidate)); host.State += text => Ui(() => connectionDetail.Text = text);
         timer.Tick += (_, _) => { if (!host.PairingOpen) ClearQr(); if (capture?.Active == true && session?.InputReady != true) capture?.Stop(); CheckEdge(); UpdateState(); };
         SystemEvents.SessionSwitch += SessionChanged; SystemEvents.PowerModeChanged += PowerChanged;
         Shown += (_, _) => Start(); FormClosing += CloseAsync;
@@ -74,10 +76,10 @@ internal sealed class LanForm : Form
             capture.ToggleRequested += Toggle; capture.EdgeReturnRequested += () => capture?.Stop();
             capture.DesktopChanged += () => Ui(() => capture?.Stop()); capture.Error += text => { state.Text = text; };
             host.Start(); RefreshAddresses(); timer.Start();
-            state.Text = "Ожидаем телефон. Разрешите Galaxy Bridge доступ в брандмауэре Windows для используемой сети.";
+            connectionDetail.Text = "Разрешите Galaxy Bridge доступ в брандмауэре Windows для используемой сети. TCP 38271, UDP 38272.";
         }
         catch (Exception ex) when (ex is IOException or SocketException or System.ComponentModel.Win32Exception)
-        { state.Text = "Не удалось открыть режим Wi-Fi: " + ex.Message; }
+        { connectionDetail.Text = "Не удалось открыть режим Wi-Fi: " + ex.Message; }
     }
     private void RefreshAddresses()
     {
@@ -100,6 +102,7 @@ internal sealed class LanForm : Form
             using QRCodeGenerator generator = new(); using QRCodeData data = generator.CreateQrCode(host.NewQr(address), QRCodeGenerator.ECCLevel.M);
             using QRCode code = new(data); Image image = code.GetGraphic(6); Image? old = qr.Image; qr.Image = image; old?.Dispose();
             state.Text = "Сканируйте в приложении Galaxy Bridge Wi-Fi. Код действует 2 минуты.";
+            connectionDetail.Text = "Ожидаем соединение на " + address + ":" + LanProtocol.Port + ". После сканирования нажмите «Подключить» на S25. Если этот статус не меняется, проверьте адрес, общую сеть и брандмауэр Windows.";
         }
         catch (Exception ex) when (ex is NetworkInformationException or SocketException) { state.Text = "Не удалось определить адрес сети."; }
     }

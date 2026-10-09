@@ -22,7 +22,9 @@ internal sealed class LanIdentity : IDisposable
             try { state = JsonSerializer.Deserialize<Stored>(json) ?? throw new InvalidDataException("Invalid LAN identity."); }
             finally { CryptographicOperations.ZeroMemory(json); }
             if (!LanProtocol.Identifier(state.HostId)) throw new InvalidDataException("Invalid LAN identity.");
-            Certificate = new X509Certificate2(Convert.FromBase64String(state.Pfx), (string?)null, X509KeyStorageFlags.EphemeralKeySet);
+            byte[] pfx = Convert.FromBase64String(state.Pfx);
+            try { Certificate = ImportCertificate(pfx); }
+            finally { CryptographicOperations.ZeroMemory(pfx); }
         }
         else
         {
@@ -31,11 +33,21 @@ internal sealed class LanIdentity : IDisposable
             request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
             using X509Certificate2 generated = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(10));
             byte[] pfx = generated.Export(X509ContentType.Pfx);
-            Certificate = new X509Certificate2(pfx, (string?)null, X509KeyStorageFlags.EphemeralKeySet);
-            state = new(Guid.NewGuid().ToString("N"), Convert.ToBase64String(pfx), "", "");
-            CryptographicOperations.ZeroMemory(pfx); Save();
+            try
+            {
+                Certificate = ImportCertificate(pfx);
+                state = new(Guid.NewGuid().ToString("N"), Convert.ToBase64String(pfx), "", "");
+            }
+            finally { CryptographicOperations.ZeroMemory(pfx); }
+            try { Save(); } catch { Certificate.Dispose(); throw; }
         }
     }
+    // Schannel (Windows TLS) cannot use an EphemeralKeySet private key.
+    // Import in the current user's key container; without PersistKeySet the
+    // temporary key is deleted when this certificate is disposed. Do not add
+    // the certificate to a trusted/root store or change its existing pin.
+    internal static X509Certificate2 ImportCertificate(byte[] pfx) =>
+        new(pfx, (string?)null, X509KeyStorageFlags.UserKeySet);
     public bool Authorize(string phone, string token) => phone == state.PhoneId && LanProtocol.HexSecret(token) &&
         CryptographicOperations.FixedTimeEquals(Convert.FromHexString(token), Convert.FromHexString(state.Token));
     public string Remember(string phone)

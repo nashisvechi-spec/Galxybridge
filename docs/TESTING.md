@@ -175,3 +175,17 @@ assertions passed locally (no Windows EXE or APK produced). The manual workflow 
 Run these JVM tests with JDK 17 using `./scripts/Test-LanProtocol.ps1`; the manual
 workflow also runs them. The reference org.json JAR is checksum-pinned, used only
 for tests, and is not packaged in the portable ZIP or APK.
+
+## Windows 0.6.1: восстановление QR-сопряжения
+
+- [ ] Новый ручной workflow проходит Test LAN certificate import and TLS on Windows
+  (16 assertions с настоящим импортом сертификата и временным DPAPI-профилем).
+- [ ] Старый Android APK 0.6.0 подключается к Windows 0.6.1; переустановка не нужна.
+- [ ] После сканирования внутри Galaxy Bridge Wi-Fi и подтверждения ноутбука
+  появляются этапы TCP/TLS, затем подключённый телефон.
+- [ ] После закрытия и открытия окна Windows прежний сертификат/сопряжение работают.
+- [ ] Закрытый TCP-порт, неверный IP и изоляция сети оставляют «Ожидаем соединение».
+- [ ] TLS-ошибка остаётся видимой более секунды и содержит этап/тип/код, без секретов.
+- [ ] Истёкший или заменённый QR отклоняется; новый QR успешно принимается.
+- [ ] При остановке/закрытии окна управление возвращается ПК, новый TLS-ключ
+  не помещается в доверенные корневые сертификаты Windows.

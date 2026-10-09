@@ -90,7 +90,7 @@ def main() -> None:
     require(props.findtext('.//LangVersion') == '12.0', 'C# 12 configuration')
     require(props.findtext('.//Nullable') == 'enable', 'Nullable analysis configuration')
     projects = list(ROOT.glob('**/*.csproj'))
-    require(len(projects) == 3, 'Expected Windows, Core and portable test projects')
+    require(len(projects) == 4, 'Expected Windows, Core, portable and LAN TLS test projects')
     for path in projects:
         tree = ET.parse(path)
         for reference in tree.findall('.//ProjectReference'):
@@ -144,6 +144,8 @@ def main() -> None:
             'Build workflow requires read-only repository permissions')
     require('dotnet run --project tests/GalaxyBridge.Core.Tests/' in workflow,
             'Workflow must run portable tests')
+    require('dotnet run --project tests/GalaxyBridge.LanTls.Tests/' in workflow,
+            'Workflow must test the production certificate import with Windows TLS')
     require('--self-contained true' in workflow and '-r win-x64' in workflow,
             'Portable Windows x64 publish configuration')
     require('./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge' in workflow and 'GalaxyBridgeEdge-android' in workflow,
