@@ -294,6 +294,7 @@ try { using var result = await LanProtocol.ReadAsync(new MemoryStream(arrayFrame
 catch (InvalidDataException) { arrayRejected = true; }
 Check(arrayRejected, "LAN reject non-object frame");
 
+checks += LanFileReceiverTests.Run();
 Console.WriteLine($"PASS: {checks} core assertions");
 
 sealed class FragmentedStream(Stream inner) : Stream

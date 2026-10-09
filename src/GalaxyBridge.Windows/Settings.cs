@@ -11,6 +11,9 @@ internal sealed class Settings
     public bool EdgeEntryEnabled { get; set; }
     public bool EdgeReturnEnabled { get; set; } = true;
     public bool NativeAtStartup { get; set; }
+    public bool NativeReceiveEnabled { get; set; } = true;
+    public string NativeReceiveFolder { get; set; } = DefaultReceiveFolder;
+    public static string DefaultReceiveFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "GalaxyBridge");
     public bool AutoConnectEnabled { get; set; } = true;
     public bool ReconnectEnabled { get; set; } = true;
     public RememberedPhone? LastPhone { get; set; }
@@ -23,6 +26,7 @@ internal sealed class Settings
             Settings result = JsonSerializer.Deserialize<Settings>(File.ReadAllText(PathName)) ?? new();
             if (!Enum.IsDefined(result.PhoneSide)) result.PhoneSide = PhoneSide.Right;
             result.Sensitivity = double.IsFinite(result.Sensitivity) ? Math.Clamp(result.Sensitivity, .25, 4) : 1;
+            if (string.IsNullOrWhiteSpace(result.NativeReceiveFolder) || !Path.IsPathFullyQualified(result.NativeReceiveFolder)) result.NativeReceiveFolder = DefaultReceiveFolder;
             if (result.LastPhone?.Valid != true) result.LastPhone = null;
             if (result.LastPhone is { WifiEndpoint.Length: > 0 } phone)
             {

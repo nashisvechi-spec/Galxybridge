@@ -18,6 +18,20 @@ internal sealed class LanSession : IPhoneControl
     { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
     private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> replies = new();
     private readonly HashSet<byte> held = [];
+    private sealed record ReceiveConfiguration(bool Enabled, string Folder);
+    private volatile ReceiveConfiguration receiving = new(false, "");
+    private readonly object receiveGate = new();
+    private readonly LanFileReceiver incoming = new();
+    public LanReceiveState ReceiveState => incoming.State;
+    public void ConfigureReceive(bool enabled, string folder)
+    {
+        lock (receiveGate)
+        {
+            if (!enabled || receiving.Folder != folder) incoming.Cancel();
+            receiving = new(enabled, folder);
+        }
+    }
+    public void CancelReceive() => incoming.Cancel();
     private PhoneEdgeSample? edge;
     private int epoch, closed;
     private volatile bool inputReady;
@@ -98,15 +112,35 @@ internal sealed class LanSession : IPhoneControl
                             else completion.TrySetException(new IOException("Телефон не сохранил файл. Проверьте свободное место и повторите отправку."));
                         }
                         break;
+                    case "uploadBegin": case "uploadChunk": case "uploadEnd": case "uploadAbort":
+                        string request = root.GetProperty("id").GetString() ?? "";
+                        if (!LanProtocol.Identifier(request)) throw new InvalidDataException("Invalid upload request.");
+                        try
+                        {
+                            string saved;
+                            lock (receiveGate)
+                            {
+                                ReceiveConfiguration options = receiving;
+                                saved = incoming.Accept(root, options.Folder, options.Enabled);
+                            }
+                            Post(new { type = "uploadAck", id = request, ok = true, name = saved });
+                        }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
+                            FormatException or JsonException or InvalidOperationException or KeyNotFoundException)
+                        {
+                            Post(new { type = "uploadAck", id = request, ok = false,
+                                error = receiving.Enabled ? "ПК не принял файл. Проверьте папку, место на диске или отмену приёма." : "Приём файлов на ПК выключен." });
+                        }
+                        break;
                     default: throw new InvalidDataException("Unknown LAN response.");
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or SocketException or OperationCanceledException or ObjectDisposedException or
+        catch (Exception ex) when (ex is IOException or InvalidDataException or SocketException or OperationCanceledException or ObjectDisposedException or
             JsonException or KeyNotFoundException or InvalidOperationException) { }
         finally
         {
-            Close(); await Task.WhenAll(writer, ping);
+            Close(); await Task.WhenAll(writer, ping); incoming.Dispose();
             foreach (var reply in replies.Values) reply.TrySetException(new IOException("Связь прервалась. Отправка не повторяется автоматически."));
             replies.Clear(); lifetime.Dispose(); Lost?.Invoke();
         }
@@ -118,7 +152,7 @@ internal sealed class LanSession : IPhoneControl
     }
     private async Task PingAsync()
     {
-        try { while (!lifetime.IsCancellationRequested) { Post(new { type = "ping" }); await Task.Delay(3000, lifetime.Token); } }
+        try { while (!lifetime.IsCancellationRequested) { incoming.Expire(Environment.TickCount64); Post(new { type = "ping" }); await Task.Delay(3000, lifetime.Token); } }
         catch (OperationCanceledException) { }
     }
     private async Task<string> RequestAsync(Func<string, object> build, CancellationToken ct)
@@ -173,6 +207,7 @@ internal sealed class LanSession : IPhoneControl
     public void Close()
     {
         if (Interlocked.Exchange(ref closed, 1) != 0) return;
+        incoming.Cancel("Связь прервалась. Незавершённая передача не повторяется.");
         inputReady = false; outgoing.Writer.TryComplete(); lifetime.Cancel(); socket.Dispose();
     }
 }

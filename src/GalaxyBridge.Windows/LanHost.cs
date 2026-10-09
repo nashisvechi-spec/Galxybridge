@@ -9,6 +9,8 @@ namespace GalaxyBridge.Windows;
 
 internal sealed class LanHost : IAsyncDisposable
 {
+    private readonly Settings settings;
+    public LanHost(Settings settings) { this.settings = settings; }
     private readonly LanIdentity identity = new();
     private readonly CancellationTokenSource lifetime = new();
     private readonly TcpListener listener = new(IPAddress.Any, LanProtocol.Port);
@@ -101,9 +103,10 @@ internal sealed class LanHost : IAsyncDisposable
                     else if (kind != "hello" || !identity.Authorize(phone, root.GetProperty("token").GetString() ?? ""))
                     { State?.Invoke("Сохранённое сопряжение не принято. Повторите сопряжение новым QR."); return; }
                     session = new LanSession(client, stream, name);
+                    session.ConfigureReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder);
                     current?.Close(); current = session;
                 }
-                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId }), hello.Token);
+                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true }), hello.Token);
                 // Explicit acknowledgement proves the phone saved its new token before any control session is accepted.
                 stage = "подтверждение телефона";
                 State?.Invoke("Ожидаем подтверждение сохранения сопряжения…");
@@ -114,7 +117,7 @@ internal sealed class LanHost : IAsyncDisposable
                 await session.Completion;
             }
         }
-        catch (Exception ex) when (ex is IOException or SocketException or AuthenticationException or OperationCanceledException or
+        catch (Exception ex) when (ex is IOException or InvalidDataException or SocketException or AuthenticationException or OperationCanceledException or
             System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException or FormatException or CryptographicException or UnauthorizedAccessException)
         {
             if (!lifetime.IsCancellationRequested)

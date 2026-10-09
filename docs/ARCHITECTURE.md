@@ -268,3 +268,32 @@ QR scanning uses the embedded ZXing core decoder with a checksum-pinned 3.5.3
 JAR and a legacy Camera preview. No external scanner app/cloud QR service is
 required. The new APK has its own package com.galaxybridge.lan and Android 13+
 minimum; the legacy Edge APK and ADB protocol remain separate.
+
+## Phone-to-PC files (0.7.0)
+
+The welcome frame advertises `upload: true` after authenticating the phone.
+Older phones ignore it; a new phone refuses upload on an older host without
+disconnecting input. Protocol version 1 and the pinned TLS connection are retained.
+Reverse messages use separate `uploadBegin/Chunk/End/Abort` and `uploadAck` types,
+so forward-file ACKs and input commands can share the existing bounded writer queues.
+Each request has a random ID, a 20-second deadline and an ordered transfer ID/sequence.
+
+SendActivity handles ACTION_SEND/ACTION_SEND_MULTIPLE content URIs and a system
+ACTION_OPEN_DOCUMENT picker. The user sees the saved laptop and confirms sending.
+ClipData plus FLAG_GRANT_READ_URI_PERMISSION transfers temporary read grants to
+the private foreground service. No broad storage permission is added. Up to 100
+files wait at most 30 seconds for a link, then remain bound to that exact Link.
+Upload streams 32 KiB chunks with SHA-256; provider size -1 is supported and total
+bytes are checked at uploadEnd. Cancellation closes the active provider stream,
+interrupts waiting ACKs and sends a best-effort abort without the cancellation flag.
+
+LanFileReceiver is platform-independent and owns only a randomly named `.part`
+file in the host-selected directory. It bounds all data, normalizes Windows names,
+checks hash and byte count, flushes and atomically moves without overwrite.
+Name collisions use numbered suffixes. Receive configuration is locked with file
+acceptance; disabling or changing the directory cancels the active file. A 30-second
+idle deadline, socket teardown and either endpoint's cancellation remove its pending
+file while keeping completed files. A process crash may leave a part file; no broad
+directory cleanup or replay is performed. The host never opens received files.
+Settings persist the chosen folder and receive toggle; FileDropForm shows progress,
+cancel, destination selection and an explicit Explorer action alongside forward sending.
