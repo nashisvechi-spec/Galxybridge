@@ -6,7 +6,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>GalaxyBridge</AssemblyName>
-    <Version>0.6.1</Version>
+    <Version>0.6.2</Version>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../GalaxyBridge.Core/GalaxyBridge.Core.csproj" /></ItemGroup>
   <ItemGroup>

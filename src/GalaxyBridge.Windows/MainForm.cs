@@ -192,6 +192,7 @@ internal sealed class MainForm : Form
         try
         {
             using LanForm dialog = new(settings); nativeWindow = dialog; dialog.ShowDialog(this);
+            speed.Value = (decimal)settings.Sensitivity; side.SelectedIndex = (int)settings.PhoneSide; edge.Checked = settings.EdgeEntryEnabled;
             SaveSettings();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
