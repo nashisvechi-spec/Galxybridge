@@ -53,7 +53,14 @@ manual workflow. The host verifies its companion SHA-256, pushes a uniquely
 named JAR and launches `adb shell -T app_process` with stdin kept open. No APK
 is installed. The helper requires Android 11+ and checks the shell UID's
 existing `INTERNAL_SYSTEM_WINDOW` permission; it does not grant permissions.
-The helper creates its framework context on the default display and a
+Version 0.2.1 initializes the process-local AppBindData with the actual shell
+package metadata and its existing UID, and creates the default framework
+Application through LoadedApk so getApplicationContext() is non-null. No shell
+APK entry point is invoked. It then creates a default-display context followed
+by createWindowContext(TYPE_SYSTEM_ERROR, null), with a type matching its
+LayoutParams, instead of using a display-only context as the View context.
+These are local framework objects inside the authorized shell process; no
+system package or permission is changed. The helper creates a
 `TYPE_SYSTEM_ERROR` transparent window four physical pixels wide at the phone
 edge facing the laptop, only between START and STOP commands. This small
 touchable area can intercept touches at the edge during capture. Stock AOSP
@@ -73,6 +80,18 @@ STOP removes the Android window; QUIT, stdin EOF and process death also clean
 up. Helper failure only disables automatic return and reports the error. The
 independent Ctrl + Alt + F12 escape remains available. A complete new portable
 artifact must contain `edge-return.jar` and `edge-return.sha256`.
+
+The host logs an ACTIVE acknowledgement only after addView succeeds. Helper
+errors include the operation stage, sanitized exception message and underlying
+reflection exception; stderr supplies up to twelve stack lines for diagnosis.
+UI initialization errors are not labeled as permission denial. The old generic
+WINDOW_IllegalStateException report does not establish the exact One UI fault.
+The typed context and Application initialization changes need a fresh device
+test; source review alone cannot establish that they resolve that report.
+
+Framework references: [ContextImpl](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/app/ContextImpl.java),
+[LoadedApk](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/app/LoadedApk.java)
+and [WindowManagerImpl](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/view/WindowManagerImpl.java).
 
 ## Clipboard and files
 

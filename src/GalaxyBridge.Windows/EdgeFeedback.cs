@@ -69,7 +69,12 @@ internal sealed class EdgeFeedback : IAsyncDisposable
                 if (line is null) throw new IOException("Компонент автовозврата завершился.");
                 if (line == "GB_EDGE_READY 1") readySignal.TrySetResult();
                 else if (line.StartsWith("GB_EDGE_ERROR ", StringComparison.Ordinal))
-                    throw new IOException("Android не разрешил зону автовозврата: " + line[14..].Trim());
+                    throw new IOException("Ошибка компонента автовозврата: " + line[14..].Trim());
+                else if (line.StartsWith("GB_EDGE_INFO ", StringComparison.Ordinal))
+                    log("Автовозврат: " + line[13..].Trim());
+                else if (line.StartsWith("GB_EDGE_ACTIVE ", StringComparison.Ordinal) &&
+                         int.TryParse(line[15..], out int active) && active == Volatile.Read(ref epoch))
+                    log("Зона автовозврата создана на телефоне.");
                 else if (PhoneEdgeSample.TryParse(line, Environment.TickCount64, out PhoneEdgeSample? parsed) && parsed is not null &&
                          parsed.CaptureId == Volatile.Read(ref epoch) && parsed.Sequence > Interlocked.Read(ref lastSequence))
                 { Interlocked.Exchange(ref lastSequence, parsed.Sequence); Volatile.Write(ref sample, parsed); }
@@ -92,7 +97,21 @@ internal sealed class EdgeFeedback : IAsyncDisposable
     }
     private async Task DrainErrorsAsync(Process child)
     {
-        try { _ = await child.StandardError.ReadToEndAsync(lifetime.Token).ConfigureAwait(false); }
+        try
+        {
+            // Preserve our exception stack without forwarding unrelated framework log spam.
+            int remaining = 0;
+            while (!lifetime.IsCancellationRequested)
+            {
+                string? line = await child.StandardError.ReadLineAsync(lifetime.Token).ConfigureAwait(false);
+                if (line is null) break;
+                string trimmed = line.Trim();
+                if ((trimmed.StartsWith("java.", StringComparison.Ordinal) || trimmed.StartsWith("android.", StringComparison.Ordinal)) &&
+                    (trimmed.Contains("Exception", StringComparison.Ordinal) || trimmed.Contains("Error", StringComparison.Ordinal))) remaining = 12;
+                if (remaining > 0 && (remaining == 12 || trimmed.StartsWith("at ", StringComparison.Ordinal) || trimmed.StartsWith("Caused by:", StringComparison.Ordinal)))
+                { log("Автовозврат / Android: " + trimmed[..Math.Min(trimmed.Length, 400)]); remaining--; }
+            }
+        }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException) { }
     }
     private void ReportFailure(Exception ex)

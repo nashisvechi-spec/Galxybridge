@@ -25,7 +25,9 @@ are selected on Android. Media/Fn keys are outside the initial scope.
 
 ## Status
 
-Version 0.2.0 adds phone-edge return and is **unbuilt and untested on hardware**. Source-package checks have
+Version 0.2.1 fixes initialization of the Android shell Application and the
+typed window context, and retains detailed edge-helper errors in the journal.
+This revision is **unbuilt and untested on hardware**. Source-package checks have
 been performed; these do not establish that the application compiles or works
 on Windows. See [validation](docs/VALIDATION.md) and the
 [hardware checklist](docs/TESTING.md).
