@@ -16,7 +16,8 @@ video mirroring. It is an independent prototype, not Samsung Multi Control.
 - Ctrl + Alt + F12 to enter or leave phone control.
 - Optional entry by dwelling at a chosen PC screen edge for 350 ms.
 - Automatic return at the phone edge facing the PC, enabled by default.
-- Text clipboard and Windows-to-phone file transfer into Download.
+- Text clipboard and multiple file uploads by dropping into the window or using the file picker.
+  Each batch goes into its own folder under Download/GalaxyBridge; duplicates get suffixes.
 - Windows tray, settings, and release of input on disconnect/lock/suspend.
 
 Phone-edge return requires installing **GalaxyBridgeEdge.apk** on the phone,
@@ -25,12 +26,14 @@ service creates a transparent four-physical-pixel window only during phone
 control, inside the area available around system bars and cutouts. The regular
 ADB mouse/keyboard connection and hotkey remain usable without the APK.
 
-Drag-and-drop, image clipboard, and cursor positioning on entry are not implemented. Keyboard layouts
+Direct cross-screen file dragging from/to Android apps, image clipboard, and cursor positioning on entry are not implemented. Keyboard layouts
 are selected on Android. Media/Fn keys are outside the initial scope.
 
 ## Status
 
-Version 0.4.0 adds automatic connection, recovery and local QR pairing.
+Version 0.5.0 adds file drops into the Windows window and multiple file selection,
+with cancellable batches and temporary uploads. Automatic connection, recovery
+and local QR pairing from 0.4.0 remain available.
 The Android companion stays at 0.3.0. Version 0.3.0 replaced the shell window helper with an installed Android
 companion. The reported **Unknown pid ... uid=2000** arises when WindowManager
 cannot find the shell process in its application process map. Initializing a
@@ -82,3 +85,17 @@ on the local network. Code pairing and manual IP:port remain available.
 
 Original Galaxy Bridge code is MIT licensed. scrcpy and Android Debug Bridge
 have separate licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Sending files to the phone
+
+Connect the phone, open the Files tab and drop ordinary files from Explorer
+into the window, or use the multiple-file picker. Files are copied, never moved.
+Find them in internal storage → Download → GalaxyBridge → the batch folder.
+The activity indicator and file counter do not report a per-file percentage.
+Cancel stops the batch; confirmed files remain. An offline phone may retain a
+`.gb-….part` file if cleanup fails. After reconnection, select remaining files
+again. A lost rename acknowledgement may leave the last file already complete:
+check the phone folder before retrying. Folders and virtual mail attachments
+are not supported. Filename size is limited to 255 UTF-8 bytes.
+Use the picker or run without elevation if Explorer drops are blocked by Windows.
+No Android companion update is required for file sending.

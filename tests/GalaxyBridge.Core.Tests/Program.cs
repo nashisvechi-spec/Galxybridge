@@ -200,6 +200,21 @@ using MemoryStream truncated = new(new byte[] { 0,0,0 });
 bool eof = false;
 try { _ = await ControlProtocol.ReadDeviceMessageAsync(truncated, default); } catch (EndOfStreamException) { eof = true; }
 Check(eof, "disconnect during header surfaces as EOF");
+string uploadDirectory = FileTransfer.DirectoryName(new DateTimeOffset(2026, 10, 9, 18, 0, 0, TimeSpan.Zero), new string('a', 32));
+Check(uploadDirectory == "/sdcard/Download/GalaxyBridge/20261009-180000-" + new string('a', 32), "transfer directory inside Download with unique batch suffix");
+Reject(() => FileTransfer.DirectoryName(DateTimeOffset.Now, "../bad"), "reject directory traversal through batch nonce");
+string[] uploadNames = FileTransfer.AllocateNames(["photo.jpg", "photo.jpg", "PHOTO.JPG", "photo (2).jpg", "Икона 🕯.png", "README", "README"]);
+Check(uploadNames.Distinct(StringComparer.OrdinalIgnoreCase).Count() == 7, "equal names never overwrite in one batch");
+Check(uploadNames[0] == "photo.jpg" && uploadNames[1] == "photo (2).jpg" && uploadNames[2] == "PHOTO (3).JPG", "duplicates get suffix before extension");
+Check(uploadNames[4] == "Икона 🕯.png" && uploadNames[6] == "README (2)", "Unicode and extensionless names survive allocation");
+Reject(() => FileTransfer.AllocateNames(["../file.txt"]), "reject remote parent path");
+Reject(() => FileTransfer.AllocateNames(["folder\\file.txt"]), "reject Windows separators in remote leaf names");
+Reject(() => FileTransfer.AllocateNames([".."]), "reject parent directory leaf");
+Reject(() => FileTransfer.AllocateNames(["line\nfile.txt"]), "reject newline in file names");
+Reject(() => FileTransfer.AllocateNames([new string('Я', 128)]), "enforce phone filename limit in UTF-8 bytes");
+Check(FileTransfer.ShellQuote("O'Brien $(touch marker);.txt") == "'O'\"'\"'Brien $(touch marker);.txt'", "shell metacharacters remain in quoted filename");
+Check(FileTransfer.ShellQuote("a`b.txt") == "'a`b.txt'", "backticks stay literal in shell quoting");
+Reject(() => FileTransfer.ShellQuote("file\0name"), "reject NUL in shell argument");
 Console.WriteLine($"PASS: {checks} core assertions");
 
 sealed class FragmentedStream(Stream inner) : Stream

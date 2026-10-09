@@ -33,9 +33,13 @@ internal sealed class MainForm : Form
     private readonly TextBox wifi = new() { PlaceholderText = "192.168.1.10:37121", Dock = DockStyle.Fill };
     private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(660, 0), Padding = new Padding(0, 12, 0, 12) };
     private readonly TextBox journal = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill };
+    private readonly TabControl tabs = new() { Dock = DockStyle.Fill, ForeColor = SystemColors.ControlText };
+    private readonly TabPage filesPage = new("Файлы");
+    private readonly Label transferStatus = new() { AutoSize = true, MaximumSize = new Size(620, 0) };
+    private readonly ProgressBar transferProgress = new() { Dock = DockStyle.Fill, Height = 20, Visible = false };
     private readonly Button refresh = Button("Найти устройства"), connect = Button("Подключить выбранный"),
         disconnect = Button("Отключить"), toggle = Button("Управлять телефоном"), pair = Button("Сопряжение Wi-Fi"),
-        wifiConnect = Button("Подключиться по Wi-Fi"), sendFile = Button("Отправить файл"), layout = Button("Раскладка клавиатуры");
+        wifiConnect = Button("Подключиться по Wi-Fi"), sendFile = Button("Выбрать файлы…"), layout = Button("Раскладка клавиатуры");
     private readonly Button pairQr = Button("Сопряжение по QR-коду"), forget = Button("Забыть последний телефон");
     private readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Visible = true, Text = "Galaxy Bridge" };
     private readonly System.Windows.Forms.Timer edgeTimer = new() { Interval = 50 };
@@ -51,6 +55,7 @@ internal sealed class MainForm : Form
         MinimumSize = new Size(640, 480); BackColor = Color.FromArgb(18, 24, 38);
         ForeColor = Color.FromArgb(232, 237, 247); Font = new Font("Segoe UI", 10);
         BuildUi();
+        RegisterFileDrop(this);
         side.Items.AddRange(["Справа", "Слева", "Сверху", "Снизу"]);
         side.SelectedIndex = (int)settings.PhoneSide;
         speed.Value = (decimal)settings.Sensitivity; share.Checked = settings.ClipboardEnabled; edge.Checked = settings.EdgeEntryEnabled;
@@ -117,11 +122,11 @@ internal sealed class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         Label title = Label("Galaxy Bridge"); title.Font = new Font("Segoe UI Semibold", 24); title.Margin = Padding.Empty;
         root.Controls.Add(title, 0, 0); root.Controls.Add(status, 0, 1);
-        TabControl tabs = new() { Dock = DockStyle.Fill, ForeColor = SystemColors.ControlText };
-        TableLayoutPanel connection = Page(), controls = Page(), help = Page();
+        TableLayoutPanel connection = Page(), controls = Page(), files = Page(), help = Page();
         TabPage connectPage = new("Подключение"), controlPage = new("Управление"), helpPage = new("Помощь и журнал");
         connectPage.Controls.Add(connection); controlPage.Controls.Add(controls); helpPage.Controls.Add(help);
-        tabs.TabPages.AddRange([connectPage, controlPage, helpPage]); root.Controls.Add(tabs, 0, 2);
+        filesPage.Controls.Add(files);
+        tabs.TabPages.AddRange([connectPage, controlPage, filesPage, helpPage]); root.Controls.Add(tabs, 0, 2);
         Add(connection, Label("Телефон через USB или Wi-Fi")); Add(connection, devices); Add(connection, Row(refresh, connect));
         Add(connection, Label("USB: подключите S25 кабелем для передачи данных и разрешите отладку на телефоне."));
         Add(connection, Label("Wi-Fi: включите «Беспроводная отладка». Для первого подключения используйте QR-код или код сопряжения."));
@@ -134,11 +139,19 @@ internal sealed class MainForm : Form
         Add(controls, Label("Вход: задержите курсор у края ноутбука на 350 мс. Возврат: двигайте его через край телефона в сторону ноутбука. Отпустите кнопки и клавиши. Горячая клавиша остаётся запасным способом."));
         Add(controls, Label("Скорость мыши")); Add(controls, speed); Add(controls, share);
         Add(controls, Label("Ctrl + C / Ctrl + X на телефоне передают текст ноутбуку. Ctrl + V вставляет текст с ноутбука на телефон."));
-        Add(controls, Row(layout, sendFile));
+        Add(controls, layout);
         Add(controls, Label("Русский ввод: один раз выберите русскую и английскую раскладки для Galaxy Bridge Keyboard в настройках телефона."));
+        Label drop = Label("Перетащите сюда файлы из Проводника\nили выберите их кнопкой ниже.");
+        drop.AutoSize = false; drop.Dock = DockStyle.Fill; drop.Height = 110;
+        drop.TextAlign = ContentAlignment.MiddleCenter; drop.BorderStyle = BorderStyle.FixedSingle;
+        Add(files, drop); Add(files, sendFile);
+        Add(files, Label("Отправка на подключённый телефон через USB или Wi-Fi. Файлы копируются; оригиналы остаются на ноутбуке. Папки пока не поддерживаются."));
+        Add(files, Label("На S25: «Мои файлы → Внутренняя память → Download → GalaxyBridge». Для каждой отправки создаётся отдельная папка."));
+        Add(files, transferProgress); Add(files, transferStatus);
+        Add(files, Label("Во время передачи управление остаётся на ноутбуке. Кнопка «Отменить» останавливает отправку; уже переданные файлы сохраняются."));
         Add(help, Label("Ctrl + Alt + F12 — переключение управления. На S25 при необходимости: Ctrl + Alt + Fn + F12 на ноутбуке."));
         Add(help, Label("Экран телефона должен быть разблокирован. Изображение остаётся на S25. Файлы сохраняются в папку Download. Буфер поддерживает текст. Удерживать экран включённым программа не заставляет."));
-        Add(help, Label("Автовозврат: отправьте GalaxyBridgeEdge.apk из папки сборки на S25 кнопкой «Отправить файл». Установите APK из Download, откройте Galaxy Bridge Edge и разрешите показ поверх других приложений. Затем переподключите телефон в программе."));
+        Add(help, Label("Автовозврат: отправьте GalaxyBridgeEdge.apk из папки сборки через вкладку «Файлы». Установите APK из Download/GalaxyBridge/папка отправки, откройте Galaxy Bridge Edge и разрешите показ поверх других приложений. Затем переподключите телефон в программе."));
         Add(help, Label("Это тестовая версия самостоятельного приложения. На реальной связке HP + S25 её нужно проверить после сборки."));
         journal.MinimumSize = new Size(0, 160); Add(help, journal);
         Button instructions = Button("Открыть инструкцию"); instructions.Click += (_, _) => OpenInstructions(); Add(help, instructions);
@@ -220,7 +233,8 @@ internal sealed class MainForm : Form
         forget.Enabled = !busy && available && settings.LastPhone is not null;
         devices.Enabled = !busy && !attached && available;
         toggle.Enabled = !busy && attached && capture is not null && available;
-        sendFile.Enabled = layout.Enabled = !busy && attached && available;
+        sendFile.Enabled = CanSendFiles;
+        layout.Enabled = !busy && attached && available;
         disconnect.Enabled = (busy || attached || waiting) && available;
         disconnect.Text = busy ? "Отменить" : attached ? "Отключить" : waiting ? "Остановить автоподключение" : "Отключить";
         toggle.Text = capture?.Active == true ? "Вернуть управление ноутбуку" : "Управлять телефоном";
@@ -473,13 +487,94 @@ internal sealed class MainForm : Form
     }
     private async Task SendFileAsync(CancellationToken ct)
     {
-        PhoneSession? current = session;
-        if (current is null) return;
-        using OpenFileDialog dialog = new() { Title = "Отправить файл в Download на S25", Multiselect = false, CheckFileExists = true };
+        if (session is null) return;
+        using OpenFileDialog dialog = new() { Title = "Отправить файлы на S25", Multiselect = true, CheckFileExists = true };
+        ct.ThrowIfCancellationRequested();
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        SetStatus("Передаём файл в Download…");
-        _ = await adb.PushAsync(current.Serial, dialog.FileName, ct);
-        SetStatus("Файл отправлен в Download на телефоне."); Log("Файл отправлен. Содержимое файла не записывалось в журнал.");
+        ct.ThrowIfCancellationRequested();
+        tabs.SelectedTab = filesPage;
+        await SendFilesAsync(dialog.FileNames, ct);
+    }
+
+    private bool CanSendFiles => !busy && !disconnecting && !closing && !desktopLocked && !sleeping && session?.IsAlive == true;
+    private void RegisterFileDrop(Control control)
+    {
+        control.AllowDrop = true;
+        control.DragEnter += FileDragEnter;
+        control.DragOver += FileDragEnter;
+        control.DragDrop += FileDragDrop;
+        foreach (Control child in control.Controls) RegisterFileDrop(child);
+    }
+    private void FileDragEnter(object? sender, DragEventArgs e)
+    {
+        e.Effect = DragDropEffects.None;
+        if (!CanSendFiles || (e.AllowedEffect & DragDropEffects.Copy) == 0) return;
+        try
+        {
+            if (e.Data?.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } paths && paths.All(File.Exists))
+                e.Effect = DragDropEffects.Copy;
+        }
+        catch (Exception ex) when (ex is ExternalException or IOException) { }
+    }
+    private async void FileDragDrop(object? sender, DragEventArgs e)
+    {
+        if (!CanSendFiles || (e.AllowedEffect & DragDropEffects.Copy) == 0) { e.Effect = DragDropEffects.None; return; }
+        try
+        {
+            if (e.Data?.GetData(DataFormats.FileDrop) is not string[] { Length: > 0 } paths) return;
+            e.Effect = DragDropEffects.Copy;
+            tabs.SelectedTab = filesPage;
+            await RunAsync(ct => SendFilesAsync(paths, ct));
+        }
+        catch (Exception ex) when (ex is ExternalException or IOException)
+        { SetStatus("Не удалось получить файлы из Проводника. Используйте «Выбрать файлы…».", true); }
+    }
+    private async Task SendFilesAsync(IEnumerable<string> paths, CancellationToken ct)
+    {
+        PhoneSession current = session ?? throw new InvalidOperationException("Сначала подключите телефон.");
+        if (!current.IsAlive) throw new IOException("Связь с телефоном потеряна.");
+        string[] local = paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (local.Length == 0) return;
+        foreach (string path in local)
+            if (!File.Exists(path)) throw new IOException("Отправка поддерживает только существующие файлы. Уберите папки и повторите выбор.");
+        string[] names = FileTransfer.AllocateNames(local.Select(path => Path.GetFileName(path)));
+        string directory = FileTransfer.DirectoryName(DateTimeOffset.Now, Guid.NewGuid().ToString("N"));
+        int completed = 0;
+        transferProgress.Style = ProgressBarStyle.Marquee; transferProgress.Visible = true;
+        transferStatus.Text = "Подготовка отправки…";
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            await adb.CreateTransferDirectoryAsync(current.Serial, directory, ct);
+            for (int i = 0; i < local.Length; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (session != current || !current.IsAlive) throw new IOException("Связь с телефоном потеряна.");
+                string temporaryName;
+                do { temporaryName = ".gb-" + Guid.NewGuid().ToString("N") + ".part"; }
+                while (names.Contains(temporaryName, StringComparer.OrdinalIgnoreCase));
+                transferStatus.Text = $"Передаём {i + 1} из {local.Length}: {names[i]}\nГотово: {completed}.";
+                SetStatus($"Отправка файлов: {i + 1} из {local.Length}. Для остановки нажмите «Отменить».");
+                await adb.PushFileAsync(current.Serial, local[i], directory + "/" + temporaryName, directory + "/" + names[i], ct);
+                completed++;
+            }
+            transferStatus.Text = $"Отправлено: {completed} из {local.Length}.\nПапка на телефоне: {directory.Replace("/sdcard/", "", StringComparison.Ordinal)}";
+            SetStatus($"Отправлено файлов: {completed}. Откройте Download/GalaxyBridge на телефоне.");
+            Log($"Отправка завершена: {completed} файлов. Имена, пути и содержимое в журнал не записываются.");
+        }
+        catch (OperationCanceledException)
+        {
+            transferStatus.Text = $"Отправка остановлена. Подтверждено файлов: {completed} из {local.Length}.\nУже переданные файлы сохранены в {directory.Replace("/sdcard/", "", StringComparison.Ordinal)}.\nПри обрыве связи может остаться временный .part-файл.";
+            Log($"Отправка остановлена: подтверждено {completed} из {local.Length} файлов.");
+            throw;
+        }
+        catch (Exception)
+        {
+            transferStatus.Text = $"Отправка прервана. Подтверждено файлов: {completed} из {local.Length}.\nПроверьте папку {directory.Replace("/sdcard/", "", StringComparison.Ordinal)}.\nПосле восстановления связи повторите выбор оставшихся файлов.";
+            Log($"Ошибка отправки: подтверждено {completed} из {local.Length} файлов.");
+            throw;
+        }
+        finally { transferProgress.Visible = false; edgeArmed = false; edgeSince = null; }
     }
     private void OpenWindow() { StopCapture(); Show(); WindowState = FormWindowState.Normal; Activate(); }
     private void OpenInstructions()

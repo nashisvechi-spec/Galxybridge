@@ -154,9 +154,24 @@ Ctrl + V / Shift + Insert queue a scrcpy SET_CLIPBOARD packet with paste set.
 The server handles Android pasting. Incoming clipboard messages update the
 Windows text clipboard only when sharing is enabled.
 
-File transfer is a separately cancellable `adb push` into Download. It has
-ADB's replacement semantics for existing names. It is not shell-based
-drag-and-drop. Pairing codes go to ADB's stdin, not process arguments. Settings
+File drops use WinForms FileDrop/Copy on the window and child controls. The
+file picker uses the same sequential batch path. Only existing ordinary files
+are accepted, duplicate source paths are collapsed, and same-name destinations
+are disambiguated case-insensitively. UTF-8 leaf names are limited to 255 bytes.
+A new timestamp/GUID directory is created under /sdcard/Download/GalaxyBridge;
+plain mkdir fails if it already exists. Each push targets a random private
+.part name; only successful pushes are renamed to their final names. Push uses
+ArgumentList, and every remote shell path is single-quoted with apostrophe
+escaping. mv -n plus a temporary-path absence check prevents silent replacement.
+Each push has a 30-minute limit, explicit cancellation and best-effort temporary
+cleanup with a separate three-second deadline. Completed files are preserved.
+After an error the batch stops; reconnect never replays file writes. If a rename
+acknowledgement is lost, completion count is only a confirmed lower bound.
+The UI shows current-file/count and an activity indicator, not byte percentages.
+Input capture is stopped during batches and edge entry is disarmed afterward.
+Content and paths are not written to the application journal. No companion
+storage/network permissions are added. This is Windows-window dropping, not
+cross-screen Android application drag-and-drop. Pairing codes go to ADB's stdin, not process arguments. Settings
 contain preferences and a remembered device profile, but no pairing code or QR secret.
 ADB itself manages its host authentication keys.
 
@@ -177,4 +192,4 @@ codec, tests and both pinned digests.
 Source inspection and portable protocol tests cannot verify Windows hook
 timing, overlay behavior, touchpad integration, One UI UHID access, Android
 layout configuration, or real clipboard behavior. Use `TESTING.md` after the
-first requested build. Windows 0.4.0 has not been compiled or tested on hardware.
+first requested build. Windows 0.5.0 has not been compiled or tested on hardware.

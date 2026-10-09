@@ -119,6 +119,38 @@ internal sealed class AdbClient
         AdbMdnsService.Parse(await RunAsync(["mdns", "services"], token, timeoutSeconds: 4));
     public async Task<PhoneIdentity> IdentityAsync(string serial, CancellationToken token) =>
         PhoneIdentity.ParseProperties(await RunAsync(["-s", serial, "shell", "getprop"], token, timeoutSeconds: 4));
-    public Task<string> PushAsync(string serial, string path, CancellationToken token) =>
-        RunAsync(["-s", serial, "push", path, "/sdcard/Download/"], token, timeoutSeconds: 120);
+    public async Task CreateTransferDirectoryAsync(string serial, string directory, CancellationToken token)
+    {
+        // mkdir without -p on the batch directory fails rather than reusing an existing batch.
+        string command = "mkdir -p " + FileTransfer.ShellQuote(FileTransfer.Root) +
+            " && mkdir " + FileTransfer.ShellQuote(directory);
+        _ = await RunAsync(["-s", serial, "shell", command], token);
+    }
+
+    public async Task PushFileAsync(string serial, string localPath, string temporaryPath,
+        string destination, CancellationToken token)
+    {
+        bool committed = false;
+        try
+        {
+            // Copy to a private temporary file; expose the final name only on success.
+            _ = await RunAsync(["-s", serial, "push", localPath, temporaryPath], token, timeoutSeconds: 1800);
+            token.ThrowIfCancellationRequested();
+            string command = "test ! -e " + FileTransfer.ShellQuote(destination) + " && mv -n " +
+                FileTransfer.ShellQuote(temporaryPath) + " " + FileTransfer.ShellQuote(destination) +
+                " && test ! -e " + FileTransfer.ShellQuote(temporaryPath);
+            _ = await RunAsync(["-s", serial, "shell", command], token);
+            committed = true;
+        }
+        finally
+        {
+            if (!committed)
+            {
+                // Never delete a finished file. Offline phones may retain this .part file.
+                try { _ = await RunAsync(["-s", serial, "shell", "rm -f " + FileTransfer.ShellQuote(temporaryPath)],
+                    CancellationToken.None, timeoutSeconds: 3); }
+                catch (Exception ex) when (ex is IOException or TimeoutException or System.ComponentModel.Win32Exception) { }
+            }
+        }
+    }
 }
