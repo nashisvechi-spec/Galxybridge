@@ -224,3 +224,47 @@ IPv6-only or isolated networks may still need the code/IP fallback.
 
 References: [RFC 6762](https://www.rfc-editor.org/rfc/rfc6762),
 [DNS wire/compression](https://www.rfc-editor.org/rfc/rfc1035).
+
+## Independent LAN mode (0.6.0)
+
+`LanForm` is a separate modal UI. MainForm pauses ADB recovery, disconnects its
+transport, disposes its hooks, and restores them when the LAN window closes.
+Only one input engine owns Windows hooks. NativeAtStartup opens LAN directly
+without querying ADB. LanSession implements the same IPhoneControl interface;
+the ADB implementation retains its wire protocol and behavior.
+
+Windows hosts TCP 38271 and UDP discovery 38272 while the window is open.
+LanIdentity persists a self-signed RSA certificate and one phone token in a
+DPAPI CurrentUser protected file. Pair QR includes IPv4, fixed port, host UUID,
+SHA-256 certificate DER pin, random 256-bit one-use ticket, version and laptop name.
+Tickets expire after 120 seconds on a monotonic clock and are never logged.
+Four simultaneous connection handlers, eight-second handshakes, bounded framing
+and output queues limit unauthenticated resources. Discovery replies expose only
+host UUID/nonce/port; a discovered address cannot authorize an unpinned TLS peer.
+
+Android ConnectionService binds outgoing sockets to a Wi-Fi Network, pins the
+certificate before sending credentials, saves the permanent token before sending
+`saved`, and reads/writes bounded big-endian length-prefixed UTF-8 JSON frames.
+Heartbeats run every three seconds with twelve-second reader deadlines. Input
+commands queued to main are bounded and checked against the current Link; old
+connection commands are discarded. Reconnect delays reach thirty seconds.
+No automatic capture or transfer replay occurs. Foreground connectedDevice service
+uses CHANGE_NETWORK_STATE prerequisite, a persistent notification and user stop.
+
+ControlService uses an accessibility overlay with NOT_TOUCHABLE and input-method
+editor capability (API 33); no node-content retrieval. Its own pointer supplies
+GB_EDGE samples compatible with the existing host edge policy. Taps/swipes are
+bounded gestures, queued at most eight and reset on disconnect/lock. Drag paths
+are recorded then dispatched at button release, not streamed UHID movement.
+Typed text uses the current Windows layout, not full physical keyboard injection.
+
+Downloads accepts only flat file names <=255 UTF-8 bytes, sizes <=2 GiB and
+ordered 32 KiB chunks. It owns only its newly inserted pending MediaStore row.
+SHA-256 and exact size must match before IS_PENDING is cleared. Cancellation or
+socket teardown removes only that pending row. A lost final acknowledgement can
+leave a completed file; the queue never retries it automatically.
+
+QR scanning uses the embedded ZXing core decoder with a checksum-pinned 3.5.3
+JAR and a legacy Camera preview. No external scanner app/cloud QR service is
+required. The new APK has its own package com.galaxybridge.lan and Android 13+
+minimum; the legacy Edge APK and ADB protocol remain separate.

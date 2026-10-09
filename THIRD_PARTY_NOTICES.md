@@ -65,3 +65,21 @@ older minimum dependency. It and Microsoft.Win32.SystemEvents are Microsoft
 
 Samsung, Galaxy and HP names describe intended devices. This project is not
 affiliated with Samsung or HP.
+
+## ZXing core 3.5.3 (independent Wi-Fi companion)
+
+- Source/tag: https://github.com/zxing/zxing/tree/zxing-3.5.3
+- JAR: https://repo.maven.apache.org/maven2/com/google/zxing/core/3.5.3/core-3.5.3.jar
+- SHA-256: 8d8064c1636fdaef7189dd9055c7d59950a8940a12f2293956446ec3c109fd82
+- Apache 2.0; upstream license and notices in licenses/ZXing-APACHE-2.0.txt.
+- Copyright ZXing authors; downloaded only during manual APK build.
+
+QRCoder also generates the independent LAN pairing QR. System.Security.Cryptography.
+ProtectedData 8.0.0 is explicitly pinned for Windows DPAPI; it is covered by the
+.NET runtime license and notices already included above. JVM-only parser tests
+use org.json 20240303, not bundled in either production application.
+
+JVM test dependency: https://github.com/stleary/JSON-java/tree/20240303 and
+https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar.
+MIT license (https://github.com/stleary/JSON-java/blob/20240303/LICENSE).
+SHA-256 3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed.

@@ -6,10 +6,11 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>GalaxyBridge</AssemblyName>
-    <Version>0.5.1</Version>
+    <Version>0.6.0</Version>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../GalaxyBridge.Core/GalaxyBridge.Core.csproj" /></ItemGroup>
   <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <!-- Keep QRCoder's drawing dependency on the application's .NET 8 line. -->
     <PackageReference Include="System.Drawing.Common" Version="8.0.30" />

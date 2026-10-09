@@ -12,7 +12,7 @@ internal sealed class InputCapture : IDisposable
     private readonly KeyboardState keyboard = new();
     private readonly HashSet<byte> physical = [], ignoreUntilReleased = [], pastedKeys = [];
     private readonly System.Windows.Forms.Timer motion = new() { Interval = 16 };
-    private PhoneSession? phone;
+    private IPhoneControl? phone;
     private Form? overlay;
     private Point anchor, returnPoint;
     private nint returnWindow;
@@ -48,7 +48,7 @@ internal sealed class InputCapture : IDisposable
         motion.Tick += (_, _) => { FlushMotion(); CheckReturn(); };
     }
 
-    public void Start(PhoneSession session, double speed, PhoneSide side, bool returnEnabled)
+    public void Start(IPhoneControl session, double speed, PhoneSide side, bool returnEnabled)
     {
         if (Active) return;
         if (Native.MouseButtonDown) throw new InvalidOperationException("Отпустите кнопки мыши перед переключением.");
@@ -84,7 +84,7 @@ internal sealed class InputCapture : IDisposable
     public void Stop()
     {
         if (!Active) return;
-        PhoneSession? previous = phone;
+        IPhoneControl? previous = phone;
         phone = null; motion.Stop();
         previous?.EndEdgeReturn(); returnEpoch = 0;
         keyboard.Clear(); buttons = 0; wheelRemainder = 0; pendingX = pendingY = 0; pastedKeys.Clear(); ignoreUntilReleased.Clear();

@@ -14,6 +14,7 @@ internal sealed class MainForm : Form
     private readonly DeviceDiscovery discovery;
     private InputCapture? capture;
     private PhoneSession? session;
+    private LanForm? nativeWindow;
     private CancellationTokenSource? operation;
     private Task? pendingOperation, pendingDisconnect;
     private bool busy, disconnecting, closing, closed, edgeArmed = true;
@@ -40,6 +41,7 @@ internal sealed class MainForm : Form
     private readonly Button refresh = Button("Найти устройства"), connect = Button("Подключить выбранный"),
         disconnect = Button("Отключить"), toggle = Button("Управлять телефоном"), pair = Button("Сопряжение Wi-Fi"),
         wifiConnect = Button("Подключиться по Wi-Fi"), sendFile = Button("Выбрать файлы…"), layout = Button("Раскладка клавиатуры");
+    private readonly Button nativeWifi = Button("Wi-Fi без отладки (тест)");
     private readonly Button pairQr = Button("Сопряжение по QR-коду"), forget = Button("Забыть последний телефон");
     private readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Visible = true, Text = "Galaxy Bridge" };
     private readonly System.Windows.Forms.Timer edgeTimer = new() { Interval = 50 };
@@ -65,6 +67,7 @@ internal sealed class MainForm : Form
         refresh.Click += async (_, _) => await RunAsync(RefreshAsync);
         connect.Click += async (_, _) => await RunAsync(ConnectAsync);
         pair.Click += async (_, _) => await RunAsync(PairAsync);
+        nativeWifi.Click += async (_, _) => await OpenNativeAsync();
         pairQr.Click += async (_, _) => await RunAsync(PairQrAsync);
         wifiConnect.Click += async (_, _) => await RunAsync(ConnectWifiAsync);
         disconnect.Click += async (_, _) =>
@@ -127,6 +130,8 @@ internal sealed class MainForm : Form
         connectPage.Controls.Add(connection); controlPage.Controls.Add(controls); helpPage.Controls.Add(help);
         filesPage.Controls.Add(files);
         tabs.TabPages.AddRange([connectPage, controlPage, filesPage, helpPage]); root.Controls.Add(tabs, 0, 2);
+        Add(connection, nativeWifi);
+        Add(connection, Label("Установите GalaxyBridgeLan.apk для QR-подключения без отладки. Откроется отдельное окно этого режима."));
         Add(connection, Label("Телефон через USB или Wi-Fi")); Add(connection, devices); Add(connection, Row(refresh, connect));
         Add(connection, Label("USB: подключите S25 кабелем для передачи данных и разрешите отладку на телефоне."));
         Add(connection, Label("Wi-Fi: включите «Беспроводная отладка». Для первого подключения используйте QR-код или код сопряжения."));
@@ -163,16 +168,39 @@ internal sealed class MainForm : Form
     {
         try
         {
+            InitializeCapture();
+            _ = Native.AddClipboardFormatListener(Handle); ReadClipboard(); edgeTimer.Start();
+            if (settings.NativeAtStartup) { await OpenNativeAsync(); return; }
+            await RunAsync(RefreshAsync);
+            if (!closing) { autoTimer.Start(); await TryAutomaticAsync(); }
+        }
+        catch (Exception e) { SetStatus(e.Message, true); }
+    }
+    private void InitializeCapture()
+    {
             capture = new InputCapture { PasteText = () => share.Checked ? cachedClipboard : null };
             capture.ToggleRequested += ToggleCapture;
             capture.DesktopChanged += () => Ui(SuspendCapture);
             capture.EdgeReturnRequested += () => { StopCapture(); SetStatus("Курсор вернулся на ноутбук через край телефона."); };
             capture.Error += text => Ui(() => { StopCapture(); SetStatus(text, true); });
-            _ = Native.AddClipboardFormatListener(Handle); ReadClipboard(); edgeTimer.Start();
-            await RunAsync(RefreshAsync);
-            if (!closing) { autoTimer.Start(); await TryAutomaticAsync(); }
+    }
+    private async Task OpenNativeAsync()
+    {
+        if (busy || disconnecting || closing || nativeWindow is not null) return;
+        recovery.Pause(); autoTimer.Stop(); edgeTimer.Stop(); await DisconnectAsync();
+        StopCapture(); capture?.Dispose(); capture = null;
+        try
+        {
+            using LanForm dialog = new(settings); nativeWindow = dialog; dialog.ShowDialog(this);
+            SaveSettings();
         }
-        catch (Exception e) { SetStatus(e.Message, true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        { SetStatus("Не удалось открыть Wi-Fi режим: " + ex.Message, true); }
+        finally
+        {
+            nativeWindow = null;
+            if (!closing) { InitializeCapture(); edgeTimer.Start(); autoTimer.Start(); UpdateButtons(); }
+        }
     }
     protected override void WndProc(ref Message m)
     {
@@ -225,6 +253,7 @@ internal sealed class MainForm : Form
     { status.Text = text; status.ForeColor = error ? Color.FromArgb(255, 161, 155) : Color.FromArgb(140, 221, 208); }
     private void UpdateButtons()
     {
+        nativeWifi.Enabled = !busy && !disconnecting && !closing && capture is not null;
         bool attached = session is not null;
         bool available = !disconnecting && !closing;
         bool waiting = settings.LastPhone is not null && !recovery.Paused &&
@@ -366,7 +395,7 @@ internal sealed class MainForm : Form
     }
     private async Task TryAutomaticAsync()
     {
-        if (settings.LastPhone is not { Valid: true } phone ||
+        if (nativeWindow is not null || settings.LastPhone is not { Valid: true } phone ||
             !recovery.Due(settings.AutoConnectEnabled, settings.ReconnectEnabled, desktopLocked || sleeping,
                 session is not null, busy || disconnecting || closing, Environment.TickCount64)) return;
         await RunAsync(async ct =>
@@ -606,10 +635,12 @@ internal sealed class MainForm : Form
     {
         if (closed) return;
         e.Cancel = true; if (closing) return;
-        closing = true; StopCapture(); edgeTimer.Stop(); clipboardRetry.Stop(); autoTimer.Stop(); operation?.Cancel(); lifetime.Cancel();
+        LanForm? nativeClosing = nativeWindow;
+        closing = true; nativeClosing?.Close(); StopCapture(); edgeTimer.Stop(); clipboardRetry.Stop(); autoTimer.Stop(); operation?.Cancel(); lifetime.Cancel();
         _ = Native.RemoveClipboardFormatListener(Handle);
         SystemEvents.SessionSwitch -= SessionSwitch; SystemEvents.PowerModeChanged -= PowerChanged;
         tray.Visible = false;
+        if (nativeClosing is not null) await nativeClosing.Shutdown;
         // Let an in-flight connection clean up its private forward/server before exiting.
         Task? pending = pendingOperation;
         if (pending is not null) { try { await pending; } catch (Exception) { } }

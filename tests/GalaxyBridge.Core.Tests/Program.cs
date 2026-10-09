@@ -272,6 +272,28 @@ for (int i = 0; i < 200; i++)
     try { _ = MdnsPacket.Parse(arbitraryDns, 0x1234); } catch (FormatException) { }
 }
 Check(true, "arbitrary DNS bytes do not escape bounds or pointer validation");
+// Independent Wi-Fi framing: Unicode, fragmentation, bounds and untrusted object validation.
+byte[] lanText = LanProtocol.Encode(new { type = "text", text = "Привет 🌍\n" });
+Check(BinaryPrimitives.ReadInt32BigEndian(lanText) == lanText.Length - 4, "LAN byte length");
+using (var lanInput = new FragmentedStream(new MemoryStream(lanText)))
+using (var lanRead = await LanProtocol.ReadAsync(lanInput, CancellationToken.None))
+    Check(lanRead.RootElement.GetProperty("text").GetString() == "Привет 🌍\n", "LAN fragmented Unicode frame");
+Check(LanProtocol.SafeName("Икона (2).jpg") && !LanProtocol.SafeName("../x") && !LanProtocol.SafeName("x\ny\nz"), "LAN safe file names");
+Check(LanProtocol.HexSecret(new string('a', 64)) && !LanProtocol.HexSecret(new string('A', 64)), "LAN strict secret encoding");
+Check(LanProtocol.Identifier(new string('a', 32)) && !LanProtocol.Identifier(new string('a', 31)), "LAN identifier bounds");
+Reject(() => LanProtocol.Encode(new { text = new string('x', LanProtocol.MaxFrame) }), "LAN excessive outbound frame");
+foreach (int length in new[] { -1, 0, 1, LanProtocol.MaxFrame + 1, int.MaxValue })
+{
+    byte[] header = new byte[4]; BinaryPrimitives.WriteInt32BigEndian(header, length); bool invalid = false;
+    try { using var result = await LanProtocol.ReadAsync(new MemoryStream(header), CancellationToken.None); }
+    catch (InvalidDataException) { invalid = true; }
+    Check(invalid, "LAN reject hostile length before allocation");
+}
+byte[] arrayFrame = new byte[] { 0, 0, 0, 2, (byte)'[', (byte)']' }; bool arrayRejected = false;
+try { using var result = await LanProtocol.ReadAsync(new MemoryStream(arrayFrame), CancellationToken.None); }
+catch (InvalidDataException) { arrayRejected = true; }
+Check(arrayRejected, "LAN reject non-object frame");
+
 Console.WriteLine($"PASS: {checks} core assertions");
 
 sealed class FragmentedStream(Stream inner) : Stream

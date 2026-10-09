@@ -10,7 +10,7 @@ permissions:
 jobs:
   portable:
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
@@ -41,11 +41,15 @@ jobs:
           packages: platforms;android-35 build-tools;35.0.0
       - name: Build edge-return companion APK
         run: ./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge
+      - name: Test Android LAN wire and pairing parsers on JVM
+        run: ./scripts/Test-LanProtocol.ps1
+      - name: Build independent Wi-Fi companion APK
+        run: ./scripts/Build-LanCompanion.ps1 -Destination artifacts/GalaxyBridge
       - name: Include instructions and notices
         run: |
           Copy-Item README.ru.md, LICENSE, THIRD_PARTY_NOTICES.md -Destination artifacts/GalaxyBridge
           Copy-Item licenses -Destination artifacts/GalaxyBridge -Recurse
-          Copy-Item docs/TESTING.md -Destination artifacts/GalaxyBridge
+          Copy-Item docs/TESTING.md, docs/NATIVE_WIFI.ru.md -Destination artifacts/GalaxyBridge
           Copy-Item scripts/backend.lock.json -Destination artifacts/GalaxyBridge/backend
       - name: Package portable application
         run: Compress-Archive -Path artifacts/GalaxyBridge/* -DestinationPath artifacts/GalaxyBridge-win10-x64.zip
@@ -61,5 +65,12 @@ jobs:
         with:
           name: GalaxyBridgeEdge-android
           path: artifacts/GalaxyBridge/GalaxyBridgeEdge.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload independent Wi-Fi APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: GalaxyBridgeLan-android
+          path: artifacts/GalaxyBridge/GalaxyBridgeLan.apk
           if-no-files-found: error
           retention-days: 14

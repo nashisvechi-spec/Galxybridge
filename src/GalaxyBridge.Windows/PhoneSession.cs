@@ -9,7 +9,7 @@ using GalaxyBridge.Core;
 
 namespace GalaxyBridge.Windows;
 
-internal sealed class PhoneSession : IAsyncDisposable
+internal sealed class PhoneSession : IAsyncDisposable, IPhoneControl
 {
     private readonly AdbClient adb;
     private readonly CancellationTokenSource lifetime = new();

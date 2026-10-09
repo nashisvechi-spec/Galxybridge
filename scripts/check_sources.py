@@ -138,7 +138,7 @@ def main() -> None:
     require(trigger is not None and trigger.group(1).strip() == 'workflow_dispatch:',
             'Workflow must be manual only; no push/PR/release trigger')
     actions = re.findall(r'uses:\s*([^\s]+)', workflow)
-    require(len(actions) == 5 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
+    require(len(actions) == 6 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
             'Actions must use pinned commit IDs')
     require('contents: read' in workflow and 'contents: write' not in workflow,
             'Build workflow requires read-only repository permissions')
@@ -158,8 +158,33 @@ def main() -> None:
     require(permissions == {'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.FOREGROUND_SERVICE',
                             'android.permission.FOREGROUND_SERVICE_SPECIAL_USE', 'android.permission.POST_NOTIFICATIONS'},
             'Companion must not request screen, accessibility, storage or network access')
-    java = list((ROOT / 'android/edge-return/src').rglob('*.java'))
-    require(len(java) == 3, 'Expected setup activity, foreground service and edge window')
+    legacy_java = list((ROOT / 'android/edge-return/src').rglob('*.java'))
+    require(len(legacy_java) == 3, 'Expected unchanged legacy edge companion')
+    lan = ET.fromstring(read('android/lan/AndroidManifest.xml'))
+    require(lan.find('uses-sdk').get(ns + 'minSdkVersion') == '33', 'Native input needs Android 13+')
+    lan_permissions = {e.get(ns + 'name') for e in lan.findall('uses-permission')}
+    require(lan_permissions == {'android.permission.INTERNET', 'android.permission.ACCESS_NETWORK_STATE',
+        'android.permission.CHANGE_NETWORK_STATE', 'android.permission.FOREGROUND_SERVICE',
+        'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE', 'android.permission.POST_NOTIFICATIONS',
+        'android.permission.CAMERA'}, 'Native companion permission scope')
+    control = lan.find('.//service[@' + ns + 'name=".ControlService"]')
+    require(control is not None and control.get(ns + 'permission') == 'android.permission.BIND_ACCESSIBILITY_SERVICE',
+        'Control service must require Android accessibility binding')
+    connection = lan.find('.//service[@' + ns + 'name=".ConnectionService"]')
+    require(connection is not None and connection.get(ns + 'exported') == 'false', 'LAN service must not be exported')
+    for xml in (ROOT / 'android/lan/res').rglob('*.xml'):
+        ET.parse(xml)
+    native_script = read('scripts/Build-LanCompanion.ps1')
+    require('8d8064c1636fdaef7189dd9055c7d59950a8940a12f2293956446ec3c109fd82' in native_script,
+        'ZXing decoder must be checksum-pinned')
+    require('GalaxyBridgeLan-android' in workflow and './scripts/Build-LanCompanion.ps1' in workflow,
+        'Manual workflow must include independent Wi-Fi APK')
+    read('docs/NATIVE_WIFI.ru.md')
+    require('./scripts/Test-LanProtocol.ps1' in workflow, 'Manual workflow runs actual Android wire/pairing parser tests')
+    read('scripts/Test-LanProtocol.ps1')
+    read('licenses/ZXing-APACHE-2.0.txt')
+    java = legacy_java + list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java'))
+    require(len(java) == 11, 'Expected legacy and native Android sources')
     for helper in java:
         balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]

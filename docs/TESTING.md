@@ -135,3 +135,42 @@
 - [ ] Изоляция клиентов/блокировка multicast показывает ожидание и позволяет ручное сопряжение; правила брандмауэра и работающий ADB не меняются.
 - [ ] Две QR-попытки/несколько телефонов: принят только нужный экземпляр, чужое готовое устройство не выбрано.
 - [ ] UDP IPv4 fallback проверен на Realtek и Windows 10; VPN/несколько интерфейсов не мешают обнаружению.
+
+## Native Wi-Fi preview 0.6.0 — HP/S25 tests still required
+
+1. Install GalaxyBridgeLan.apk, leave wireless/USB debugging off. Scan LAN QR,
+   confirm laptop, enable accessibility, check files still work without accessibility.
+2. Reject old ADB QR, expired/refreshed/used ticket, QR with modified certificate,
+   duplicate query fields, unknown version; ensure no saved trust on failure.
+3. Close/reopen Windows LAN mode, restart Android foreground service, verify
+   remembered pairing. Forget at either endpoint and verify authorization is revoked.
+4. Move both devices from Wi-Fi A to B with different subnets and laptop IP.
+   Verify discovery/TLS reconnect, cursor remains on PC, no partial transfer replay.
+   Test Wi-Fi with no internet and networks with guest/AP isolation separately.
+5. Choose another adapter in the QR dropdown, refresh after network change;
+   test TCP 38271 occupied and UDP 38272 blocked/occupied, firewall denial.
+6. Enable capture by button/hotkey/edge for all four positions. Verify return after
+   fresh outward motion with no held buttons/keys, multiple monitors and rotation.
+7. Check clicks, long click, wheel and drag-on-release. Focus a field and type
+   Russian/English, paste Unicode <=16 KB, arrows/Delete/Enter. Check absent focus,
+   secure apps and overlay/gesture denial; do not assume native mouse parity.
+8. Kill Wi-Fi during capture, lock/sleep Windows, lock/turn off S25, disable
+   accessibility. Ensure immediate/heartbeat-bounded return and clean reconnect.
+9. Upload empty/Unicode/duplicate files, multiple batches, cancel mid-chunk,
+   disconnect mid-upload, insufficient storage, checksum/sequence mismatch,
+   changed local file and 2 GiB limit. Verify only unfinished app-owned row removed.
+10. Kill Android process mid-upload (pending row may remain until system cleanup),
+    lose final ACK (completed file may exist), check neither is automatically replayed.
+11. Pause/resume, forget, notification Stop, close LAN/parent through tray,
+    repeatedly reconnect and check socket/thread/overlay cleanup.
+12. Rerun existing ADB tests with legacy APK to check IPhoneControl refactor.
+
+`tests/android-protocol/WireTest.java` executes real Wire/Pairing parser code on
+JVM with reference org.json. It validates QR fields, Unicode, chunked reads and
+hostile frame lengths; it does not test camera, Android network routing, MediaStore
+or accessibility. Portable C# tests add LAN frame bounds/fragmentation but have
+not been run locally. The manual workflow runs the C# tests before publishing.
+
+Run these JVM tests with JDK 17 using `./scripts/Test-LanProtocol.ps1`; the manual
+workflow also runs them. The reference org.json JAR is checksum-pinned, used only
+for tests, and is not packaged in the portable ZIP or APK.

@@ -10,6 +10,7 @@ internal sealed class Settings
     public bool ClipboardEnabled { get; set; } = true;
     public bool EdgeEntryEnabled { get; set; }
     public bool EdgeReturnEnabled { get; set; } = true;
+    public bool NativeAtStartup { get; set; }
     public bool AutoConnectEnabled { get; set; } = true;
     public bool ReconnectEnabled { get; set; } = true;
     public RememberedPhone? LastPhone { get; set; }

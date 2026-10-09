@@ -1,3 +1,24 @@
+# Independent Wi-Fi preview — 0.6.0
+
+Galaxy Bridge now includes an experimental **Wi-Fi without debugging** mode.
+Install **GalaxyBridgeLan.apk** (Android 13+), open the matching Windows mode,
+scan its QR inside the phone app, and confirm the laptop. The companion uses
+certificate-pinned TLS, persistent pairing and discovery/reconnect across shared
+Wi-Fi networks. It provides file upload to Download/GalaxyBridge and basic
+accessibility-based cursor, taps, swipes and text input. No ADB is used in this mode.
+
+See [setup and limitations (Russian)](docs/NATIVE_WIFI.ru.md). APK/EXE builds and
+real HP/S25 behavior have not been verified. Sources are published only; Actions
+still requires manual dispatch. This preview is a different input engine from
+Android's native UHID cursor; dragging is replayed on release and clipboard
+synchronization / full hardware keyboard behavior are not implemented.
+
+The manual workflow also packages **GalaxyBridgeLan-android**. Both companion
+APKs are in the portable ZIP. They have different package IDs. Development signing
+keys change each build, so replacing the LAN test APK requires reinstall/pairing.
+
+The following documents the existing ADB mode, which is preserved:
+
 # Galaxy Bridge
 
 [Инструкция на русском](README.ru.md)
