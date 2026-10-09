@@ -1,0 +1,188 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using GalaxyBridge.Core;
+
+namespace GalaxyBridge.Windows;
+
+internal sealed class InputCapture : IDisposable
+{
+    private readonly Native.HookProc keyboardCallback, mouseCallback;
+    private readonly Native.WinEventProc desktopCallback;
+    private nint keyboardHook, mouseHook, desktopHook;
+    private readonly KeyboardState keyboard = new();
+    private readonly HashSet<byte> physical = [], ignoreUntilReleased = [], pastedKeys = [];
+    private readonly System.Windows.Forms.Timer motion = new() { Interval = 16 };
+    private PhoneSession? phone;
+    private Form? overlay;
+    private Point anchor, returnPoint;
+    private nint returnWindow;
+    private byte buttons;
+    private bool cursorHidden;
+    private int wheelRemainder;
+    private double pendingX, pendingY, sensitivity = 1;
+    public bool Active => phone is not null;
+    public bool KeyHeld => physical.Count != 0;
+    public Func<string?>? PasteText { get; set; }
+    public event Action? ToggleRequested;
+    public event Action? DesktopChanged;
+    public event Action<string>? Error;
+
+    public InputCapture()
+    {
+        keyboardCallback = KeyboardHook; mouseCallback = MouseHook;
+        desktopCallback = (_, _, _, _, _, _, _) => DesktopChanged?.Invoke();
+        nint module = Native.GetModuleHandle(null);
+        keyboardHook = Native.SetWindowsHookEx(13, keyboardCallback, module, 0);
+        int keyboardError = keyboardHook == 0 ? Marshal.GetLastWin32Error() : 0;
+        mouseHook = Native.SetWindowsHookEx(14, mouseCallback, module, 0);
+        int mouseError = mouseHook == 0 ? Marshal.GetLastWin32Error() : 0;
+        desktopHook = Native.SetWinEventHook(0x20, 0x20, 0, desktopCallback, 0, 0, 0);
+        int desktopError = desktopHook == 0 ? Marshal.GetLastWin32Error() : 0;
+        if (keyboardHook == 0 || mouseHook == 0 || desktopHook == 0)
+        { Dispose(); throw new Win32Exception(keyboardError != 0 ? keyboardError : mouseError != 0 ? mouseError : desktopError, "Не удалось включить управление и горячую клавишу."); }
+        motion.Tick += (_, _) => FlushMotion();
+    }
+
+    public void Start(PhoneSession session, double speed)
+    {
+        if (Active) return;
+        if (Native.MouseButtonDown) throw new InvalidOperationException("Отпустите кнопки мыши перед переключением.");
+        if (physical.Any(key => key != 0x45 && key is not (>= 0xE0 and <= 0xE7)))
+            throw new InvalidOperationException("Отпустите остальные клавиши перед переключением.");
+        returnPoint = Cursor.Position; returnWindow = Native.GetForegroundWindow();
+        Rectangle bounds = Screen.FromPoint(returnPoint).Bounds;
+        anchor = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+        sensitivity = Math.Clamp(speed, .25, 4);
+        pendingX = pendingY = 0; buttons = 0; wheelRemainder = 0; keyboard.Clear(); pastedKeys.Clear();
+        ignoreUntilReleased.Clear(); foreach (byte key in physical) ignoreUntilReleased.Add(key);
+        // Keys used to activate capture must not remain pressed in Windows or Android.
+        Native.ReleaseHostModifiers();
+        overlay = new Form
+        {
+            Bounds = SystemInformation.VirtualScreen, StartPosition = FormStartPosition.Manual,
+            FormBorderStyle = FormBorderStyle.None, ShowInTaskbar = false, TopMost = true,
+            BackColor = Color.Black, Opacity = .015, Text = "Galaxy Bridge — Ctrl + Alt + F12"
+        };
+        phone = session;
+        try
+        {
+            overlay.Show();
+            _ = Native.SetCursorPos(anchor.X, anchor.Y);
+            Cursor.Hide(); cursorHidden = true; motion.Start();
+        }
+        catch { Stop(); throw; }
+    }
+
+    public void Stop()
+    {
+        if (!Active) return;
+        PhoneSession? previous = phone;
+        phone = null; motion.Stop();
+        keyboard.Clear(); buttons = 0; wheelRemainder = 0; pendingX = pendingY = 0; pastedKeys.Clear(); ignoreUntilReleased.Clear();
+        previous?.ReleaseInputs();
+        if (cursorHidden) { Cursor.Show(); cursorHidden = false; }
+        overlay?.Close(); overlay?.Dispose(); overlay = null;
+        Native.ReleaseHostModifiers();
+        _ = Native.SetCursorPos(returnPoint.X, returnPoint.Y);
+        if (Native.IsWindow(returnWindow)) _ = Native.SetForegroundWindow(returnWindow);
+    }
+
+    public void ResetPhysicalState() => physical.Clear();
+
+    private nint KeyboardHook(int code, nint wParam, nint lParam)
+    {
+        if (code < 0) return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+        try
+        {
+            Native.KeyboardData data = Marshal.PtrToStructure<Native.KeyboardData>(lParam);
+            if ((data.Flags & 0x10) != 0) return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+            bool down = wParam == 0x100 || wParam == 0x104;
+            bool up = wParam == 0x101 || wParam == 0x105;
+            if (!down && !up) return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+            byte usage = ScanCodes.ToUsage(data.Scan, (data.Flags & 1) != 0);
+            bool fresh = down && usage != 0 && physical.Add(usage);
+            if (up) physical.Remove(usage);
+            bool ctrl = physical.Contains(0xE0) || physical.Contains(0xE4);
+            bool alt = physical.Contains(0xE2) || physical.Contains(0xE6);
+            if (usage == 0x45 && ctrl && alt)
+            {
+                if (up) ignoreUntilReleased.Remove(usage);
+                if (fresh) ToggleRequested?.Invoke();
+                return 1;
+            }
+            if (!Active) return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+            if (ignoreUntilReleased.Contains(usage))
+            { if (up) ignoreUntilReleased.Remove(usage); return 1; }
+            if (pastedKeys.Contains(usage))
+            { if (up) pastedKeys.Remove(usage); return 1; }
+            bool shift = (keyboard.Modifiers & 0x22) != 0;
+            bool paste = (usage == 0x19 && (keyboard.Modifiers & 0x11) != 0 && !shift && !alt)
+                || (usage == 0x49 && shift && !ctrl && !alt);
+            if (fresh && paste && PasteText?.Invoke() is string text)
+            {
+                // Android KEYCODE_PASTE follows clipboard setting in the same control stream.
+                phone?.Send(ControlProtocol.Clipboard(text, paste: true));
+                pastedKeys.Add(usage);
+                return 1;
+            }
+            if (usage != 0 && (up || fresh))
+            { keyboard.Set(usage, down); phone?.Keyboard(keyboard.Report()); }
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            Stop(); Error?.Invoke("Управление остановлено: " + ex.GetType().Name);
+            return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+        }
+    }
+
+    private nint MouseHook(int code, nint wParam, nint lParam)
+    {
+        if (code < 0 || !Active) return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+        try
+        {
+            Native.MouseData data = Marshal.PtrToStructure<Native.MouseData>(lParam);
+            if ((data.Flags & 1) != 0) return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+            int message = (int)wParam;
+            if (message == 0x200)
+            {
+                int dx = data.Point.X - anchor.X, dy = data.Point.Y - anchor.Y;
+                if (dx != 0 || dy != 0)
+                { pendingX += dx * sensitivity; pendingY += dy * sensitivity; _ = Native.SetCursorPos(anchor.X, anchor.Y); }
+            }
+            else if (message is 0x201 or 0x202 or 0x204 or 0x205 or 0x207 or 0x208)
+            {
+                FlushMotion();
+                byte mask = message is 0x201 or 0x202 ? (byte)1 : message is 0x204 or 0x205 ? (byte)2 : (byte)4;
+                bool down = message is 0x201 or 0x204 or 0x207;
+                buttons = down ? (byte)(buttons | mask) : (byte)(buttons & ~mask);
+                phone?.Mouse(buttons, 0, 0);
+            }
+            else if (message == 0x20A)
+            {
+                FlushMotion();
+                wheelRemainder += (short)(data.MouseDataValue >> 16);
+                int wheel = wheelRemainder / 120; wheelRemainder %= 120;
+                if (wheel != 0) phone?.Mouse(buttons, 0, 0, wheel);
+            }
+            return 1;
+        }
+        catch (Exception ex)
+        { Stop(); Error?.Invoke("Управление остановлено: " + ex.GetType().Name); return Native.CallNextHookEx(mouseHook, code, wParam, lParam); }
+    }
+
+    private void FlushMotion()
+    {
+        int dx = (int)Math.Truncate(pendingX), dy = (int)Math.Truncate(pendingY);
+        pendingX -= dx; pendingY -= dy;
+        if (dx != 0 || dy != 0) phone?.Mouse(buttons, dx, dy);
+    }
+    public void Dispose()
+    {
+        Stop(); motion.Dispose();
+        if (keyboardHook != 0) Native.UnhookWindowsHookEx(keyboardHook);
+        if (mouseHook != 0) Native.UnhookWindowsHookEx(mouseHook);
+        if (desktopHook != 0) Native.UnhookWinEvent(desktopHook);
+        keyboardHook = mouseHook = desktopHook = 0;
+    }
+}

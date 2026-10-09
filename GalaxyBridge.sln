@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GalaxyBridge.Core", "src\GalaxyBridge.Core\GalaxyBridge.Core.csproj", "{AC2C82F9-AD5C-4740-BDCC-3844F0BA2391}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GalaxyBridge.Windows", "src\GalaxyBridge.Windows\GalaxyBridge.Windows.csproj", "{ED03721D-62A6-40D5-9E74-5397CCFC1085}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GalaxyBridge.Core.Tests", "tests\GalaxyBridge.Core.Tests\GalaxyBridge.Core.Tests.csproj", "{32763B54-36FB-48E5-B330-06BE332E7106}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AC2C82F9-AD5C-4740-BDCC-3844F0BA2391}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AC2C82F9-AD5C-4740-BDCC-3844F0BA2391}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AC2C82F9-AD5C-4740-BDCC-3844F0BA2391}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AC2C82F9-AD5C-4740-BDCC-3844F0BA2391}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ED03721D-62A6-40D5-9E74-5397CCFC1085}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ED03721D-62A6-40D5-9E74-5397CCFC1085}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ED03721D-62A6-40D5-9E74-5397CCFC1085}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ED03721D-62A6-40D5-9E74-5397CCFC1085}.Release|Any CPU.Build.0 = Release|Any CPU
+		{32763B54-36FB-48E5-B330-06BE332E7106}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{32763B54-36FB-48E5-B330-06BE332E7106}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{32763B54-36FB-48E5-B330-06BE332E7106}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{32763B54-36FB-48E5-B330-06BE332E7106}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

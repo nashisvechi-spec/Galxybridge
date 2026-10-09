@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+artifacts/
+backend/*
+!backend/README.md
+*.user
+*.suo
+*.log
+__pycache__/

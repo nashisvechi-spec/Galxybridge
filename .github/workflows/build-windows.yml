@@ -1,0 +1,52 @@
+name: Build Windows portable
+
+# Building is deliberately manual. Uploading/pushing the source does not build an EXE.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 8.0.x
+      - name: Check source package
+        run: python scripts/check_sources.py
+      - name: Run portable protocol tests
+        run: dotnet run --project tests/GalaxyBridge.Core.Tests/GalaxyBridge.Core.Tests.csproj -c Release
+      - name: Publish Windows x64
+        run: >-
+          dotnet publish src/GalaxyBridge.Windows/GalaxyBridge.Windows.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o artifacts/GalaxyBridge
+      - name: Download verified connection backend
+        run: ./scripts/Fetch-Backend.ps1 -Destination artifacts/GalaxyBridge/backend
+      - name: Include instructions and notices
+        run: |
+          Copy-Item README.ru.md, LICENSE, THIRD_PARTY_NOTICES.md -Destination artifacts/GalaxyBridge
+          Copy-Item licenses -Destination artifacts/GalaxyBridge -Recurse
+          Copy-Item docs/TESTING.md -Destination artifacts/GalaxyBridge
+          Copy-Item scripts/backend.lock.json -Destination artifacts/GalaxyBridge/backend
+      - name: Package portable application
+        run: Compress-Archive -Path artifacts/GalaxyBridge/* -DestinationPath artifacts/GalaxyBridge-win10-x64.zip
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: GalaxyBridge-win10-x64
+          path: artifacts/GalaxyBridge-win10-x64.zip
+          if-no-files-found: error
+          retention-days: 14
