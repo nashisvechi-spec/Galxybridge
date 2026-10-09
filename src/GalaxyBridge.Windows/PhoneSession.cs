@@ -18,6 +18,7 @@ internal sealed class PhoneSession : IAsyncDisposable
     private TcpClient? socket;
     private Process? server;
     private Task? writer, reader;
+    private EdgeFeedback? edgeFeedback;
     private int port;
     private string remoteJar = "";
     private int disposed, failureNotified;
@@ -27,6 +28,11 @@ internal sealed class PhoneSession : IAsyncDisposable
     public bool IsAlive => socket is not null && !lifetime.IsCancellationRequested && Volatile.Read(ref disposed) == 0;
     public event Action<string>? ClipboardReceived;
     public event Action<string>? ConnectionLost;
+    public event Action<string>? AutoReturnUnavailable;
+    public bool AutoReturnReady => edgeFeedback?.Ready == true;
+    public PhoneEdgeSample? LatestEdge => edgeFeedback?.Latest;
+    public int BeginEdgeReturn(PhoneSide side) => edgeFeedback?.Begin(side) ?? 0;
+    public void EndEdgeReturn() => edgeFeedback?.End();
 
     private sealed record Outgoing(byte[]? Packet, TaskCompletionSource? Barrier = null);
     public PhoneSession(AdbClient adb, string serial, Action<string> log)
@@ -79,6 +85,15 @@ internal sealed class PhoneSession : IAsyncDisposable
         await stream.WriteAsync(ControlProtocol.CreateHid(ControlProtocol.KeyboardId, "Galaxy Bridge Keyboard", Hid.KeyboardDescriptor), ct);
         await stream.WriteAsync(ControlProtocol.CreateHid(ControlProtocol.MouseId, "Galaxy Bridge Mouse", Hid.MouseDescriptor), ct);
         writer = WriteLoopAsync(stream); reader = ReadLoopAsync(stream);
+        edgeFeedback = new(adb, Serial, scid, log);
+        edgeFeedback.Unavailable += message => AutoReturnUnavailable?.Invoke(message);
+        try { await edgeFeedback.StartAsync(ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) when (ex is IOException or TimeoutException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            log("Автовозврат недоступен: " + ex.Message);
+            await edgeFeedback.DisposeAsync(); edgeFeedback = null;
+        }
     }
 
     public bool Send(byte[] packet)
@@ -139,6 +154,7 @@ internal sealed class PhoneSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        if (edgeFeedback is not null) { await edgeFeedback.DisposeAsync(); edgeFeedback = null; }
         // Queue releases directly before shutting down the stream; Send() is now closed.
         if (writer is not null && !lifetime.IsCancellationRequested)
         {

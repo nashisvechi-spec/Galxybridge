@@ -69,6 +69,44 @@ Check(EdgePolicy.AtEdge(bounds, -1920, 0, PhoneSide.Left), "left edge");
 Check(EdgePolicy.AtEdge(bounds, -20, -100, PhoneSide.Top), "top edge");
 Check(EdgePolicy.AtEdge(bounds, -20, 979, PhoneSide.Bottom), "bottom edge");
 
+Check(PhoneEdgeSample.TryParse("GB_EDGE 7 12 1080 2400 0.5 1200 0", 1000, out PhoneEdgeSample? parsedEdge), "parse native phone edge feedback");
+Check(parsedEdge is { CaptureId: 7, Sequence: 12, X: .5, ReceivedAt: 1000 }, "preserve epoch, sequence and fractional coordinates");
+foreach (string bad in new[] {
+    "GB_EDGE 0 1 1080 2400 0 10 0", "GB_EDGE 1 0 1080 2400 0 10 0",
+    "GB_EDGE 1 1 0 2400 0 10 0", "GB_EDGE 1 1 1080 2400 -1 10 0",
+    "GB_EDGE 1 1 1080 2400 1080 10 0", "GB_EDGE 1 1 1080 2400 0 2400 0",
+    "GB_EDGE 1 1 1080 2400 NaN 10 0", "GB_EDGE 1 1 1080 2400 Infinity 10 0",
+    "GB_EDGE 1 1 1080 2400 0,5 10 0", "GB_EDGE 1 1 1080 2400 0 10 8",
+    "GB_EDGE 1 1 1080 2400 0 10", "GB_EDGE_READY 1" })
+    Check(!PhoneEdgeSample.TryParse(bad, 1000, out _), "reject malformed edge sample " + bad);
+
+PhoneEdgeSample atLeft = new(7, 1, 1080, 2400, 0, 1200, 0, 1000);
+bool MayReturn(PhoneEdgeSample sample, PhoneSide side = PhoneSide.Right, int dx = -5, int dy = 0,
+    int epoch = 7, byte buttons = 0, bool held = false, long entered = 500, long moved = 990, long now = 1010) =>
+    EdgeReturnPolicy.CanReturn(sample, epoch, side, dx, dy, buttons, held, entered, moved, now);
+Check(MayReturn(atLeft), "phone on right returns at its left edge moving toward PC");
+Check(!MayReturn(atLeft, dx: 5), "moving into phone must not return");
+Check(!MayReturn(atLeft, dx: 0, dy: 5), "moving along edge must not return");
+Check(!MayReturn(atLeft with { X = 10 }), "off-edge cursor must not return");
+Check(!MayReturn(atLeft, epoch: 8), "previous capture cannot trigger new capture return");
+Check(!MayReturn(atLeft, buttons: 1), "host drag cannot return");
+Check(!MayReturn(atLeft with { Buttons = 1 }), "phone drag cannot return");
+Check(!MayReturn(atLeft, held: true), "held keyboard key cannot return");
+Check(!MayReturn(atLeft, entered: 900), "capture warmup avoids immediate bounce");
+Check(!MayReturn(atLeft with { ReceivedAt = 700 }), "stale feedback cannot return");
+Check(!MayReturn(atLeft, moved: 700), "stale direction cannot return");
+Check(!MayReturn(atLeft with { ReceivedAt = 1100 }), "future-dated feedback rejected");
+Check(!MayReturn(atLeft, moved: 1100), "future-dated motion rejected");
+Check(MayReturn(atLeft with { X = 1079 }, PhoneSide.Left, dx: 5), "phone on left returns at right edge");
+Check(MayReturn(atLeft with { X = 500, Y = 2399 }, PhoneSide.Top, dx: 0, dy: 5), "phone above returns at bottom edge");
+Check(MayReturn(atLeft with { X = 500, Y = 0 }, PhoneSide.Bottom, dx: 0, dy: -5), "phone below returns at top edge");
+Check(MayReturn(atLeft with { Width = 2400, Height = 1080, Y = 500 }), "landscape phone edge");
+Check(EdgeReturnPolicy.LaptopPosition(bounds, PhoneSide.Right, atLeft with { Y = 0 }) == (-3, -100), "map top of phone to negative-origin monitor");
+Check(EdgeReturnPolicy.LaptopPosition(bounds, PhoneSide.Right, atLeft with { Y = 2399 }) == (-3, 979), "map bottom of phone to monitor");
+Check(EdgeReturnPolicy.LaptopPosition(bounds, PhoneSide.Left, atLeft with { Y = 0 }) == (-1918, -100), "return at monitor left edge");
+Check(EdgeReturnPolicy.LaptopPosition(bounds, PhoneSide.Top, atLeft with { X = 1079 }) == (-1, -98), "return at monitor top edge");
+Check(EdgeReturnPolicy.LaptopPosition(bounds, PhoneSide.Bottom, atLeft with { X = 0 }) == (-1920, 977), "return at monitor bottom edge");
+
 byte[] text = Encoding.UTF8.GetBytes("Текст с телефона 🌍");
 using MemoryStream combined = new();
 combined.Write(new byte[] { 1,0,0,0,0,0,0,0,1 }); // ack

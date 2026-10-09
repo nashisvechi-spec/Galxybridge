@@ -79,7 +79,8 @@ def main() -> None:
     for required in ('README.md', 'README.ru.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
                      'licenses/scrcpy-APACHE-2.0.txt', 'docs/ARCHITECTURE.md',
                      'docs/TESTING.md', 'docs/VALIDATION.md', '.gitignore',
-                     '.gitattributes', 'backend/README.md', 'scripts/Fetch-Backend.ps1'):
+                     '.gitattributes', 'backend/README.md', 'scripts/Fetch-Backend.ps1',
+                     'scripts/Build-EdgeHelper.ps1', 'android/edge-return/src/com/galaxybridge/edge/Main.java'):
         read(required)
     sdk = json.loads(read('global.json'))['sdk']
     require(str(sdk['version']).startswith('8.0.'), 'SDK must stay on .NET 8')
@@ -128,7 +129,7 @@ def main() -> None:
     require(trigger is not None and trigger.group(1).strip() == 'workflow_dispatch:',
             'Workflow must be manual only; no push/PR/release trigger')
     actions = re.findall(r'uses:\s*([^\s]+)', workflow)
-    require(len(actions) == 3 and all(re.fullmatch(r'actions/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
+    require(len(actions) == 4 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
             'Actions must use pinned commit IDs')
     require('contents: read' in workflow and 'contents: write' not in workflow,
             'Build workflow requires read-only repository permissions')
@@ -136,12 +137,16 @@ def main() -> None:
             'Workflow must run portable tests')
     require('--self-contained true' in workflow and '-r win-x64' in workflow,
             'Portable Windows x64 publish configuration')
+    require('./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge/backend' in workflow,
+            'Portable archive must include the edge-return helper')
+    helper = ROOT / 'android/edge-return/src/com/galaxybridge/edge/Main.java'
+    balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]
     require(len(sources) >= 10, 'Application sources are incomplete')
     for path in sources:
         balanced_csharp(path)
-    print(f'PASS: {checks} source-package checks; {len(sources)} C# files inspected')
-    print('No C# compilation, executable build, network download, or device test performed.')
+    print(f'PASS: {checks} source-package checks; {len(sources)} C# files and 1 Java file inspected')
+    print('No C#/Java compilation, executable build, network download, or device test performed.')
 
 
 if __name__ == '__main__':

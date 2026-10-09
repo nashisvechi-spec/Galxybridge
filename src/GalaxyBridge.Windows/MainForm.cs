@@ -22,6 +22,7 @@ internal sealed class MainForm : Form
     private readonly NumericUpDown speed = new() { Minimum = .25M, Maximum = 4M, Increment = .25M, DecimalPlaces = 2, Dock = DockStyle.Fill };
     private readonly CheckBox share = new() { Text = "Общий текстовый буфер", AutoSize = true };
     private readonly CheckBox edge = new() { Text = "Вход на телефон через край экрана", AutoSize = true };
+    private readonly CheckBox edgeReturn = new() { Text = "Автовозврат через край телефона", AutoSize = true };
     private readonly TextBox wifi = new() { PlaceholderText = "192.168.1.10:37121", Dock = DockStyle.Fill };
     private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(660, 0), Padding = new Padding(0, 12, 0, 12) };
     private readonly TextBox journal = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill };
@@ -43,6 +44,7 @@ internal sealed class MainForm : Form
         side.Items.AddRange(["Справа", "Слева", "Сверху", "Снизу"]);
         side.SelectedIndex = (int)settings.PhoneSide;
         speed.Value = (decimal)settings.Sensitivity; share.Checked = settings.ClipboardEnabled; edge.Checked = settings.EdgeEntryEnabled;
+        edgeReturn.Checked = settings.EdgeReturnEnabled;
         refresh.Click += async (_, _) => await RunAsync(RefreshAsync);
         connect.Click += async (_, _) => await RunAsync(ConnectAsync);
         pair.Click += async (_, _) => await RunAsync(PairAsync);
@@ -51,10 +53,11 @@ internal sealed class MainForm : Form
         toggle.Click += (_, _) => ToggleCapture();
         sendFile.Click += async (_, _) => await RunAsync(SendFileAsync);
         layout.Click += (_, _) => session?.Send([15]);
-        side.SelectedIndexChanged += (_, _) => { settings.PhoneSide = (PhoneSide)side.SelectedIndex; edgeSince = null; };
+        side.SelectedIndexChanged += (_, _) => { StopCapture(); settings.PhoneSide = (PhoneSide)side.SelectedIndex; edgeSince = null; };
         speed.ValueChanged += (_, _) => { settings.Sensitivity = (double)speed.Value; if (capture?.Active == true) StopCapture(); };
         share.CheckedChanged += (_, _) => settings.ClipboardEnabled = share.Checked;
         edge.CheckedChanged += (_, _) => { settings.EdgeEntryEnabled = edge.Checked; edgeSince = null; };
+        edgeReturn.CheckedChanged += (_, _) => { StopCapture(); settings.EdgeReturnEnabled = edgeReturn.Checked; };
         edgeTimer.Tick += (_, _) => CheckEdge();
         clipboardRetry.Tick += (_, _) => { if (++clipboardRetries > 3) clipboardRetry.Stop(); else ReadClipboard(); };
         tray.DoubleClick += (_, _) => OpenWindow();
@@ -104,7 +107,8 @@ internal sealed class MainForm : Form
         Add(connection, pair); Add(connection, Label("IP-адрес и порт подключения с основной страницы «Беспроводная отладка»:"));
         Add(connection, wifi); Add(connection, wifiConnect);
         Add(controls, Label("Расположение телефона относительно монитора")); Add(controls, side);
-        Add(controls, edge); Add(controls, Label("Задержите курсор у выбранного края на 350 мс. Возврат на ноутбук — Ctrl + Alt + F12. Автовход по умолчанию выключен."));
+        Add(controls, edge); Add(controls, edgeReturn);
+        Add(controls, Label("Вход: задержите курсор у края ноутбука на 350 мс. Возврат: двигайте его через край телефона в сторону ноутбука. Отпустите кнопки и клавиши. Горячая клавиша остаётся запасным способом."));
         Add(controls, Label("Скорость мыши")); Add(controls, speed); Add(controls, share);
         Add(controls, Label("Ctrl + C / Ctrl + X на телефоне передают текст ноутбуку. Ctrl + V вставляет текст с ноутбука на телефон."));
         Add(controls, Row(layout, sendFile));
@@ -125,6 +129,7 @@ internal sealed class MainForm : Form
             capture = new InputCapture { PasteText = () => share.Checked ? cachedClipboard : null };
             capture.ToggleRequested += ToggleCapture;
             capture.DesktopChanged += () => Ui(SuspendCapture);
+            capture.EdgeReturnRequested += () => { StopCapture(); SetStatus("Курсор вернулся на ноутбук через край телефона."); };
             capture.Error += text => Ui(() => { StopCapture(); SetStatus(text, true); });
             _ = Native.AddClipboardFormatListener(Handle); ReadClipboard(); edgeTimer.Start();
             await RunAsync(RefreshAsync);
@@ -218,6 +223,7 @@ internal sealed class MainForm : Form
         SetStatus("Подключаемся к телефону…");
         PhoneSession candidate = new(adb, device.Serial, Log);
         candidate.ClipboardReceived += text => SetPhoneClipboard(candidate, text);
+        candidate.AutoReturnUnavailable += text => Ui(() => { if (session == candidate && capture?.Active == true) SetStatus(text, true); });
         candidate.ConnectionLost += text => Ui(async () =>
         {
             if (session == candidate) { StopCapture(); await DisconnectAsync(); SetStatus(text, true); }
@@ -253,8 +259,10 @@ internal sealed class MainForm : Form
         if (busy || disconnecting || closing || session is null || capture is null || !session.IsAlive) return;
         try
         {
-            capture.Start(session, settings.Sensitivity); edgeArmed = false; edgeSince = null;
-            SetStatus("Управление телефоном. Ctrl + Alt + F12 вернёт мышь и клавиатуру ноутбуку."); UpdateButtons();
+            capture.Start(session, settings.Sensitivity, settings.PhoneSide, settings.EdgeReturnEnabled); edgeArmed = false; edgeSince = null;
+            SetStatus(settings.EdgeReturnEnabled && session.AutoReturnReady
+                ? "Управление телефоном. Для возврата двигайте курсор через край в сторону ноутбука."
+                : "Управление телефоном. Автовозврат выключен или недоступен; Ctrl + Alt + F12 вернёт управление."); UpdateButtons();
         }
         catch (Exception e) { StopCapture(); SetStatus(e.Message, true); }
     }

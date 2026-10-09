@@ -43,8 +43,36 @@ messages. The Windows secure attention sequence is not redirected.
 Automatic entry checks the actual monitor bounds and excludes borders leading
 to another Windows monitor. Entry uses 350 ms dwell. Native Android cursor
 acceleration means host deltas do not tell this client the exact cursor
-position on the phone. **Phone-edge return and cursor alignment are omitted**;
-return is by Ctrl + Alt + F12.
+position on the phone. Return therefore uses native Android hover events rather
+than integrating host deltas. Positioning the phone cursor on entry is omitted.
+
+## Phone-edge return
+
+`android/edge-return` is our own Java helper, compiled into a DEX JAR by the
+manual workflow. The host verifies its companion SHA-256, pushes a uniquely
+named JAR and launches `adb shell -T app_process` with stdin kept open. No APK
+is installed. The helper requires Android 11+ and checks the shell UID's
+existing `INTERNAL_SYSTEM_WINDOW` permission; it does not grant permissions.
+The helper creates its framework context on the default display and a
+`TYPE_SYSTEM_ERROR` transparent window four physical pixels wide at the phone
+edge facing the laptop, only between START and STOP commands. This small
+touchable area can intercept touches at the edge during capture. Stock AOSP
+grants shell that window permission; Samsung firmware support is unverified.
+
+Only hover events from the named UHID mouse produce feedback. Each frame
+contains a capture epoch, increasing sequence, real display dimensions, raw
+pointer position and button state. Windows only uses the current epoch and
+fresh feedback (250 ms) with recent outward motion (200 ms), after a 350 ms
+capture warmup. A held mouse button on either side or a held keyboard key
+prevents return. A hover exit invalidates the cached frame. Host commands use
+an asynchronous channel, so no pipe I/O runs inside a Windows input hook.
+
+Return restores the laptop pointer two pixels inside the active monitor edge,
+mapping the cross-axis proportionally, including monitors with negative origins.
+STOP removes the Android window; QUIT, stdin EOF and process death also clean
+up. Helper failure only disables automatic return and reports the error. The
+independent Ctrl + Alt + F12 escape remains available. A complete new portable
+artifact must contain `edge-return.jar` and `edge-return.sha256`.
 
 ## Clipboard and files
 
@@ -64,7 +92,8 @@ ADB itself manages its host authentication keys.
 
 Stop capture first, queue releases and UHID destruction, then close the socket.
 Terminate only the shell process started by this session, remove only its own
-forward, and attempt to remove its temporary JAR. Do not call `adb kill-server`.
+forward, and attempt to remove both temporary JARs. Close the edge helper before
+the control socket. Do not call `adb kill-server`.
 An in-progress connection is cancelled and awaited before application exit.
 
 Wire format is tied to scrcpy **5.0.1**. UHID_CREATE includes vendor and product

@@ -19,12 +19,17 @@ internal sealed class InputCapture : IDisposable
     private byte buttons;
     private bool cursorHidden;
     private int wheelRemainder;
+    private int returnEpoch, lastDx, lastDy;
+    private long enteredAt, motionAt;
+    private PhoneSide phoneSide;
+    private DesktopBounds laptopBounds;
     private double pendingX, pendingY, sensitivity = 1;
     public bool Active => phone is not null;
     public bool KeyHeld => physical.Count != 0;
     public Func<string?>? PasteText { get; set; }
     public event Action? ToggleRequested;
     public event Action? DesktopChanged;
+    public event Action? EdgeReturnRequested;
     public event Action<string>? Error;
 
     public InputCapture()
@@ -40,10 +45,10 @@ internal sealed class InputCapture : IDisposable
         int desktopError = desktopHook == 0 ? Marshal.GetLastWin32Error() : 0;
         if (keyboardHook == 0 || mouseHook == 0 || desktopHook == 0)
         { Dispose(); throw new Win32Exception(keyboardError != 0 ? keyboardError : mouseError != 0 ? mouseError : desktopError, "Не удалось включить управление и горячую клавишу."); }
-        motion.Tick += (_, _) => FlushMotion();
+        motion.Tick += (_, _) => { FlushMotion(); CheckReturn(); };
     }
 
-    public void Start(PhoneSession session, double speed)
+    public void Start(PhoneSession session, double speed, PhoneSide side, bool returnEnabled)
     {
         if (Active) return;
         if (Native.MouseButtonDown) throw new InvalidOperationException("Отпустите кнопки мыши перед переключением.");
@@ -51,6 +56,8 @@ internal sealed class InputCapture : IDisposable
             throw new InvalidOperationException("Отпустите остальные клавиши перед переключением.");
         returnPoint = Cursor.Position; returnWindow = Native.GetForegroundWindow();
         Rectangle bounds = Screen.FromPoint(returnPoint).Bounds;
+        laptopBounds = new(bounds.X, bounds.Y, bounds.Width, bounds.Height); phoneSide = side;
+        enteredAt = Environment.TickCount64; motionAt = 0; lastDx = lastDy = 0;
         anchor = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
         sensitivity = Math.Clamp(speed, .25, 4);
         pendingX = pendingY = 0; buttons = 0; wheelRemainder = 0; keyboard.Clear(); pastedKeys.Clear();
@@ -69,6 +76,7 @@ internal sealed class InputCapture : IDisposable
             overlay.Show();
             _ = Native.SetCursorPos(anchor.X, anchor.Y);
             Cursor.Hide(); cursorHidden = true; motion.Start();
+            returnEpoch = returnEnabled ? session.BeginEdgeReturn(side) : 0;
         }
         catch { Stop(); throw; }
     }
@@ -78,6 +86,7 @@ internal sealed class InputCapture : IDisposable
         if (!Active) return;
         PhoneSession? previous = phone;
         phone = null; motion.Stop();
+        previous?.EndEdgeReturn(); returnEpoch = 0;
         keyboard.Clear(); buttons = 0; wheelRemainder = 0; pendingX = pendingY = 0; pastedKeys.Clear(); ignoreUntilReleased.Clear();
         previous?.ReleaseInputs();
         if (cursorHidden) { Cursor.Show(); cursorHidden = false; }
@@ -175,7 +184,17 @@ internal sealed class InputCapture : IDisposable
     {
         int dx = (int)Math.Truncate(pendingX), dy = (int)Math.Truncate(pendingY);
         pendingX -= dx; pendingY -= dy;
-        if (dx != 0 || dy != 0) phone?.Mouse(buttons, dx, dy);
+        if (dx != 0 || dy != 0)
+        { lastDx = dx; lastDy = dy; motionAt = Environment.TickCount64; phone?.Mouse(buttons, dx, dy); }
+    }
+    private void CheckReturn()
+    {
+        PhoneEdgeSample? sample = phone?.LatestEdge;
+        if (sample is null || returnEpoch < 1 || !EdgeReturnPolicy.CanReturn(sample, returnEpoch, phoneSide,
+            lastDx, lastDy, buttons, KeyHeld, enteredAt, motionAt, Environment.TickCount64)) return;
+        (int x, int y) = EdgeReturnPolicy.LaptopPosition(laptopBounds, phoneSide, sample);
+        returnPoint = new Point(x, y); returnEpoch = 0;
+        if (EdgeReturnRequested is not null) EdgeReturnRequested.Invoke(); else Stop();
     }
     public void Dispose()
     {

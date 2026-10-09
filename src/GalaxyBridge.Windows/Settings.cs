@@ -9,6 +9,7 @@ internal sealed class Settings
     public double Sensitivity { get; set; } = 1.0;
     public bool ClipboardEnabled { get; set; } = true;
     public bool EdgeEntryEnabled { get; set; }
+    public bool EdgeReturnEnabled { get; set; } = true;
     public static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GalaxyBridge");
     private static string PathName => Path.Combine(Folder, "settings.json");
     public static Settings Load()
