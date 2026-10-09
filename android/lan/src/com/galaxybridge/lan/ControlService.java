@@ -132,9 +132,22 @@ public final class ControlService extends AccessibilityService {
     }
     private final class Pointer extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        Pointer(Context context) { super(context); }
+        private final Path arrow=new Path();
+        Pointer(Context context) {
+            super(context);
+            float unit=getResources().getDisplayMetrics().density;
+            // The tip is (0,0): drawing never changes the tap/drag/edge coordinates.
+            arrow.moveTo(0,0);
+            arrow.lineTo(0,18*unit); arrow.lineTo(5*unit,14*unit);
+            arrow.lineTo(9*unit,23*unit); arrow.lineTo(13*unit,21*unit);
+            arrow.lineTo(9*unit,12*unit); arrow.lineTo(17*unit,12*unit); arrow.close();
+            paint.setStrokeWidth(1.5f*unit); paint.setStrokeJoin(Paint.Join.ROUND);
+        }
         @Override protected void onDraw(Canvas canvas) {
-            paint.setColor(Color.WHITE);canvas.drawCircle(x,y,10,paint);paint.setColor(Color.rgb(36,125,240));canvas.drawCircle(x,y,7,paint);
+            int saved=canvas.save(); canvas.translate(x,y);
+            paint.setStyle(Paint.Style.FILL); paint.setColor(Color.WHITE); canvas.drawPath(arrow,paint);
+            paint.setStyle(Paint.Style.STROKE); paint.setColor(Color.BLACK); canvas.drawPath(arrow,paint);
+            canvas.restoreToCount(saved);
         }
     }
 }
