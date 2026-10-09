@@ -17,20 +17,26 @@ video mirroring. It is an independent prototype, not Samsung Multi Control.
 - Text clipboard and Windows-to-phone file transfer into Download.
 - Windows tray, settings, and release of input on disconnect/lock/suspend.
 
-Phone-edge return uses a temporary transparent four-pixel Android window, launched
-through authorized ADB without installing an APK. If the firmware does not allow
-that window, the journal reports the error and the hotkey remains available.
+Phone-edge return requires installing **GalaxyBridgeEdge.apk** on the phone,
+opening it once, and granting display-over-other-apps permission. A foreground
+service creates a transparent four-physical-pixel window only during phone
+control, inside the area available around system bars and cutouts. The regular
+ADB mouse/keyboard connection and hotkey remain usable without the APK.
+
 Drag-and-drop, image clipboard, and cursor positioning on entry are not implemented. Keyboard layouts
 are selected on Android. Media/Fn keys are outside the initial scope.
 
 ## Status
 
-Version 0.2.1 fixes initialization of the Android shell Application and the
-typed window context, and retains detailed edge-helper errors in the journal.
-This revision is **unbuilt and untested on hardware**. Source-package checks have
-been performed; these do not establish that the application compiles or works
-on Windows. See [validation](docs/VALIDATION.md) and the
-[hardware checklist](docs/TESTING.md).
+Version 0.3.0 replaces the shell window helper with an installed Android
+companion. The reported **Unknown pid ... uid=2000** arises when WindowManager
+cannot find the shell process in its application process map. Initializing a
+local context does not register that process; an ordinary installed service
+uses the normal Android application lifecycle.
+
+This revision is **unbuilt and untested on hardware**. Source-package checks
+do not establish that it compiles or works on Windows or One UI. See
+[validation](docs/VALIDATION.md) and the [hardware checklist](docs/TESTING.md).
 
 No executable or backend binaries are included in the source archive.
 The [GitHub Actions workflow](.github/workflows/build-windows.yml) only runs
@@ -41,8 +47,11 @@ when manually dispatched. A push or PR does not build the application.
 Upload the extracted files to a repository **at its root**, including `.github`,
 then open **Actions → Build Windows portable → Run workflow**. The workflow runs
 the portable C# tests, publishes a self-contained .NET 8 WinForms executable,
-downloads the pinned backend with SHA-256 checks, builds the Android edge helper
-using JDK 17 and Android SDK 35, and uploads a portable ZIP.
+downloads the pinned backend with SHA-256 checks, builds the Android companion
+with JDK 17 and Android SDK 35, and uploads GalaxyBridge-win10-x64 plus
+GalaxyBridgeEdge-android. The Windows ZIP also contains the APK.
+The development signing key changes per build: uninstall the previous APK
+before installing one from another build, then grant overlay permission again.
 It does not publish a release.
 
 For local build commands and phone setup, use [README.ru.md](README.ru.md).

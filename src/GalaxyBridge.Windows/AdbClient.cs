@@ -81,14 +81,6 @@ internal sealed class AdbClient
         return process;
     }
 
-    public Process StartEdgeHelper(string serial, string remoteJar)
-    {
-        Process process = new() { StartInfo = StartInfo(["-s", serial, "shell", "-T", $"CLASSPATH={remoteJar}",
-            "app_process", "/", "com.galaxybridge.edge.Main"]) };
-        if (!process.Start()) { process.Dispose(); throw new IOException("Не удалось запустить компонент автовозврата."); }
-        return process; // Commands use stdin; feedback uses stdout. Both are drained asynchronously.
-    }
-
     public async Task<IReadOnlyList<AdbDevice>> DevicesAsync(CancellationToken token)
     {
         VerifyBackend();

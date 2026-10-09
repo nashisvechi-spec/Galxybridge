@@ -9,3 +9,6 @@ backend/*
 *.suo
 *.log
 __pycache__/
+*.apk
+*.apk.idsig
+*.keystore

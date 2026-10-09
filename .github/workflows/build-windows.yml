@@ -35,12 +35,12 @@ jobs:
           -o artifacts/GalaxyBridge
       - name: Download verified connection backend
         run: ./scripts/Fetch-Backend.ps1 -Destination artifacts/GalaxyBridge/backend
-      - name: Set up Android SDK for the temporary edge helper
+      - name: Set up Android SDK for the edge companion APK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platforms;android-35 build-tools;35.0.0
-      - name: Build edge-return helper
-        run: ./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge/backend
+      - name: Build edge-return companion APK
+        run: ./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge
       - name: Include instructions and notices
         run: |
           Copy-Item README.ru.md, LICENSE, THIRD_PARTY_NOTICES.md -Destination artifacts/GalaxyBridge
@@ -54,5 +54,12 @@ jobs:
         with:
           name: GalaxyBridge-win10-x64
           path: artifacts/GalaxyBridge-win10-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Android companion APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: GalaxyBridgeEdge-android
+          path: artifacts/GalaxyBridge/GalaxyBridgeEdge.apk
           if-no-files-found: error
           retention-days: 14

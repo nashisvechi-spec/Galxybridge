@@ -115,6 +115,7 @@ internal sealed class MainForm : Form
         Add(controls, Label("Русский ввод: один раз выберите русскую и английскую раскладки для Galaxy Bridge Keyboard в настройках телефона."));
         Add(help, Label("Ctrl + Alt + F12 — переключение управления. На S25 при необходимости: Ctrl + Alt + Fn + F12 на ноутбуке."));
         Add(help, Label("Экран телефона должен быть разблокирован. Изображение остаётся на S25. Файлы сохраняются в папку Download. Буфер поддерживает текст. Удерживать экран включённым программа не заставляет."));
+        Add(help, Label("Автовозврат: отправьте GalaxyBridgeEdge.apk из папки сборки на S25 кнопкой «Отправить файл». Установите APK из Download, откройте Galaxy Bridge Edge и разрешите показ поверх других приложений. Затем переподключите телефон в программе."));
         Add(help, Label("Это тестовая версия самостоятельного приложения. На реальной связке HP + S25 её нужно проверить после сборки."));
         journal.MinimumSize = new Size(0, 160); Add(help, journal);
         Button instructions = Button("Открыть инструкцию"); instructions.Click += (_, _) => OpenInstructions(); Add(help, instructions);
@@ -234,7 +235,9 @@ internal sealed class MainForm : Form
             ct.ThrowIfCancellationRequested();
             if (!candidate.IsAlive) throw new IOException("Соединение завершилось при подключении.");
             session = candidate;
-            SetStatus($"{candidate.DeviceName} подключён. Ctrl + Alt + F12 передаст ему управление.");
+            SetStatus(candidate.AutoReturnReady
+                ? $"{candidate.DeviceName} подключён. Автовозврат готов; Ctrl + Alt + F12 передаст управление."
+                : $"{candidate.DeviceName} подключён. Автовозврат недоступен — см. журнал и инструкцию по APK. Ctrl + Alt + F12 передаст управление.");
             Log("Подключено устройство. Видео и звук не передаются.");
         }
         catch { await candidate.DisposeAsync(); throw; }

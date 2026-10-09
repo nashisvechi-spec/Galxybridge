@@ -5,12 +5,14 @@ namespace GalaxyBridge.Core;
 public sealed record PhoneEdgeSample(int CaptureId, long Sequence, int Width, int Height,
     double X, double Y, byte Buttons, long ReceivedAt)
 {
+    public DesktopBounds? Zone { get; init; }
     public static bool TryParse(string line, long now, out PhoneEdgeSample? sample)
     {
         sample = null;
         if (line.Length > 256) return false;
         string[] p = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (p.Length != 8 || p[0] != "GB_EDGE" ||
+        bool withZone = p.Length == 12 && p[0] == "GB_EDGE2";
+        if ((!withZone && (p.Length != 8 || p[0] != "GB_EDGE")) ||
             !int.TryParse(p[1], NumberStyles.None, CultureInfo.InvariantCulture, out int capture) || capture < 1 ||
             !long.TryParse(p[2], NumberStyles.None, CultureInfo.InvariantCulture, out long sequence) || sequence < 1 ||
             !int.TryParse(p[3], out int width) || width is < 16 or > 20000 ||
@@ -19,7 +21,16 @@ public sealed record PhoneEdgeSample(int CaptureId, long Sequence, int Width, in
             !double.TryParse(p[6], NumberStyles.Float, CultureInfo.InvariantCulture, out double y) || !double.IsFinite(y) ||
             !byte.TryParse(p[7], out byte buttons) || buttons > 7 || x < 0 || y < 0 || x >= width || y >= height)
             return false;
-        sample = new(capture, sequence, width, height, x, y, buttons, now);
+        DesktopBounds? zone = null;
+        if (withZone)
+        {
+            if (!int.TryParse(p[8], out int zx) || !int.TryParse(p[9], out int zy) ||
+                !int.TryParse(p[10], out int zw) || !int.TryParse(p[11], out int zh) ||
+                zx < 0 || zy < 0 || zw < 1 || zh < 1 || zw > width || zh > height ||
+                zx > width - zw || zy > height - zh || (zw > 4 && zh > 4)) return false;
+            zone = new(zx, zy, zw, zh);
+        }
+        sample = new(capture, sequence, width, height, x, y, buttons, now) { Zone = zone };
         return true;
     }
 }
@@ -32,6 +43,18 @@ public static class EdgeReturnPolicy
         if (sample.CaptureId != capture || capture < 1 || sample.Buttons != 0 || hostButtons != 0 || keyHeld ||
             now - enteredAt < 350 || now < sample.ReceivedAt || now - sample.ReceivedAt > 250 ||
             now < motionAt || now - motionAt > 200) return false;
+        if (sample.Zone is DesktopBounds zone)
+        {
+            if (sample.X < zone.X || sample.Y < zone.Y || sample.X >= zone.X + zone.Width || sample.Y >= zone.Y + zone.Height) return false;
+            return side switch
+            {
+                PhoneSide.Right => zone.Width <= 4 && zone.Height > 4 && dx < 0,
+                PhoneSide.Left => zone.Width <= 4 && zone.Height > 4 && dx > 0,
+                PhoneSide.Top => zone.Height <= 4 && zone.Width > 4 && dy > 0,
+                PhoneSide.Bottom => zone.Height <= 4 && zone.Width > 4 && dy < 0,
+                _ => false
+            };
+        }
         return side switch
         {
             PhoneSide.Right => sample.X < 4 && dx < 0,

@@ -80,7 +80,7 @@ def main() -> None:
                      'licenses/scrcpy-APACHE-2.0.txt', 'docs/ARCHITECTURE.md',
                      'docs/TESTING.md', 'docs/VALIDATION.md', '.gitignore',
                      '.gitattributes', 'backend/README.md', 'scripts/Fetch-Backend.ps1',
-                     'scripts/Build-EdgeHelper.ps1', 'android/edge-return/src/com/galaxybridge/edge/Main.java'):
+                     'scripts/Build-EdgeHelper.ps1', 'android/edge-return/AndroidManifest.xml'):
         read(required)
     sdk = json.loads(read('global.json'))['sdk']
     require(str(sdk['version']).startswith('8.0.'), 'SDK must stay on .NET 8')
@@ -129,7 +129,7 @@ def main() -> None:
     require(trigger is not None and trigger.group(1).strip() == 'workflow_dispatch:',
             'Workflow must be manual only; no push/PR/release trigger')
     actions = re.findall(r'uses:\s*([^\s]+)', workflow)
-    require(len(actions) == 4 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
+    require(len(actions) == 5 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
             'Actions must use pinned commit IDs')
     require('contents: read' in workflow and 'contents: write' not in workflow,
             'Build workflow requires read-only repository permissions')
@@ -137,15 +137,27 @@ def main() -> None:
             'Workflow must run portable tests')
     require('--self-contained true' in workflow and '-r win-x64' in workflow,
             'Portable Windows x64 publish configuration')
-    require('./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge/backend' in workflow,
-            'Portable archive must include the edge-return helper')
-    helper = ROOT / 'android/edge-return/src/com/galaxybridge/edge/Main.java'
-    balanced_csharp(helper)
+    require('./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge' in workflow and 'GalaxyBridgeEdge-android' in workflow,
+            'Workflow must package and separately upload the companion APK')
+    android = ET.fromstring(read('android/edge-return/AndroidManifest.xml'))
+    ns = '{http://schemas.android.com/apk/res/android}'
+    service = android.find('.//service')
+    require(service is not None and service.get(ns + 'permission') == 'android.permission.DUMP',
+            'Only authorized privileged callers may start the edge service')
+    require(service.get(ns + 'foregroundServiceType') == 'specialUse', 'Declare foreground service type')
+    permissions = {e.get(ns + 'name') for e in android.findall('uses-permission')}
+    require(permissions == {'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.FOREGROUND_SERVICE',
+                            'android.permission.FOREGROUND_SERVICE_SPECIAL_USE', 'android.permission.POST_NOTIFICATIONS'},
+            'Companion must not request screen, accessibility, storage or network access')
+    java = list((ROOT / 'android/edge-return/src').rglob('*.java'))
+    require(len(java) == 3, 'Expected setup activity, foreground service and edge window')
+    for helper in java:
+        balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]
     require(len(sources) >= 10, 'Application sources are incomplete')
     for path in sources:
         balanced_csharp(path)
-    print(f'PASS: {checks} source-package checks; {len(sources)} C# files and 1 Java file inspected')
+    print(f'PASS: {checks} source-package checks; {len(sources)} C# files and {len(java)} Java files inspected')
     print('No C#/Java compilation, executable build, network download, or device test performed.')
 
 

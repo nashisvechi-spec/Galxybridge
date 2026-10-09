@@ -101,6 +101,21 @@ Check(MayReturn(atLeft with { X = 1079 }, PhoneSide.Left, dx: 5), "phone on left
 Check(MayReturn(atLeft with { X = 500, Y = 2399 }, PhoneSide.Top, dx: 0, dy: 5), "phone above returns at bottom edge");
 Check(MayReturn(atLeft with { X = 500, Y = 0 }, PhoneSide.Bottom, dx: 0, dy: -5), "phone below returns at top edge");
 Check(MayReturn(atLeft with { Width = 2400, Height = 1080, Y = 500 }), "landscape phone edge");
+Check(PhoneEdgeSample.TryParse("GB_EDGE2 7 1 1080 2400 500 2298 0 0 2296 1080 4", 1000, out PhoneEdgeSample? insetEdge), "parse actual strip inside navigation bar inset");
+Check(insetEdge is not null && MayReturn(insetEdge, PhoneSide.Top, dx: 0, dy: 5), "return at actual inset boundary, not guessed full-display bottom");
+Check(insetEdge is not null && !MayReturn(insetEdge with { Y = 2295 }, PhoneSide.Top, dx: 0, dy: 5), "reject cursor outside actual strip");
+Check(insetEdge is not null && !MayReturn(insetEdge, PhoneSide.Right), "horizontal strip cannot act as vertical edge");
+Check(insetEdge is not null && !MayReturn(insetEdge, PhoneSide.Top, dx: 0, dy: -5), "inset edge still requires outward motion");
+Check(insetEdge is not null && !MayReturn(insetEdge, PhoneSide.Top, dx: 0, dy: 5, buttons: 1), "inset edge still blocks dragging");
+Check(PhoneEdgeSample.TryParse("GB_EDGE2 7 2 1080 2400 20 500 0 20 80 4 2240", 1000, out PhoneEdgeSample? cutoutEdge) &&
+    cutoutEdge is not null && MayReturn(cutoutEdge), "return at actual side inset around cutout");
+foreach (string badZone in new[] {
+    "GB_EDGE2 7 1 1080 2400 0 500 0 -1 0 4 2400",
+    "GB_EDGE2 7 1 1080 2400 0 500 0 0 0 0 2400",
+    "GB_EDGE2 7 1 1080 2400 0 500 0 1080 0 4 2400",
+    "GB_EDGE2 7 1 1080 2400 0 500 0 0 0 1080 2400",
+    "GB_EDGE2 7 1 1080 2400 0 500 0 2147483647 0 4 2400" })
+    Check(!PhoneEdgeSample.TryParse(badZone, 1000, out _), "reject invalid strip geometry " + badZone);
 Check(EdgeReturnPolicy.LaptopPosition(bounds, PhoneSide.Right, atLeft with { Y = 0 }) == (-3, -100), "map top of phone to negative-origin monitor");
 Check(EdgeReturnPolicy.LaptopPosition(bounds, PhoneSide.Right, atLeft with { Y = 2399 }) == (-3, 979), "map bottom of phone to monitor");
 Check(EdgeReturnPolicy.LaptopPosition(bounds, PhoneSide.Left, atLeft with { Y = 0 }) == (-1918, -100), "return at monitor left edge");

@@ -85,6 +85,8 @@ internal sealed class PhoneSession : IAsyncDisposable
         await stream.WriteAsync(ControlProtocol.CreateHid(ControlProtocol.KeyboardId, "Galaxy Bridge Keyboard", Hid.KeyboardDescriptor), ct);
         await stream.WriteAsync(ControlProtocol.CreateHid(ControlProtocol.MouseId, "Galaxy Bridge Mouse", Hid.MouseDescriptor), ct);
         writer = WriteLoopAsync(stream); reader = ReadLoopAsync(stream);
+        // The optional companion has its own timeout; it must not expire basic control.
+        deadline.CancelAfter(Timeout.InfiniteTimeSpan);
         edgeFeedback = new(adb, Serial, scid, log);
         edgeFeedback.Unavailable += message => AutoReturnUnavailable?.Invoke(message);
         try { await edgeFeedback.StartAsync(ct); }
