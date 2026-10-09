@@ -91,6 +91,7 @@ Check(mdns[0].OwnsTransport("192.168.0.23:38001") && !mdns[0].OwnsTransport("192
 AdbQrPairing qrPair = new("studio-AbCd123456", "0123456789ABCDEF0123456789ABCDEF");
 Check(qrPair.Payload == "WIFI:T:ADB;S:studio-AbCd123456;P:0123456789ABCDEF0123456789ABCDEF;;", "Android QR payload with final separator");
 Check(qrPair.Matches(mdns[1]) && !qrPair.Matches(mdns[0]), "only this QR pairing service is accepted");
+Check(qrPair.Matches(mdns[1] with { Instance = qrPair.ServiceName.ToLowerInvariant() }), "DNS names match independent of ASCII case");
 Check(!qrPair.ToString().Contains(qrPair.Secret, StringComparison.Ordinal), "QR credentials are redacted from ToString");
 Reject(() => _ = new AdbQrPairing("studio-Ab;d123456", qrPair.Secret).Payload, "reject QR delimiter injection");
 Reject(() => _ = new AdbQrPairing(qrPair.ServiceName, "123456").Payload, "QR secret length");
@@ -200,9 +201,16 @@ using MemoryStream truncated = new(new byte[] { 0,0,0 });
 bool eof = false;
 try { _ = await ControlProtocol.ReadDeviceMessageAsync(truncated, default); } catch (EndOfStreamException) { eof = true; }
 Check(eof, "disconnect during header surfaces as EOF");
-string uploadDirectory = FileTransfer.DirectoryName(new DateTimeOffset(2026, 10, 9, 18, 0, 0, TimeSpan.Zero), new string('a', 32));
-Check(uploadDirectory == "/sdcard/Download/GalaxyBridge/20261009-180000-" + new string('a', 32), "transfer directory inside Download with unique batch suffix");
-Reject(() => FileTransfer.DirectoryName(DateTimeOffset.Now, "../bad"), "reject directory traversal through batch nonce");
+Check(FileTransfer.Root == "/sdcard/Download/GalaxyBridge", "all uploads share one folder");
+Check(FileTransfer.AllocateNames(["photo.jpg", "PHOTO.JPG"], ["photo.jpg", "photo (2).jpg"])
+    .SequenceEqual(new[] { "photo (3).jpg", "PHOTO (4).JPG" }), "existing files and directories reserve their names across batches");
+Check(FileTransfer.ParseExistingNames(FileTransfer.Root + "/a\nline.txt\0" + FileTransfer.Root + "/folder\0" +
+    "/other/file\0" + FileTransfer.Root + "/nested/file\0").SequenceEqual(new[] { "a\nline.txt", "folder" }),
+    "NUL listing preserves names containing newlines and excludes other paths");
+string longName = new string('Я', 125) + ".png";
+string shortenedName = FileTransfer.AllocateNames([longName], [longName])[0];
+Check(shortenedName.EndsWith(" (2).png", StringComparison.Ordinal) && Encoding.UTF8.GetByteCount(shortenedName) <= 255,
+    "Unicode stem is shortened on rune boundary when a suffix is needed");
 string[] uploadNames = FileTransfer.AllocateNames(["photo.jpg", "photo.jpg", "PHOTO.JPG", "photo (2).jpg", "Икона 🕯.png", "README", "README"]);
 Check(uploadNames.Distinct(StringComparer.OrdinalIgnoreCase).Count() == 7, "equal names never overwrite in one batch");
 Check(uploadNames[0] == "photo.jpg" && uploadNames[1] == "photo (2).jpg" && uploadNames[2] == "PHOTO (3).JPG", "duplicates get suffix before extension");
@@ -215,6 +223,55 @@ Reject(() => FileTransfer.AllocateNames([new string('Я', 128)]), "enforce phone
 Check(FileTransfer.ShellQuote("O'Brien $(touch marker);.txt") == "'O'\"'\"'Brien $(touch marker);.txt'", "shell metacharacters remain in quoted filename");
 Check(FileTransfer.ShellQuote("a`b.txt") == "'a`b.txt'", "backticks stay literal in shell quoting");
 Reject(() => FileTransfer.ShellQuote("file\0name"), "reject NUL in shell argument");
+
+Check(AdbMdnsService.Parse("studio-AbCd123456._adb-tls-pairing._tcp.local. _adb-tls-pairing._tcp. 192.168.0.23:37001")[0].Instance == qrPair.ServiceName,
+    "normalize fully qualified pairing service names before exact QR matching");
+byte[] dnsQuery = MdnsPacket.Query("studio-AbCd123456._adb-tls-pairing._tcp.local", 33, 0x1234);
+Check(BinaryPrimitives.ReadUInt16BigEndian(dnsQuery) == 0x1234 && BinaryPrimitives.ReadUInt16BigEndian(dnsQuery.AsSpan(4)) == 1,
+    "direct mDNS query has transaction ID and one question");
+Equal(dnsQuery[^4..], "00210001", "legacy mDNS query asks for SRV in IN class");
+Reject(() => MdnsPacket.Query(new string('a', 64) + ".local", 33, 0), "reject DNS label longer than 63 bytes");
+Reject(() => MdnsPacket.Query("host..local", 1, 0), "reject empty interior DNS label");
+using MemoryStream dnsResponse = new();
+dnsResponse.Write(dnsQuery);
+byte[] dnsNamePointer = [0xC0, 0x0C];
+dnsResponse.Write(dnsNamePointer); // owner is the query name
+byte[] dnsHost = [7, (byte)'a', (byte)'n', (byte)'d', (byte)'r', (byte)'o', (byte)'i', (byte)'d', 5, (byte)'l', (byte)'o', (byte)'c', (byte)'a', (byte)'l', 0];
+byte[] srvHeader = new byte[10];
+BinaryPrimitives.WriteUInt16BigEndian(srvHeader, 33); BinaryPrimitives.WriteUInt16BigEndian(srvHeader.AsSpan(2), 0x8001);
+BinaryPrimitives.WriteUInt32BigEndian(srvHeader.AsSpan(4), 120);
+BinaryPrimitives.WriteUInt16BigEndian(srvHeader.AsSpan(8), (ushort)(6 + dnsHost.Length));
+dnsResponse.Write(srvHeader);
+byte[] srvData = new byte[6]; BinaryPrimitives.WriteUInt16BigEndian(srvData.AsSpan(4), 37001); dnsResponse.Write(srvData);
+int hostOffset = (int)dnsResponse.Position; dnsResponse.Write(dnsHost);
+dnsResponse.Write(new byte[] { (byte)(0xC0 | (hostOffset >> 8)), (byte)hostOffset });
+byte[] aHeader = new byte[10]; BinaryPrimitives.WriteUInt16BigEndian(aHeader, 1);
+BinaryPrimitives.WriteUInt16BigEndian(aHeader.AsSpan(2), 0x8001); BinaryPrimitives.WriteUInt32BigEndian(aHeader.AsSpan(4), 120);
+BinaryPrimitives.WriteUInt16BigEndian(aHeader.AsSpan(8), 4); dnsResponse.Write(aHeader); dnsResponse.Write(new byte[] { 192, 168, 0, 23 });
+byte[] dnsPacket = dnsResponse.ToArray();
+BinaryPrimitives.WriteUInt16BigEndian(dnsPacket.AsSpan(2), 0x8400);
+BinaryPrimitives.WriteUInt16BigEndian(dnsPacket.AsSpan(6), 1); BinaryPrimitives.WriteUInt16BigEndian(dnsPacket.AsSpan(10), 1);
+IReadOnlyList<MdnsRecord> dnsRecords = MdnsPacket.Parse(dnsPacket, 0x1234);
+Check(dnsRecords.Count == 2 && dnsRecords[0].Port == 37001 && dnsRecords[0].Target == "android.local" &&
+    dnsRecords[1].Address == "192.168.0.23", "parse compressed SRV owner and A owner across answer/additional sections");
+Reject(() => MdnsPacket.Parse(dnsPacket, 0x4321), "reject unrelated legacy response ID");
+Reject(() => MdnsPacket.Parse(dnsPacket[..^1], 0x1234), "reject truncated A record");
+byte[] loopingDns = (byte[])dnsPacket.Clone(); loopingDns[12] = 0xC0; loopingDns[13] = 12;
+Reject(() => MdnsPacket.Parse(loopingDns, 0x1234), "reject cyclic name pointer");
+byte[] oversizedDns = (byte[])dnsPacket.Clone(); BinaryPrimitives.WriteUInt16BigEndian(oversizedDns.AsSpan(6), 129);
+Reject(() => MdnsPacket.Parse(oversizedDns, 0x1234), "bound record count before reading untrusted packet");
+byte[] goodbyeDns = (byte[])dnsPacket.Clone();
+BinaryPrimitives.WriteUInt32BigEndian(goodbyeDns.AsSpan(dnsQuery.Length + 6), 0);
+Check(MdnsPacket.Parse(goodbyeDns, 0x1234).Count == 1, "ignore goodbye SRV with zero TTL");
+Random dnsFuzz = new(25);
+for (int i = 0; i < 200; i++)
+{
+    byte[] arbitraryDns = new byte[dnsFuzz.Next(0, 160)]; dnsFuzz.NextBytes(arbitraryDns);
+    if (arbitraryDns.Length >= 12)
+    { BinaryPrimitives.WriteUInt16BigEndian(arbitraryDns, 0x1234); BinaryPrimitives.WriteUInt16BigEndian(arbitraryDns.AsSpan(2), 0x8400); }
+    try { _ = MdnsPacket.Parse(arbitraryDns, 0x1234); } catch (FormatException) { }
+}
+Check(true, "arbitrary DNS bytes do not escape bounds or pointer validation");
 Console.WriteLine($"PASS: {checks} core assertions");
 
 sealed class FragmentedStream(Stream inner) : Stream

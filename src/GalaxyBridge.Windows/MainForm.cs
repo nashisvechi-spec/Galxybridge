@@ -146,12 +146,12 @@ internal sealed class MainForm : Form
         drop.TextAlign = ContentAlignment.MiddleCenter; drop.BorderStyle = BorderStyle.FixedSingle;
         Add(files, drop); Add(files, sendFile);
         Add(files, Label("Отправка на подключённый телефон через USB или Wi-Fi. Файлы копируются; оригиналы остаются на ноутбуке. Папки пока не поддерживаются."));
-        Add(files, Label("На S25: «Мои файлы → Внутренняя память → Download → GalaxyBridge». Для каждой отправки создаётся отдельная папка."));
+        Add(files, Label("На S25: «Мои файлы → Внутренняя память → Download → GalaxyBridge». Все отправки сохраняются здесь. Одноимённые файлы получают суффиксы (2), (3)."));
         Add(files, transferProgress); Add(files, transferStatus);
         Add(files, Label("Во время передачи управление остаётся на ноутбуке. Кнопка «Отменить» останавливает отправку; уже переданные файлы сохраняются."));
         Add(help, Label("Ctrl + Alt + F12 — переключение управления. На S25 при необходимости: Ctrl + Alt + Fn + F12 на ноутбуке."));
         Add(help, Label("Экран телефона должен быть разблокирован. Изображение остаётся на S25. Файлы сохраняются в папку Download. Буфер поддерживает текст. Удерживать экран включённым программа не заставляет."));
-        Add(help, Label("Автовозврат: отправьте GalaxyBridgeEdge.apk из папки сборки через вкладку «Файлы». Установите APK из Download/GalaxyBridge/папка отправки, откройте Galaxy Bridge Edge и разрешите показ поверх других приложений. Затем переподключите телефон в программе."));
+        Add(help, Label("Автовозврат: отправьте GalaxyBridgeEdge.apk из папки сборки через вкладку «Файлы». Установите APK из Download/GalaxyBridge, откройте Galaxy Bridge Edge и разрешите показ поверх других приложений. Затем переподключите телефон в программе."));
         Add(help, Label("Это тестовая версия самостоятельного приложения. На реальной связке HP + S25 её нужно проверить после сборки."));
         journal.MinimumSize = new Size(0, 160); Add(help, journal);
         Button instructions = Button("Открыть инструкцию"); instructions.Click += (_, _) => OpenInstructions(); Add(help, instructions);
@@ -466,14 +466,19 @@ internal sealed class MainForm : Form
     private async Task PairQrAsync(CancellationToken ct)
     {
         recovery.Pause();
-        using QrPairingForm dialog = new(adb, ct);
-        DialogResult result;
-        try { result = dialog.ShowDialog(this); }
-        finally { await dialog.Completion; }
-        ct.ThrowIfCancellationRequested();
-        if (result != DialogResult.OK || dialog.PairedEndpoint is not AdbEndpoint paired) return;
-        Log("QR-сопряжение выполнено. Секрет не сохранён.");
-        await ConnectPairedAsync(paired, ct);
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            using QrPairingForm dialog = new(adb, ct, Log);
+            DialogResult result;
+            try { result = dialog.ShowDialog(this); }
+            finally { await dialog.Completion; }
+            ct.ThrowIfCancellationRequested();
+            if (result == DialogResult.Retry) continue;
+            if (result != DialogResult.OK || dialog.PairedEndpoint is not AdbEndpoint paired) return;
+            Log("QR-сопряжение выполнено. Секрет не сохранён.");
+            await ConnectPairedAsync(paired, ct); return;
+        }
     }
     private async Task ConnectPairedAsync(AdbEndpoint pairing, CancellationToken ct)
     {
@@ -537,22 +542,23 @@ internal sealed class MainForm : Form
         if (local.Length == 0) return;
         foreach (string path in local)
             if (!File.Exists(path)) throw new IOException("Отправка поддерживает только существующие файлы. Уберите папки и повторите выбор.");
-        string[] names = FileTransfer.AllocateNames(local.Select(path => Path.GetFileName(path)));
-        string directory = FileTransfer.DirectoryName(DateTimeOffset.Now, Guid.NewGuid().ToString("N"));
+        _ = FileTransfer.AllocateNames(local.Select(path => Path.GetFileName(path))); // Validate before any write.
+        string directory = FileTransfer.Root;
         int completed = 0;
         transferProgress.Style = ProgressBarStyle.Marquee; transferProgress.Visible = true;
         transferStatus.Text = "Подготовка отправки…";
         try
         {
             ct.ThrowIfCancellationRequested();
-            await adb.CreateTransferDirectoryAsync(current.Serial, directory, ct);
+            string[] existing = await adb.PrepareTransferDirectoryAsync(current.Serial, ct);
+            string[] names = FileTransfer.AllocateNames(local.Select(path => Path.GetFileName(path)), existing);
             for (int i = 0; i < local.Length; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 if (session != current || !current.IsAlive) throw new IOException("Связь с телефоном потеряна.");
                 string temporaryName;
                 do { temporaryName = ".gb-" + Guid.NewGuid().ToString("N") + ".part"; }
-                while (names.Contains(temporaryName, StringComparer.OrdinalIgnoreCase));
+                while (names.Concat(existing).Contains(temporaryName, StringComparer.OrdinalIgnoreCase));
                 transferStatus.Text = $"Передаём {i + 1} из {local.Length}: {names[i]}\nГотово: {completed}.";
                 SetStatus($"Отправка файлов: {i + 1} из {local.Length}. Для остановки нажмите «Отменить».");
                 await adb.PushFileAsync(current.Serial, local[i], directory + "/" + temporaryName, directory + "/" + names[i], ct);

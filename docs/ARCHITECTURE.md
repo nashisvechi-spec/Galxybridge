@@ -158,11 +158,16 @@ File drops use WinForms FileDrop/Copy on the window and child controls. The
 file picker uses the same sequential batch path. Only existing ordinary files
 are accepted, duplicate source paths are collapsed, and same-name destinations
 are disambiguated case-insensitively. UTF-8 leaf names are limited to 255 bytes.
-A new timestamp/GUID directory is created under /sdcard/Download/GalaxyBridge;
-plain mkdir fails if it already exists. Each push targets a random private
+All batches use /sdcard/Download/GalaxyBridge. An idempotent mkdir -p creates
+the shared folder. A depth-one, NUL-delimited find listing reserves existing
+file/directory names; duplicate destinations get suffixes across batches.
+UTF-8 stems are shortened on rune boundaries when needed to fit a suffix. Each push targets a random private
 .part name; only successful pushes are renamed to their final names. Push uses
 ArgumentList, and every remote shell path is single-quoted with apostrophe
-escaping. mv -n plus a temporary-path absence check prevents silent replacement.
+escaping. mv -nT plus target/symlink checks and a temporary-path absence check prevents
+silent replacement, including treating an unexpected destination directory as
+a file conflict. Concurrent external writers can still cause a conflict that
+stops the batch, rather than replacing their file.
 Each push has a 30-minute limit, explicit cancellation and best-effort temporary
 cleanup with a separate three-second deadline. Completed files are preserved.
 After an error the batch stops; reconnect never replays file writes. If a rename
@@ -192,4 +197,30 @@ codec, tests and both pinned digests.
 Source inspection and portable protocol tests cannot verify Windows hook
 timing, overlay behavior, touchpad integration, One UI UHID access, Android
 layout configuration, or real clipboard behavior. Use `TESTING.md` after the
-first requested build. Windows 0.5.0 has not been compiled or tested on hardware.
+first requested build. Windows 0.5.1 has not been compiled or tested on hardware.
+
+## QR discovery fallback (Windows 0.5.1)
+
+The QR worker keeps polling through a failed ADB lookup and a failed pairing
+attempt, with a three-second pairing retry delay and the existing two-minute
+expiry. New QR code cancels/awaits the previous worker before generating fresh
+credentials. Diagnostic messages contain only stages, never credentials.
+ADB CLI instance names with service/local suffixes are normalized before
+matching the exact dialog name.
+
+When the service is missing from ADB, the Windows process sends bounded
+one-shot IPv4 mDNS queries for PTR/SRV/A records to 224.0.0.251:5353 on up to
+eight active interfaces. Ephemeral source ports request legacy unicast replies
+(RFC 6762 sections 5.1 and 6.7). Sessions last at most 1.4 seconds per interface,
+with at most 24 queries, 64 replies, 256 cached records and no persistent cache.
+Only the requested pairing instance is eligible. Connection discovery uses
+the already paired phone's IP. SRV/A answers must agree with the responder's
+own IPv4 source and UDP port 5353. QR secrets still go only to ADB stdin.
+The wire parser bounds packet size, counts, label lengths, record data and
+compression-pointer hops; ignores zero-TTL/unknown records; rejects truncated
+and unrelated responses. No scanning of TCP port ranges, ADB restart, firewall
+changes, Bonjour dependency or new companion permissions are introduced.
+IPv6-only or isolated networks may still need the code/IP fallback.
+
+References: [RFC 6762](https://www.rfc-editor.org/rfc/rfc6762),
+[DNS wire/compression](https://www.rfc-editor.org/rfc/rfc1035).

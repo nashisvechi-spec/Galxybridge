@@ -63,7 +63,14 @@ internal sealed class DeviceDiscovery(AdbClient adb)
         {
             while (true)
             {
-                IReadOnlyList<AdbMdnsService> services = await adb.MdnsAsync(wait.Token);
+                IReadOnlyList<AdbMdnsService> services = [];
+                try { services = await adb.MdnsAsync(wait.Token); }
+                catch (Exception ex) when (ex is IOException or TimeoutException) { }
+                if (!services.Any(s => s.Connect && s.Endpoint.Address == pairing.Address))
+                {
+                    try { services = await LocalMdnsDiscovery.ConnectAsync(pairing.Address, wait.Token); }
+                    catch (System.Net.NetworkInformation.NetworkInformationException) { }
+                }
                 // Pairing is bound to this phone's IP and this dialog's secret, never to an arbitrary ready device.
                 foreach (AdbMdnsService service in services.Where(s => s.Connect && s.Endpoint.Address == pairing.Address))
                 {

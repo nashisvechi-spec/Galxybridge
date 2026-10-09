@@ -17,7 +17,7 @@ video mirroring. It is an independent prototype, not Samsung Multi Control.
 - Optional entry by dwelling at a chosen PC screen edge for 350 ms.
 - Automatic return at the phone edge facing the PC, enabled by default.
 - Text clipboard and multiple file uploads by dropping into the window or using the file picker.
-  Each batch goes into its own folder under Download/GalaxyBridge; duplicates get suffixes.
+  All uploads go into Download/GalaxyBridge; existing names and batch duplicates get suffixes.
 - Windows tray, settings, and release of input on disconnect/lock/suspend.
 
 Phone-edge return requires installing **GalaxyBridgeEdge.apk** on the phone,
@@ -31,8 +31,9 @@ are selected on Android. Media/Fn keys are outside the initial scope.
 
 ## Status
 
-Version 0.5.0 adds file drops into the Windows window and multiple file selection,
-with cancellable batches and temporary uploads. Automatic connection, recovery
+Version 0.5.1 uses one shared upload folder and adds resilient QR discovery
+with direct local IPv4 mDNS fallback, retries and a new-code button. Window
+file drops, multiple selection and cancellable temporary uploads remain available. Automatic connection, recovery
 and local QR pairing from 0.4.0 remain available.
 The Android companion stays at 0.3.0. Version 0.3.0 replaced the shell window helper with an installed Android
 companion. The reported **Unknown pid ... uid=2000** arises when WindowManager
@@ -90,12 +91,20 @@ have separate licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Connect the phone, open the Files tab and drop ordinary files from Explorer
 into the window, or use the multiple-file picker. Files are copied, never moved.
-Find them in internal storage → Download → GalaxyBridge → the batch folder.
+Find them in internal storage → Download → GalaxyBridge. Existing batch folders from 0.5.0 are left in place.
 The activity indicator and file counter do not report a per-file percentage.
 Cancel stops the batch; confirmed files remain. An offline phone may retain a
 `.gb-….part` file if cleanup fails. After reconnection, select remaining files
 again. A lost rename acknowledgement may leave the last file already complete:
-check the phone folder before retrying. Folders and virtual mail attachments
+check the phone folder before retrying. Same-name files receive numbered suffixes. Folders and virtual mail attachments
 are not supported. Filename size is limited to 255 UTF-8 bytes.
 Use the picker or run without elevation if Explorer drops are blocked by Windows.
 No Android companion update is required for file sending.
+
+QR discovery first checks the running ADB server, then sends local IPv4 mDNS
+queries from up to eight active interfaces when the pairing service is absent.
+It keeps the QR visible through transient lookup/pairing failures and offers
+New QR code to restart with fresh credentials. The same fallback resolves the
+connection service after successful pairing. It does not restart ADB, change
+firewall rules or bypass router isolation. The original QR failure reported by
+the user has not been reproduced on their hardware; these fixes still need testing.

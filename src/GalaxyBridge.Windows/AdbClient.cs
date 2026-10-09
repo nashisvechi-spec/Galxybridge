@@ -119,12 +119,11 @@ internal sealed class AdbClient
         AdbMdnsService.Parse(await RunAsync(["mdns", "services"], token, timeoutSeconds: 4));
     public async Task<PhoneIdentity> IdentityAsync(string serial, CancellationToken token) =>
         PhoneIdentity.ParseProperties(await RunAsync(["-s", serial, "shell", "getprop"], token, timeoutSeconds: 4));
-    public async Task CreateTransferDirectoryAsync(string serial, string directory, CancellationToken token)
+    public async Task<string[]> PrepareTransferDirectoryAsync(string serial, CancellationToken token)
     {
-        // mkdir without -p on the batch directory fails rather than reusing an existing batch.
         string command = "mkdir -p " + FileTransfer.ShellQuote(FileTransfer.Root) +
-            " && mkdir " + FileTransfer.ShellQuote(directory);
-        _ = await RunAsync(["-s", serial, "shell", command], token);
+            " && find " + FileTransfer.ShellQuote(FileTransfer.Root) + " -mindepth 1 -maxdepth 1 -print0";
+        return FileTransfer.ParseExistingNames(await RunAsync(["-s", serial, "shell", command], token));
     }
 
     public async Task PushFileAsync(string serial, string localPath, string temporaryPath,
@@ -136,7 +135,8 @@ internal sealed class AdbClient
             // Copy to a private temporary file; expose the final name only on success.
             _ = await RunAsync(["-s", serial, "push", localPath, temporaryPath], token, timeoutSeconds: 1800);
             token.ThrowIfCancellationRequested();
-            string command = "test ! -e " + FileTransfer.ShellQuote(destination) + " && mv -n " +
+            string command = "test ! -e " + FileTransfer.ShellQuote(destination) + " && test ! -L " +
+                FileTransfer.ShellQuote(destination) + " && mv -nT " +
                 FileTransfer.ShellQuote(temporaryPath) + " " + FileTransfer.ShellQuote(destination) +
                 " && test ! -e " + FileTransfer.ShellQuote(temporaryPath);
             _ = await RunAsync(["-s", serial, "shell", command], token);

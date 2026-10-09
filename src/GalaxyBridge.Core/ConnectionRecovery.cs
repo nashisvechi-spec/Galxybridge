@@ -58,10 +58,14 @@ public sealed record AdbMdnsService(string Instance, string Type, AdbEndpoint En
         foreach (string line in output.Split('\n'))
         {
             string[] p = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (p.Length != 3 || p[0].Length > 128) continue;
+            if (p.Length < 3 || p[0].Length > 256) continue;
             string type = p[1].TrimEnd('.');
             if (type is not ("_adb-tls-pairing._tcp" or "_adb-tls-connect._tcp")) continue;
-            try { result.Add(new(p[0], type, AdbEndpoint.Parse(p[2]))); }
+            string instance = p[0].TrimEnd('.');
+            foreach (string suffix in new[] { "." + type + ".local", "." + type })
+                if (instance.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) { instance = instance[..^suffix.Length]; break; }
+            if (instance.Length is < 1 or > 128) continue;
+            try { result.Add(new(instance, type, AdbEndpoint.Parse(p[2]))); }
             catch (FormatException) { }
         }
         return result;
@@ -80,7 +84,7 @@ public sealed record AdbQrPairing(string ServiceName, string Secret)
             return $"WIFI:T:ADB;S:{ServiceName};P:{Secret};;";
         }
     }
-    public bool Matches(AdbMdnsService service) => service.Pairing && service.Instance == ServiceName;
+    public bool Matches(AdbMdnsService service) => service.Pairing && service.Instance.Equals(ServiceName, StringComparison.OrdinalIgnoreCase);
     public override string ToString() => "ADB QR pairing (secret omitted)";
 }
 

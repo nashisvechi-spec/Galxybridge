@@ -7,16 +7,9 @@ public static class FileTransfer
 {
     public const string Root = "/sdcard/Download/GalaxyBridge";
 
-    public static string DirectoryName(DateTimeOffset time, string nonce)
+    public static string[] AllocateNames(IEnumerable<string> names, IEnumerable<string>? existing = null)
     {
-        if (nonce.Length != 32 || !nonce.All(c => char.IsAsciiHexDigit(c)))
-            throw new FormatException("Неверный идентификатор передачи.");
-        return Root + "/" + time.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-" + nonce;
-    }
-
-    public static string[] AllocateNames(IEnumerable<string> names)
-    {
-        HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> used = new(existing ?? [], StringComparer.OrdinalIgnoreCase);
         List<string> result = [];
         foreach (string name in names)
         {
@@ -26,13 +19,26 @@ public static class FileTransfer
             string stem = dot > 0 ? name[..dot] : name, extension = dot > 0 ? name[dot..] : "";
             for (int suffix = 2; !used.Add(candidate); suffix++)
             {
-                candidate = stem + " (" + suffix.ToString(CultureInfo.InvariantCulture) + ")" + extension;
+                string tail = " (" + suffix.ToString(CultureInfo.InvariantCulture) + ")" + extension;
+                int remaining = 255 - Encoding.UTF8.GetByteCount(tail);
+                if (remaining < 1) throw new FormatException("Укоротите расширение файла для добавления суффикса.");
+                StringBuilder shortened = new();
+                foreach (Rune rune in stem.EnumerateRunes())
+                {
+                    if (rune.Utf8SequenceLength > remaining) break;
+                    shortened.Append(rune.ToString()); remaining -= rune.Utf8SequenceLength;
+                }
+                candidate = shortened.ToString() + tail;
                 ValidateName(candidate);
             }
             result.Add(candidate);
         }
         return result.ToArray();
     }
+
+    public static string[] ParseExistingNames(string output) => output.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+        .Where(path => path.StartsWith(Root + "/", StringComparison.Ordinal))
+        .Select(path => path[(Root.Length + 1)..]).Where(name => name.Length > 0 && !name.Contains('/')).ToArray();
 
     private static void ValidateName(string name)
     {
