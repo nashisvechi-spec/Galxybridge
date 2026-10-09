@@ -21,6 +21,55 @@ No mirroring window or scrcpy desktop executable is used. The server runs
 under the authorized Android debugging session. It does not install an APK.
 USB and wireless debugging share this same session path.
 
+## Discovery, pairing and recovery (Windows 0.4.0)
+
+The UI owns a monotonic ConnectionRecovery schedule and one cancellable
+operation at a time. Startup and recovery are separate states/options.
+Discovery has a 12-second budget. Retries wait 2, 4, 8, 16, then 30 seconds
+after a failed attempt. Manual disconnect/cancel pauses automation, including
+late loss callbacks; successful connection resets the schedule. Desktop lock
+and suspend stop capture and pause automatic work without entering phone
+capture again on resume.
+
+A successful connection saves hardware serial, Wi-Fi GUID, model, current
+transport and any known endpoint. DeviceDiscovery first inspects ready
+transports, then only matching _adb-tls-connect services, and finally a saved
+endpoint. Hardware identity is checked by a getprop round trip before starting
+scrcpy. The hardware serial takes precedence over GUID if both are present;
+a reused IP cannot select a different phone. Missing identity disables remembering
+that connection. The persistent GUID already includes the adb- prefix in AOSP,
+and can be the full service instance name. No subnet scanning is performed.
+
+PhoneSession probes a harmless shell echo every three seconds with a four-second
+timeout. Unlike get-state, this reaches the phone rather than checking the
+server's cached transport state. Socket EOF, write failures, unhealthy response
+or probe timeout invoke the existing loss path: release Windows input, clean up
+only the current session's server/forwards, and schedule recovery. Closing awaits
+both the active operation and the health task.
+
+QrPairingForm creates a fresh studio- name and 128-bit hexadecimal secret,
+encodes WIFI:T:ADB;S:<name>;P:<secret>;; locally with pinned QRCoder 1.8.0,
+and paints square modules with a quiet zone. The two-minute dialog polls ADB
+mDNS for the exact requested pairing instance; only that endpoint receives
+the secret through stdin. Successful pairing must be confirmed by ADB's
+response. Code pairing now checks the same confirmation.
+
+After pairing, the app waits up to 12 seconds for a TLS-connect service at the
+paired phone's IP, connects that transport and starts control. Failure to resolve
+that separate port prompts manual entry without claiming pairing failed.
+Cancellation and close stop/await the QR worker before disposal. The outer UI
+operation yields before opening any modal dialog, so shutdown can track it.
+
+QR credentials are not persisted, logged or included in process arguments.
+Device profiles are non-secret local preferences. ADB still stores/manages its
+host private key. Setting ADB_MDNS_OPENSCREEN=1 chooses native discovery for a
+new server; an already-running ADB server is not restarted. Multicast discovery
+and Samsung firmware behavior require hardware validation.
+
+Primary protocol references:
+[ADB Wi-Fi architecture](https://android.googlesource.com/platform/packages/modules/adb/+/HEAD/docs/dev/adb_wifi.md)
+and [daemon mDNS GUID](https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/main/daemon/mdns.cpp).
+
 ## Input
 
 Low-level keyboard and mouse hooks are retained as rooted delegates for the
@@ -108,7 +157,7 @@ Windows text clipboard only when sharing is enabled.
 File transfer is a separately cancellable `adb push` into Download. It has
 ADB's replacement semantics for existing names. It is not shell-based
 drag-and-drop. Pairing codes go to ADB's stdin, not process arguments. Settings
-contain only preferences, not the pairing code, device serial or Wi-Fi address.
+contain preferences and a remembered device profile, but no pairing code or QR secret.
 ADB itself manages its host authentication keys.
 
 ## Shutdown and protocol maintenance
@@ -128,4 +177,4 @@ codec, tests and both pinned digests.
 Source inspection and portable protocol tests cannot verify Windows hook
 timing, overlay behavior, touchpad integration, One UI UHID access, Android
 layout configuration, or real clipboard behavior. Use `TESTING.md` after the
-first requested build. Version 0.3.0 has not been compiled or tested on hardware.
+first requested build. Windows 0.4.0 has not been compiled or tested on hardware.

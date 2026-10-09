@@ -10,11 +10,15 @@ internal sealed class MainForm : Form
     private readonly AdbClient adb = new();
     private readonly Settings settings = Settings.Load();
     private readonly CancellationTokenSource lifetime = new();
+    private readonly ConnectionRecovery recovery = new();
+    private readonly DeviceDiscovery discovery;
     private InputCapture? capture;
     private PhoneSession? session;
     private CancellationTokenSource? operation;
     private Task? pendingOperation, pendingDisconnect;
     private bool busy, disconnecting, closing, closed, edgeArmed = true;
+    private bool automaticOperation, desktopLocked, sleeping;
+    private string? lastAutoError;
     private string? cachedClipboard;
     private DateTime? edgeSince;
     private readonly ComboBox devices = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
@@ -23,19 +27,25 @@ internal sealed class MainForm : Form
     private readonly CheckBox share = new() { Text = "Общий текстовый буфер", AutoSize = true };
     private readonly CheckBox edge = new() { Text = "Вход на телефон через край экрана", AutoSize = true };
     private readonly CheckBox edgeReturn = new() { Text = "Автовозврат через край телефона", AutoSize = true };
+    private readonly CheckBox autoConnect = new() { Text = "Автоподключение к последнему телефону при запуске", AutoSize = true };
+    private readonly CheckBox reconnect = new() { Text = "Восстанавливать связь после обрыва", AutoSize = true };
+    private readonly Label remembered = new() { AutoSize = true, MaximumSize = new Size(620, 0) };
     private readonly TextBox wifi = new() { PlaceholderText = "192.168.1.10:37121", Dock = DockStyle.Fill };
     private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(660, 0), Padding = new Padding(0, 12, 0, 12) };
     private readonly TextBox journal = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill };
     private readonly Button refresh = Button("Найти устройства"), connect = Button("Подключить выбранный"),
         disconnect = Button("Отключить"), toggle = Button("Управлять телефоном"), pair = Button("Сопряжение Wi-Fi"),
         wifiConnect = Button("Подключиться по Wi-Fi"), sendFile = Button("Отправить файл"), layout = Button("Раскладка клавиатуры");
+    private readonly Button pairQr = Button("Сопряжение по QR-коду"), forget = Button("Забыть последний телефон");
     private readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Visible = true, Text = "Galaxy Bridge" };
     private readonly System.Windows.Forms.Timer edgeTimer = new() { Interval = 50 };
     private readonly System.Windows.Forms.Timer clipboardRetry = new() { Interval = 50 };
+    private readonly System.Windows.Forms.Timer autoTimer = new() { Interval = 1000 };
     private int clipboardRetries;
 
     public MainForm()
     {
+        discovery = new(adb);
         Text = "Galaxy Bridge • Windows 10"; StartPosition = FormStartPosition.CenterScreen;
         Size = new Size(760, Math.Min(760, (Screen.PrimaryScreen?.WorkingArea.Height ?? 800) - 50));
         MinimumSize = new Size(640, 480); BackColor = Color.FromArgb(18, 24, 38);
@@ -45,11 +55,19 @@ internal sealed class MainForm : Form
         side.SelectedIndex = (int)settings.PhoneSide;
         speed.Value = (decimal)settings.Sensitivity; share.Checked = settings.ClipboardEnabled; edge.Checked = settings.EdgeEntryEnabled;
         edgeReturn.Checked = settings.EdgeReturnEnabled;
+        autoConnect.Checked = settings.AutoConnectEnabled; reconnect.Checked = settings.ReconnectEnabled;
+        UpdateRemembered();
         refresh.Click += async (_, _) => await RunAsync(RefreshAsync);
         connect.Click += async (_, _) => await RunAsync(ConnectAsync);
         pair.Click += async (_, _) => await RunAsync(PairAsync);
-        wifiConnect.Click += async (_, _) => await RunAsync(async ct => { await adb.ConnectWifiAsync(wifi.Text, ct); await RefreshAsync(ct); SetStatus("Телефон найден по Wi-Fi. Выберите его и нажмите «Подключить выбранный»."); });
-        disconnect.Click += async (_, _) => { if (busy) operation?.Cancel(); else await DisconnectAsync(); };
+        pairQr.Click += async (_, _) => await RunAsync(PairQrAsync);
+        wifiConnect.Click += async (_, _) => await RunAsync(ConnectWifiAsync);
+        disconnect.Click += async (_, _) =>
+        {
+            if (busy) { if (automaticOperation || session is null) recovery.Pause(); operation?.Cancel(); }
+            else await DisconnectAsync();
+        };
+        forget.Click += (_, _) => { recovery.Pause(); settings.LastPhone = null; SaveSettings(); UpdateRemembered(); UpdateButtons(); SetStatus("Последний телефон забыт. Выберите устройство для нового подключения."); };
         toggle.Click += (_, _) => ToggleCapture();
         sendFile.Click += async (_, _) => await RunAsync(SendFileAsync);
         layout.Click += (_, _) => session?.Send([15]);
@@ -58,8 +76,11 @@ internal sealed class MainForm : Form
         share.CheckedChanged += (_, _) => settings.ClipboardEnabled = share.Checked;
         edge.CheckedChanged += (_, _) => { settings.EdgeEntryEnabled = edge.Checked; edgeSince = null; };
         edgeReturn.CheckedChanged += (_, _) => { StopCapture(); settings.EdgeReturnEnabled = edgeReturn.Checked; };
+        autoConnect.CheckedChanged += (_, _) => { settings.AutoConnectEnabled = autoConnect.Checked; AutomationChanged(autoConnect.Checked); };
+        reconnect.CheckedChanged += (_, _) => { settings.ReconnectEnabled = reconnect.Checked; AutomationChanged(reconnect.Checked); };
         edgeTimer.Tick += (_, _) => CheckEdge();
         clipboardRetry.Tick += (_, _) => { if (++clipboardRetries > 3) clipboardRetry.Stop(); else ReadClipboard(); };
+        autoTimer.Tick += async (_, _) => await TryAutomaticAsync();
         tray.DoubleClick += (_, _) => OpenWindow();
         ContextMenuStrip menu = new();
         menu.Items.Add("Открыть", null, (_, _) => OpenWindow());
@@ -103,9 +124,11 @@ internal sealed class MainForm : Form
         tabs.TabPages.AddRange([connectPage, controlPage, helpPage]); root.Controls.Add(tabs, 0, 2);
         Add(connection, Label("Телефон через USB или Wi-Fi")); Add(connection, devices); Add(connection, Row(refresh, connect));
         Add(connection, Label("USB: подключите S25 кабелем для передачи данных и разрешите отладку на телефоне."));
-        Add(connection, Label("Wi-Fi: включите «Беспроводная отладка». Для первого подключения используйте код сопряжения."));
-        Add(connection, pair); Add(connection, Label("IP-адрес и порт подключения с основной страницы «Беспроводная отладка»:"));
+        Add(connection, Label("Wi-Fi: включите «Беспроводная отладка». Для первого подключения используйте QR-код или код сопряжения."));
+        Add(connection, Row(pairQr, pair)); Add(connection, Label("IP-адрес и порт подключения с основной страницы «Беспроводная отладка»:"));
         Add(connection, wifi); Add(connection, wifiConnect);
+        Add(connection, autoConnect); Add(connection, reconnect); Add(connection, remembered); Add(connection, forget);
+        Add(connection, Label("При восстановлении связи курсор остаётся на ноутбуке. «Отключить» приостанавливает автоматические попытки до нового подключения или перезапуска программы."));
         Add(controls, Label("Расположение телефона относительно монитора")); Add(controls, side);
         Add(controls, edge); Add(controls, edgeReturn);
         Add(controls, Label("Вход: задержите курсор у края ноутбука на 350 мс. Возврат: двигайте его через край телефона в сторону ноутбука. Отпустите кнопки и клавиши. Горячая клавиша остаётся запасным способом."));
@@ -134,6 +157,7 @@ internal sealed class MainForm : Form
             capture.Error += text => Ui(() => { StopCapture(); SetStatus(text, true); });
             _ = Native.AddClipboardFormatListener(Handle); ReadClipboard(); edgeTimer.Start();
             await RunAsync(RefreshAsync);
+            if (!closing) { autoTimer.Start(); await TryAutomaticAsync(); }
         }
         catch (Exception e) { SetStatus(e.Message, true); }
     }
@@ -190,24 +214,37 @@ internal sealed class MainForm : Form
     {
         bool attached = session is not null;
         bool available = !disconnecting && !closing;
-        refresh.Enabled = connect.Enabled = pair.Enabled = wifiConnect.Enabled = !busy && !attached && available;
+        bool waiting = settings.LastPhone is not null && !recovery.Paused &&
+            (recovery.Recovering ? settings.ReconnectEnabled : settings.AutoConnectEnabled);
+        refresh.Enabled = connect.Enabled = pair.Enabled = pairQr.Enabled = wifiConnect.Enabled = !busy && !attached && available;
+        forget.Enabled = !busy && available && settings.LastPhone is not null;
         devices.Enabled = !busy && !attached && available;
         toggle.Enabled = !busy && attached && capture is not null && available;
         sendFile.Enabled = layout.Enabled = !busy && attached && available;
-        disconnect.Enabled = (busy || attached) && available; disconnect.Text = busy ? "Отменить" : "Отключить";
+        disconnect.Enabled = (busy || attached || waiting) && available;
+        disconnect.Text = busy ? "Отменить" : attached ? "Отключить" : waiting ? "Остановить автоподключение" : "Отключить";
         toggle.Text = capture?.Active == true ? "Вернуть управление ноутбуку" : "Управлять телефоном";
     }
-    private async Task RunAsync(Func<CancellationToken, Task> action)
+    private async Task RunAsync(Func<CancellationToken, Task> action, bool automatic = false)
     {
         if (busy || disconnecting || closing) return;
-        StopCapture(); busy = true;
+        StopCapture(); busy = true; automaticOperation = automatic;
         using CancellationTokenSource current = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         operation = current; UpdateButtons();
-        try { pendingOperation = action(current.Token); await pendingOperation; }
+        try { pendingOperation = InvokeActionAsync(action, current.Token); await pendingOperation; }
         catch (OperationCanceledException) { if (!closing) SetStatus("Операция отменена."); }
-        catch (Exception e) { if (!closing) { SetStatus(e.Message, true); Log("Операция не выполнена: " + e.GetType().Name); } }
-        finally { pendingOperation = null; operation = null; busy = false; if (!closing) UpdateButtons(); }
+        catch (Exception e)
+        {
+            if (!closing)
+            {
+                if (automatic) AutomaticFailed(e);
+                else { SetStatus(e.Message, true); Log("Операция не выполнена: " + e.GetType().Name); }
+            }
+        }
+        finally { pendingOperation = null; operation = null; busy = automaticOperation = false; if (!closing) UpdateButtons(); }
     }
+    private static async Task InvokeActionAsync(Func<CancellationToken, Task> action, CancellationToken ct)
+    { await Task.Yield(); ct.ThrowIfCancellationRequested(); await action(ct); }
     private async Task RefreshAsync(CancellationToken ct)
     {
         IReadOnlyList<AdbDevice> list = await adb.DevicesAsync(ct);
@@ -221,13 +258,29 @@ internal sealed class MainForm : Form
     {
         if (devices.SelectedItem is not AdbDevice device) throw new InvalidOperationException("Сначала найдите и выберите телефон.");
         if (!device.Ready) throw new InvalidOperationException("Телефон не готов. Разрешите отладку и повторите поиск устройств.");
+        recovery.Pause();
+        await ConnectDeviceAsync(device, ct);
+    }
+    private async Task ConnectDeviceAsync(AdbDevice device, CancellationToken ct, PhoneIdentity? verified = null, string endpoint = "")
+    {
         SetStatus("Подключаемся к телефону…");
+        PhoneIdentity identity = verified ?? new("", "");
+        if (verified is null)
+        {
+            try { identity = await adb.IdentityAsync(device.Serial, ct); }
+            catch (Exception ex) when (ex is IOException or TimeoutException) { Log("Идентификатор телефона недоступен; автоматическое подключение не будет сохранено."); }
+        }
         PhoneSession candidate = new(adb, device.Serial, Log);
         candidate.ClipboardReceived += text => SetPhoneClipboard(candidate, text);
         candidate.AutoReturnUnavailable += text => Ui(() => { if (session == candidate && capture?.Active == true) SetStatus(text, true); });
         candidate.ConnectionLost += text => Ui(async () =>
         {
-            if (session == candidate) { StopCapture(); await DisconnectAsync(); SetStatus(text, true); }
+            if (session == candidate)
+            {
+                StopCapture(); recovery.Lost(Environment.TickCount64); await DisconnectAsync(manual: false);
+                if (!closing) SetStatus(text + (settings.ReconnectEnabled && settings.LastPhone is not null && !recovery.Paused
+                    ? " Ожидаем телефон для восстановления связи…" : ""), true);
+            }
         });
         try
         {
@@ -235,15 +288,17 @@ internal sealed class MainForm : Form
             ct.ThrowIfCancellationRequested();
             if (!candidate.IsAlive) throw new IOException("Соединение завершилось при подключении.");
             session = candidate;
+            RememberPhone(device, identity, endpoint); recovery.Succeeded(); lastAutoError = null; edgeArmed = false;
             SetStatus(candidate.AutoReturnReady
                 ? $"{candidate.DeviceName} подключён. Автовозврат готов; Ctrl + Alt + F12 передаст управление."
                 : $"{candidate.DeviceName} подключён. Автовозврат недоступен — см. журнал и инструкцию по APK. Ctrl + Alt + F12 передаст управление.");
             Log("Подключено устройство. Видео и звук не передаются.");
         }
-        catch { await candidate.DisposeAsync(); throw; }
+        catch { if (session == candidate) session = null; await candidate.DisposeAsync(); throw; }
     }
-    private async Task DisconnectAsync()
+    private async Task DisconnectAsync(bool manual = true)
     {
+        if (manual) recovery.Pause();
         if (pendingDisconnect is not null) { await pendingDisconnect; return; }
         operation?.Cancel(); StopCapture();
         PhoneSession? previous = session; session = null; disconnecting = true; UpdateButtons();
@@ -255,6 +310,78 @@ internal sealed class MainForm : Form
         catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception)
         { if (!closing) SetStatus("Связь закрыта. Не удалось завершить очистку: " + ex.GetType().Name, true); }
         finally { pendingDisconnect = null; disconnecting = false; if (!closing) UpdateButtons(); }
+    }
+    private void SaveSettings()
+    {
+        try { settings.Save(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { Log("Настройки не удалось сохранить: " + ex.GetType().Name); }
+    }
+    private void UpdateRemembered() => remembered.Text = settings.LastPhone is { } phone
+        ? "Последний телефон: " + phone.Model : "Последний телефон появится после первого подключения.";
+    private void RememberPhone(AdbDevice device, PhoneIdentity identity, string endpoint)
+    {
+        RememberedPhone? previous = settings.LastPhone;
+        bool same = previous?.Identity.Matches(identity) == true;
+        if (endpoint.Length == 0)
+        { try { endpoint = AdbEndpoint.Parse(device.Serial).ToString(); } catch (FormatException) { } }
+        if (same && previous is not null)
+        {
+            if (endpoint.Length == 0) endpoint = previous.WifiEndpoint;
+            identity = new(identity.HardwareSerial.Length > 0 ? identity.HardwareSerial : previous.Identity.HardwareSerial,
+                identity.WifiGuid.Length > 0 ? identity.WifiGuid : previous.Identity.WifiGuid);
+        }
+        string model = device.Model.Length <= 128 ? device.Model : device.Model[..128];
+        settings.LastPhone = identity.Known ? new(identity, model, device.Serial, endpoint) : null;
+        SaveSettings(); UpdateRemembered();
+    }
+    private void AutomationChanged(bool enabled)
+    {
+        SaveSettings();
+        if (enabled) recovery.Resume(Environment.TickCount64);
+        else if (automaticOperation && !(recovery.Recovering ? reconnect.Checked : autoConnect.Checked)) operation?.Cancel();
+        UpdateButtons();
+    }
+    private void AutomaticFailed(Exception? error)
+    {
+        recovery.Failed(Environment.TickCount64);
+        SetStatus(recovery.Recovering ? "Связь пока не восстановлена. Ожидаем последний телефон…"
+            : "Последний телефон пока недоступен. Ожидаем USB или Wi-Fi…");
+        string reason = error?.GetType().Name ?? "NotFound";
+        if (reason != lastAutoError) { lastAutoError = reason; Log("Автоподключение: " + reason + ". Повторяем поиск с паузой до 30 секунд."); }
+    }
+    private async Task TryAutomaticAsync()
+    {
+        if (settings.LastPhone is not { Valid: true } phone ||
+            !recovery.Due(settings.AutoConnectEnabled, settings.ReconnectEnabled, desktopLocked || sleeping,
+                session is not null, busy || disconnecting || closing, Environment.TickCount64)) return;
+        await RunAsync(async ct =>
+        {
+            DiscoveredPhone? found;
+            using (CancellationTokenSource search = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                search.CancelAfter(TimeSpan.FromSeconds(12));
+                try { found = await discovery.FindRememberedAsync(phone, search.Token); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                { throw new TimeoutException("Поиск последнего телефона завершён по таймауту."); }
+            }
+            ct.ThrowIfCancellationRequested();
+            if (found is null) { AutomaticFailed(null); return; }
+            devices.Items.Clear(); devices.Items.Add(found.Device); devices.SelectedIndex = 0;
+            await ConnectDeviceAsync(found.Device, ct, found.Identity, found.WifiEndpoint);
+            Log("Автоматическое подключение выполнено. Управление остаётся на ноутбуке.");
+        }, automatic: true);
+    }
+    private async Task ConnectWifiAsync(CancellationToken ct)
+    {
+        recovery.Pause();
+        AdbEndpoint endpoint = AdbEndpoint.Parse(wifi.Text);
+        await adb.ConnectWifiAsync(endpoint.ToString(), ct);
+        AdbDevice? device = await discovery.FindEndpointAsync(endpoint, ct);
+        if (device is null)
+        { await RefreshAsync(ct); SetStatus("Соединение Wi-Fi открыто. Выберите нужный телефон в списке."); return; }
+        devices.Items.Clear(); devices.Items.Add(device); devices.SelectedIndex = 0;
+        await ConnectDeviceAsync(device, ct, endpoint: endpoint.ToString());
     }
     private void ToggleCapture()
     {
@@ -296,6 +423,7 @@ internal sealed class MainForm : Form
     }
     private async Task PairAsync(CancellationToken ct)
     {
+        recovery.Pause();
         using Form dialog = new() { Text = "Сопряжение с S25", Size = new Size(480, 330), StartPosition = FormStartPosition.CenterParent, MinimizeBox = false, MaximizeBox = false };
         TableLayoutPanel panel = new() { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(16) };
         TextBox endpoint = new() { Dock = DockStyle.Fill, PlaceholderText = "IP:порт из окна кода сопряжения" };
@@ -304,12 +432,44 @@ internal sealed class MainForm : Form
         Add(panel, Label("На S25 откройте «Сопряжение устройства с помощью кода». Этот порт отличается от порта подключения."));
         Add(panel, endpoint); Add(panel, Label("Шестизначный код")); Add(panel, code); Add(panel, ok);
         dialog.Controls.Add(panel); dialog.AcceptButton = ok;
+        using CancellationTokenRegistration cancelDialog = CloseOnCancellation(dialog, ct);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         SetStatus("Выполняем сопряжение…");
         try { await adb.PairAsync(endpoint.Text, code.Text, ct); }
         finally { code.Clear(); }
-        SetStatus("Сопряжение выполнено. Введите порт с основной страницы «Беспроводная отладка» и подключитесь по Wi-Fi.");
         Log("Сопряжение выполнено. Код не сохранён.");
+        await ConnectPairedAsync(AdbEndpoint.Parse(endpoint.Text), ct);
+    }
+    private static CancellationTokenRegistration CloseOnCancellation(Form dialog, CancellationToken ct)
+    {
+        dialog.Shown += (_, _) => { if (ct.IsCancellationRequested) dialog.Close(); };
+        return ct.Register(() =>
+        {
+            if (!dialog.IsHandleCreated || dialog.IsDisposed) return;
+            try { dialog.BeginInvoke(new Action(dialog.Close)); } catch (InvalidOperationException) { }
+        });
+    }
+    private async Task PairQrAsync(CancellationToken ct)
+    {
+        recovery.Pause();
+        using QrPairingForm dialog = new(adb, ct);
+        DialogResult result;
+        try { result = dialog.ShowDialog(this); }
+        finally { await dialog.Completion; }
+        ct.ThrowIfCancellationRequested();
+        if (result != DialogResult.OK || dialog.PairedEndpoint is not AdbEndpoint paired) return;
+        Log("QR-сопряжение выполнено. Секрет не сохранён.");
+        await ConnectPairedAsync(paired, ct);
+    }
+    private async Task ConnectPairedAsync(AdbEndpoint pairing, CancellationToken ct)
+    {
+        SetStatus("Сопряжение выполнено. Ищем телефон для подключения…");
+        (AdbDevice Device, string Endpoint)? found = await discovery.WaitPairedAsync(pairing, ct);
+        if (found is null)
+        { SetStatus("Сопряжение выполнено, но адрес подключения не обнаружен. Введите IP и порт с основной страницы «Беспроводная отладка»."); return; }
+        wifi.Text = found.Value.Endpoint;
+        devices.Items.Clear(); devices.Items.Add(found.Value.Device); devices.SelectedIndex = 0;
+        await ConnectDeviceAsync(found.Value.Device, ct, endpoint: found.Value.Endpoint);
     }
     private async Task SendFileAsync(CancellationToken ct)
     {
@@ -329,15 +489,23 @@ internal sealed class MainForm : Form
         _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file) { UseShellExecute = true });
     }
     private void SessionSwitch(object? sender, SessionSwitchEventArgs e)
-    { if (e.Reason is SessionSwitchReason.SessionLock or SessionSwitchReason.SessionLogoff) Ui(SuspendCapture); }
+    {
+        if (e.Reason is SessionSwitchReason.SessionLock or SessionSwitchReason.SessionLogoff)
+            Ui(() => { desktopLocked = true; SuspendCapture(); if (automaticOperation) operation?.Cancel(); });
+        else if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon)
+            Ui(() => { desktopLocked = false; recovery.Wake(Environment.TickCount64); });
+    }
     private void PowerChanged(object? sender, PowerModeChangedEventArgs e)
-    { if (e.Mode == PowerModes.Suspend) Ui(SuspendCapture); }
+    {
+        if (e.Mode == PowerModes.Suspend) Ui(() => { sleeping = true; SuspendCapture(); if (automaticOperation) operation?.Cancel(); });
+        else if (e.Mode == PowerModes.Resume) Ui(() => { sleeping = false; recovery.Wake(Environment.TickCount64); });
+    }
     private void SuspendCapture() { StopCapture(); capture?.ResetPhysicalState(); }
     private async void OnClosing(object? sender, FormClosingEventArgs e)
     {
         if (closed) return;
         e.Cancel = true; if (closing) return;
-        closing = true; StopCapture(); edgeTimer.Stop(); clipboardRetry.Stop(); operation?.Cancel(); lifetime.Cancel();
+        closing = true; StopCapture(); edgeTimer.Stop(); clipboardRetry.Stop(); autoTimer.Stop(); operation?.Cancel(); lifetime.Cancel();
         _ = Native.RemoveClipboardFormatListener(Handle);
         SystemEvents.SessionSwitch -= SessionSwitch; SystemEvents.PowerModeChanged -= PowerChanged;
         tray.Visible = false;
@@ -348,6 +516,6 @@ internal sealed class MainForm : Form
         await DisconnectAsync();
         capture?.Dispose();
         try { settings.Save(); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-        tray.Dispose(); edgeTimer.Dispose(); clipboardRetry.Dispose(); lifetime.Dispose(); closed = true; Close();
+        tray.Dispose(); edgeTimer.Dispose(); clipboardRetry.Dispose(); autoTimer.Dispose(); lifetime.Dispose(); closed = true; Close();
     }
 }

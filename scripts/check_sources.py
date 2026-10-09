@@ -52,6 +52,7 @@ def balanced_csharp(path: Path) -> None:
             i += 1
             terminated = False
             while i < len(text):
+                require(verbatim or text[i] not in '\r\n', f"Newline in non-verbatim literal in {path.relative_to(ROOT)}")
                 if not verbatim and text[i] == '\\':
                     i += 2
                     continue
@@ -99,6 +100,14 @@ def main() -> None:
     require(windows.findtext('.//TargetFramework') == 'net8.0-windows', 'Windows framework')
     require(windows.findtext('.//UseWindowsForms') == 'true', 'WinForms enabled')
     require(windows.findtext('.//OutputType') == 'WinExe', 'Windows executable configuration')
+    qr_package = windows.find('.//PackageReference[@Include="QRCoder"]')
+    require(qr_package is not None and qr_package.get('Version') == '1.8.0', 'QR dependency must be pinned')
+    drawing_package = windows.find('.//PackageReference[@Include="System.Drawing.Common"]')
+    require(drawing_package is not None and drawing_package.get('Version') == '8.0.30', 'Drawing dependency stays on .NET 8')
+    read('licenses/QRCoder-LICENSE.txt')
+    read('src/GalaxyBridge.Core/ConnectionRecovery.cs')
+    read('src/GalaxyBridge.Windows/DeviceDiscovery.cs')
+    read('src/GalaxyBridge.Windows/QrPairingForm.cs')
     manifest = ET.fromstring(read('src/GalaxyBridge.Windows/app.manifest'))
     level = next(element for element in manifest.iter() if element.tag.endswith('requestedExecutionLevel'))
     require(level.attrib['level'] == 'asInvoker', 'Application should run as current user')

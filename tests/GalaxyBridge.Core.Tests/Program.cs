@@ -62,6 +62,66 @@ foreach (string endpoint in new[] { "192.168.0.1:0", "192.168.0.1:65536", "1.2.3
 IReadOnlyList<AdbDevice> devices = AdbDevice.Parse("* daemon started successfully\nList of devices attached\nS25 device product:x model:SM_S931B transport_id:1\nS24 unauthorized\n192.168.1.10:3333 offline\n");
 Check(devices.Count == 3 && devices[0].Ready && !devices[1].Ready && !devices[2].Ready, "parse authorized/offline/unauthorized separately");
 Check(devices[0].Model == "SM S931B", "parse model");
+PhoneIdentity identity = PhoneIdentity.ParseProperties("[ro.serialno]: [S25SERIAL]\n[persist.adb.wifi.guid]: [wifi-guid]\n[other]: [ignored]\n");
+Check(identity == new PhoneIdentity("S25SERIAL", "wifi-guid"), "identity from stable device properties");
+Check(PhoneIdentity.ParseProperties("[ro.serialno]: []\n[ro.boot.serialno]: [BOOT25]").HardwareSerial == "BOOT25", "boot serial fallback");
+Check(!PhoneIdentity.ParseProperties("[ro.serialno]: [unknown]").Known, "unknown identity cannot auto-connect");
+Check(!new PhoneIdentity("", "").Matches(new("OTHER", "")), "empty identities do not match");
+Check(identity.Matches(new("S25SERIAL", "new-guid")), "hardware identity survives new Wi-Fi guid");
+Check(!identity.Matches(new("OTHER", "wifi-guid")), "different hardware rejected even if guid matches");
+Check(new PhoneIdentity("", "wifi-guid").Matches(identity), "guid fallback when hardware property is absent");
+Check(!new RememberedPhone(new PhoneIdentity(null!, "wifi-guid"), "S25", "serial", "").Valid, "corrupt null identity property rejected");
+Check(!new RememberedPhone(null!, "S25", "serial", "").Valid, "corrupt null identity rejected");
+IReadOnlyList<AdbMdnsService> mdns = AdbMdnsService.Parse(
+    "List of discovered mdns services\n"
+    + "adb-wifi-guid-random _adb-tls-connect._tcp. 192.168.0.23:38001\n"
+    + "studio-AbCd123456 _adb-tls-pairing._tcp 192.168.0.23:37001\n"
+    + "adb-wifi-guidX-random _adb-tls-connect._tcp 192.168.0.24:38002\n"
+    + "legacy _adb._tcp 192.168.0.23:5555\n"
+    + "bad _adb-tls-connect._tcp host:5555\n"
+    + "bad _adb-tls-connect._tcp 192.168.0.23:0\n");
+Check(mdns.Count == 3 && mdns[0].Endpoint.Port == 38001, "parse current TLS endpoints and reject legacy/malformed services");
+Check(mdns[0].Matches(identity) && !mdns[2].Matches(identity), "guid prefix must end at a delimiter");
+Check(new AdbMdnsService("adb-S25SERIAL-Ab1234", "_adb-tls-connect._tcp", AdbEndpoint.Parse("192.168.0.23:38002"))
+    .Matches(new("", "adb-S25SERIAL-Ab1234")), "AOSP persistent guid is already prefixed and can be the exact service name");
+Check(new AdbMdnsService("adb-S25SERIAL-newSuffix", "_adb-tls-connect._tcp", AdbEndpoint.Parse("192.168.0.23:38002"))
+    .Matches(identity), "hardware serial finds a newly advertised TLS port");
+Check(mdns[0].OwnsTransport("adb-wifi-guid-random._adb-tls-connect._tcp."), "mDNS transport trailing dot");
+Check(mdns[0].OwnsTransport("192.168.0.23:38001") && !mdns[0].OwnsTransport("192.168.0.24:38001"), "bind connection to exact endpoint");
+AdbQrPairing qrPair = new("studio-AbCd123456", "0123456789ABCDEF0123456789ABCDEF");
+Check(qrPair.Payload == "WIFI:T:ADB;S:studio-AbCd123456;P:0123456789ABCDEF0123456789ABCDEF;;", "Android QR payload with final separator");
+Check(qrPair.Matches(mdns[1]) && !qrPair.Matches(mdns[0]), "only this QR pairing service is accepted");
+Check(!qrPair.ToString().Contains(qrPair.Secret, StringComparison.Ordinal), "QR credentials are redacted from ToString");
+Reject(() => _ = new AdbQrPairing("studio-Ab;d123456", qrPair.Secret).Payload, "reject QR delimiter injection");
+Reject(() => _ = new AdbQrPairing(qrPair.ServiceName, "123456").Payload, "QR secret length");
+ConnectionRecovery recovery = new();
+bool Due(long now = 0, bool auto = true, bool restore = true, bool suspended = false, bool attached = false, bool busy = false) =>
+    recovery.Due(auto, restore, suspended, attached, busy, now);
+Check(Due(), "startup auto connection ready");
+Check(!Due(auto: false) && !Due(suspended: true) && !Due(attached: true) && !Due(busy: true), "startup gates prevent conflicting operations");
+recovery.Failed(1000);
+Check(recovery.NextAttemptAt == 3000 && !Due(2999) && Due(3000), "first retry after two seconds");
+long retryNow = 3000;
+foreach (int delay in new[] { 4000, 8000, 16000, 30000, 30000 })
+{
+    recovery.Failed(retryNow);
+    Check(recovery.NextAttemptAt == retryNow + delay, "bounded exponential retry " + delay);
+    retryNow = recovery.NextAttemptAt;
+}
+recovery.Pause();
+Check(!Due(retryNow + 999999), "manual disconnect does not reconnect");
+recovery.Lost(retryNow);
+Check(!Due(retryNow + 1000), "late connection-loss event cannot undo manual pause");
+recovery.Resume(retryNow);
+Check(Due(retryNow, auto: false, restore: true), "recovery option works independently from startup option");
+Check(!Due(retryNow, restore: false), "startup option cannot override disabled recovery");
+recovery.Succeeded();
+Check(!recovery.Recovering && !recovery.Paused && recovery.Failures == 0, "successful connection resets recovery schedule");
+recovery.Lost(10000);
+Check(!Due(10999) && Due(11000), "brief pause after loss");
+recovery.Wake(10001);
+Check(Due(10001) && !Due(10001, suspended: true), "wake retries only after desktop is available");
+
 DesktopBounds bounds = new(-1920, -100, 1920, 1080);
 Check(EdgePolicy.AtEdge(bounds, -1, 0, PhoneSide.Right), "edge on negative monitor coordinates");
 Check(!EdgePolicy.AtEdge(bounds, -1, -101, PhoneSide.Right), "not outside vertical extent");

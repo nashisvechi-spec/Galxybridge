@@ -48,5 +48,20 @@ When changing the SDK/runtime line, refresh these notices for that line.
 - https://github.com/dotnet/runtime/blob/release/8.0/THIRD-PARTY-NOTICES.TXT
 - https://github.com/dotnet/winforms/blob/release/8.0/LICENSE.TXT
 
+## QRCoder 1.8.0
+
+The Windows project restores the pinned QRCoder NuGet package to encode the
+Android wireless-debugging pairing payload. The QR module matrix is drawn
+locally in a Windows control; no online QR generator is used.
+
+- Project/tag: https://github.com/Shane32/QRCoder/tree/v1.8.0
+- Package: https://www.nuget.org/packages/QRCoder/1.8.0
+- License: MIT; full upstream text in licenses/QRCoder-LICENSE.txt.
+- Copyright (c) 2013-2025 Raffael Herrmann; (c) 2024-2025 Shane Krueger.
+
+System.Drawing.Common is explicitly pinned to 8.0.30 instead of QRCoder's
+older minimum dependency. It and Microsoft.Win32.SystemEvents are Microsoft
+.NET components covered by the .NET license and notices above.
+
 Samsung, Galaxy and HP names describe intended devices. This project is not
 affiliated with Samsung or HP.

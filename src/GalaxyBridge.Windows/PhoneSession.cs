@@ -17,7 +17,7 @@ internal sealed class PhoneSession : IAsyncDisposable
         new BoundedChannelOptions(512) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
     private TcpClient? socket;
     private Process? server;
-    private Task? writer, reader;
+    private Task? writer, reader, health;
     private EdgeFeedback? edgeFeedback;
     private int port;
     private string remoteJar = "";
@@ -85,6 +85,7 @@ internal sealed class PhoneSession : IAsyncDisposable
         await stream.WriteAsync(ControlProtocol.CreateHid(ControlProtocol.KeyboardId, "Galaxy Bridge Keyboard", Hid.KeyboardDescriptor), ct);
         await stream.WriteAsync(ControlProtocol.CreateHid(ControlProtocol.MouseId, "Galaxy Bridge Mouse", Hid.MouseDescriptor), ct);
         writer = WriteLoopAsync(stream); reader = ReadLoopAsync(stream);
+        health = CheckHealthAsync();
         // The optional companion has its own timeout; it must not expire basic control.
         deadline.CancelAfter(Timeout.InfiniteTimeSpan);
         edgeFeedback = new(adb, Serial, scid, log);
@@ -114,6 +115,22 @@ internal sealed class PhoneSession : IAsyncDisposable
     public void ReleaseInputs() { Keyboard(new byte[8]); Mouse(0, 0, 0); }
     public void AndroidKey(int keycode)
     { Send(ControlProtocol.Keycode(keycode, true)); Send(ControlProtocol.Keycode(keycode, false)); }
+
+    private async Task CheckHealthAsync()
+    {
+        try
+        {
+            while (!lifetime.IsCancellationRequested)
+            {
+                await Task.Delay(3000, lifetime.Token);
+                // get-state is cached by the ADB server; a shell round trip also detects a silent Wi-Fi drop.
+                string reply = await adb.RunAsync(["-s", Serial, "shell", "echo", "galaxybridge-health"], lifetime.Token, timeoutSeconds: 4);
+                if (reply.Trim() != "galaxybridge-health") throw new IOException("Телефон больше не отвечает на проверку связи.");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException or System.ComponentModel.Win32Exception)
+        { Fail(ex); }
+    }
 
     private async Task WriteLoopAsync(NetworkStream stream)
     {
@@ -176,7 +193,7 @@ internal sealed class PhoneSession : IAsyncDisposable
             { log("Локальный процесс подключения уже завершился или недоступен."); }
             server.Dispose();
         }
-        try { await Task.WhenAll(writer ?? Task.CompletedTask, reader ?? Task.CompletedTask); } catch (OperationCanceledException) { }
+        try { await Task.WhenAll(writer ?? Task.CompletedTask, reader ?? Task.CompletedTask, health ?? Task.CompletedTask); } catch (OperationCanceledException) { }
         using CancellationTokenSource cleanup = new(TimeSpan.FromSeconds(4));
         try
         {

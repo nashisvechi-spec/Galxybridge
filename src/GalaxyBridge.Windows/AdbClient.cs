@@ -33,6 +33,8 @@ internal sealed class AdbClient
             StandardErrorEncoding = Encoding.UTF8
         };
         foreach (string argument in arguments) info.ArgumentList.Add(argument);
+        // Native mDNS discovery on Windows; an existing ADB server is left running.
+        info.Environment["ADB_MDNS_OPENSCREEN"] = "1";
         return info;
     }
 
@@ -90,15 +92,33 @@ internal sealed class AdbClient
     {
         VerifyBackend();
         if (code.Length != 6 || !code.All(char.IsAsciiDigit)) throw new FormatException("Нужен шестизначный код с телефона.");
-        _ = await RunAsync(["pair", AdbEndpoint.Parse(endpoint).ToString()], token, code, 30);
+        await PairSecretAsync(AdbEndpoint.Parse(endpoint), code, token);
     }
-    public async Task ConnectWifiAsync(string endpoint, CancellationToken token)
+    public async Task PairQrAsync(AdbEndpoint endpoint, AdbQrPairing credentials, CancellationToken token)
+    {
+        _ = credentials.Payload; // Validate before sending a secret to ADB.
+        await PairSecretAsync(endpoint, credentials.Secret, token);
+    }
+    private async Task PairSecretAsync(AdbEndpoint endpoint, string secret, CancellationToken token)
     {
         VerifyBackend();
-        string result = await RunAsync(["connect", AdbEndpoint.Parse(endpoint).ToString()], token);
+        string result;
+        try { result = await RunAsync(["pair", endpoint.ToString()], token, secret, 30); }
+        catch (IOException) { throw new IOException("Сопряжение не выполнено. Проверьте сеть и повторите сопряжение на телефоне."); }
+        if (!result.Contains("Successfully paired", StringComparison.OrdinalIgnoreCase))
+            throw new IOException("ADB не подтвердил сопряжение. Повторите его на телефоне.");
+    }
+    public async Task ConnectWifiAsync(string endpoint, CancellationToken token, int timeoutSeconds = 15)
+    {
+        VerifyBackend();
+        string result = await RunAsync(["connect", AdbEndpoint.Parse(endpoint).ToString()], token, timeoutSeconds: timeoutSeconds);
         if (!result.Contains("connected to", StringComparison.OrdinalIgnoreCase))
             throw new IOException("Не удалось подключиться: " + result.Trim());
     }
+    public async Task<IReadOnlyList<AdbMdnsService>> MdnsAsync(CancellationToken token) =>
+        AdbMdnsService.Parse(await RunAsync(["mdns", "services"], token, timeoutSeconds: 4));
+    public async Task<PhoneIdentity> IdentityAsync(string serial, CancellationToken token) =>
+        PhoneIdentity.ParseProperties(await RunAsync(["-s", serial, "shell", "getprop"], token, timeoutSeconds: 4));
     public Task<string> PushAsync(string serial, string path, CancellationToken token) =>
         RunAsync(["-s", serial, "push", path, "/sdcard/Download/"], token, timeoutSeconds: 120);
 }
