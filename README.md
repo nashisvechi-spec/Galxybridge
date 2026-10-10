@@ -1,21 +1,21 @@
-# Independent Wi-Fi preview — 0.6.0
+# Independent Wi-Fi preview — Windows 0.7.3 / Android LAN 0.7.6
 
-Galaxy Bridge now includes an experimental **Wi-Fi without debugging** mode.
-Install **GalaxyBridgeLan.apk** (Android 13+), open the matching Windows mode,
-scan its QR inside the phone app, and confirm the laptop. The companion uses
-certificate-pinned TLS, persistent pairing and discovery/reconnect across shared
-Wi-Fi networks. It provides file upload to Download/GalaxyBridge and basic
-accessibility-based cursor, taps, swipes and text input. No ADB is used in this mode.
+Install **GalaxyBridgeLan.apk** (Android 13+), open **Wi-Fi without debugging**
+on Windows, scan its QR inside the phone app and confirm the laptop. Pairing,
+certificate-pinned TLS, reconnection, file transfer and accessibility control
+use the existing LAN connection.
 
-See [setup and limitations (Russian)](docs/NATIVE_WIFI.ru.md). APK/EXE builds and
-real HP/S25 behavior have not been verified. Sources are published only; Actions
-still requires manual dispatch. This preview is a different input engine from
-Android's native UHID cursor; dragging is replayed on release and clipboard
-synchronization / full hardware keyboard behavior are not implemented.
+Enable the shared text clipboard on Windows and grant **Display over other apps**
+once on Android. New PC copies update the phone's system clipboard. Phone copies
+are read automatically when control returns to the PC, using a briefly focused
+transparent window. No send/confirmation button is needed for that flow.
+This is not continuous background clipboard monitoring. Text and links up to
+16 KB UTF-8 are supported; images and clipboard clearing are not synchronized.
 
-The manual workflow also packages **GalaxyBridgeLan-android**. Both companion
-APKs are in the portable ZIP. They have different package IDs. Development signing
-keys change each build, so replacing the LAN test APK requires reinstall/pairing.
+See [setup and limitations (Russian)](docs/NATIVE_WIFI.ru.md). Source compilation
+and protocol tests pass; the focus transition, keyboard behavior and real OS
+clipboard still need testing on HP/S25. EXE/APK packaging requires the manual
+Actions workflow. APK updates use the configured persistent signing key.
 
 The following documents the existing ADB mode, which is preserved:
 

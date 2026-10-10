@@ -29,6 +29,7 @@ internal static class Native
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool UnhookWinEvent(nint hook);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool AddClipboardFormatListener(nint window);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool RemoveClipboardFormatListener(nint window);
+    [DllImport("user32.dll")] internal static extern uint GetClipboardSequenceNumber();
 
     internal static bool KeyDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
     internal static bool MouseButtonDown => KeyDown(1) || KeyDown(2) || KeyDown(4);

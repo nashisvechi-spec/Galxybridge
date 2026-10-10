@@ -15,6 +15,9 @@ internal sealed class LanForm : Form
     private readonly LanHost host;
     private readonly CancellationTokenSource lifetime = new();
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 100 };
+    private readonly System.Windows.Forms.Timer clipboardRetry = new() { Interval = 50 };
+    private uint ownClipboardSequence, lastPushedSequence;
+    private int clipboardAttempts;
     private readonly ComboBox addresses = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 230 };
     private readonly ComboBox side = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
     private readonly PictureBox qr = new() { Size = new Size(340, 340), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White, Visible = false };
@@ -39,18 +42,19 @@ internal sealed class LanForm : Form
     {
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
-        Text = "Galaxy Bridge • Wi-Fi без отладки • 0.7.2"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • Wi-Fi без отладки • 0.7.3"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterParent; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
         page.Controls.Add(state);
         page.Controls.Add(connectionDetail);
         share.Checked = settings.ClipboardEnabled; page.Controls.Add(share);
-        clipboardState.Text = "С телефона: «Буфер → ПК» в уведомлении или «Поделиться → Galaxy Bridge Wi-Fi». После отправки вставьте через Ctrl+V.";
+        clipboardState.Text = "Копируйте на ПК и вставляйте на телефоне. Скопировав на телефоне, верните курсор на ПК и вставьте через Ctrl+V. На телефоне разрешите «Поверх других приложений».";
         page.Controls.Add(clipboardState);
         share.CheckedChanged += (_, _) =>
         {
             settings.ClipboardEnabled = share.Checked; session?.ConfigureClipboard(share.Checked);
+            clipboardRetry.Stop(); lastPushedSequence = Native.GetClipboardSequenceNumber();
             try { settings.Save(); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             { clipboardState.Text = "Настройка буфера применена, но не сохранена на диск."; }
@@ -96,6 +100,7 @@ internal sealed class LanForm : Form
         toggle.Click += (_, _) => Toggle(); files.Click += async (_, _) => await ChooseFilesAsync();
         host.Connected += candidate => Ui(() => Attach(candidate)); host.State += text => Ui(() => connectionDetail.Text = text);
         timer.Tick += (_, _) => { if (!host.PairingOpen) ClearQr(); if (capture?.Active == true && session?.InputReady != true) capture?.Stop(); CheckEdge(); UpdateState(); };
+        clipboardRetry.Tick += (_, _) => ReadLocalClipboard();
         SystemEvents.SessionSwitch += SessionChanged; SystemEvents.PowerModeChanged += PowerChanged;
         Shown += (_, _) => Start(); FormClosing += CloseAsync;
         RegisterDrop(this);
@@ -114,6 +119,46 @@ internal sealed class LanForm : Form
         }
         catch (Exception ex) when (ex is IOException or SocketException or System.ComponentModel.Win32Exception)
         { connectionDetail.Text = "Не удалось открыть режим Wi-Fi: " + ex.Message; }
+    }
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (!Native.AddClipboardFormatListener(Handle)) clipboardState.Text = "Не удалось включить автоматическое чтение буфера Windows.";
+    }
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        Native.RemoveClipboardFormatListener(Handle); base.OnHandleDestroyed(e);
+    }
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+        if (m.Msg != 0x31D || closing) return;
+        uint sequence = Native.GetClipboardSequenceNumber();
+        if (sequence == ownClipboardSequence) return;
+        session?.CancelClipboardPull(); clipboardAttempts = 0; ReadLocalClipboard();
+    }
+    private void ReadLocalClipboard()
+    {
+        clipboardRetry.Stop();
+        if (closing || paused || suspended || !share.Checked || session is not { IsAlive: true, AutomaticClipboard: true } current) return;
+        uint sequence = Native.GetClipboardSequenceNumber();
+        if (sequence == ownClipboardSequence || sequence == lastPushedSequence) return;
+        try
+        {
+            string? text = Clipboard.ContainsText(TextDataFormat.UnicodeText) ? Clipboard.GetText(TextDataFormat.UnicodeText) : null;
+            if (Native.GetClipboardSequenceNumber() != sequence) { RetryClipboard(); return; }
+            if (!string.IsNullOrEmpty(text) && current.PushClipboard(text))
+                clipboardState.Text = "Передаём текст с ПК в буфер телефона…";
+            lastPushedSequence = sequence;
+        }
+        catch (ExternalException) { RetryClipboard(); }
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException)
+        { lastPushedSequence = sequence; clipboardState.Text = "Общий буфер поддерживает обычный текст и ссылки до 16 КБ UTF-8."; }
+    }
+    private void RetryClipboard()
+    {
+        if (++clipboardAttempts < 4) clipboardRetry.Start();
+        else clipboardState.Text = "Буфер Windows занят. Повторите копирование.";
     }
     private void RefreshAddresses()
     {
@@ -145,7 +190,13 @@ internal sealed class LanForm : Form
     {
         capture?.Stop(); session = candidate; armed = false; edgeSince = null; ClearQr(); host.ClosePairing();
         candidate.ClipboardWriter = (text, ct) => SetPhoneClipboardAsync(candidate, text, ct);
+        candidate.ClipboardSequenceReader = Native.GetClipboardSequenceNumber;
+        candidate.ClipboardReadAllowed = () => !closing && !paused && !suspended && candidate == session;
+        candidate.AutomaticClipboardWriter = (text, sequence, ct) => SetPhoneClipboardAsync(candidate, text, ct, sequence);
+        candidate.ClipboardStatus += text => Ui(() => { if (session == candidate) clipboardState.Text = text; });
+        lastPushedSequence = Native.GetClipboardSequenceNumber(); clipboardRetry.Stop();
         candidate.ConfigureClipboard(share.Checked);
+        if (!candidate.AutomaticClipboard) clipboardState.Text = "Для автоматического общего буфера обновите Galaxy Bridge Wi-Fi на телефоне до 0.7.6.";
         candidate.Lost += () => Ui(() => { if (session == candidate) { received = candidate.ReceiveState; capture?.Stop(); session = null; armed = false; UpdateState(); } });
         if (!candidate.IsAlive) { session = null; UpdateState(); }
     }
@@ -166,7 +217,7 @@ internal sealed class LanForm : Form
         try { capture.Start(current, settings.Sensitivity, settings.PhoneSide, true); armed = false; }
         catch (InvalidOperationException ex) { state.Text = ex.Message; }
     }
-    private Task<bool> SetPhoneClipboardAsync(LanSession source, string text, CancellationToken ct)
+    private Task<bool> SetPhoneClipboardAsync(LanSession source, string text, CancellationToken ct, uint? expectedSequence = null)
     {
         if (closing || IsDisposed || !IsHandleCreated || ct.IsCancellationRequested) return Task.FromResult(false);
         TaskCompletionSource<bool> result = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -177,15 +228,18 @@ internal sealed class LanForm : Form
                 for (int attempt = 0; attempt < 4; attempt++)
                 {
                     if (ct.IsCancellationRequested || closing || suspended || paused || source != session || !source.IsAlive || !share.Checked) return;
+                    if (expectedSequence is { } expected && Native.GetClipboardSequenceNumber() != expected) return;
                     try
                     {
                         Clipboard.SetText(text, TextDataFormat.UnicodeText);
+                        ownClipboardSequence = Native.GetClipboardSequenceNumber(); lastPushedSequence = ownClipboardSequence;
+                        clipboardRetry.Stop();
                         clipboardState.Text = "Текст с телефона принят в буфер ПК. Вставьте через Ctrl+V.";
                         result.TrySetResult(true); return;
                     }
                     catch (ExternalException) { if (attempt < 3) await Task.Delay(50, ct); }
                 }
-                clipboardState.Text = "Буфер ПК занят другой программой. Повторите отправку с телефона.";
+                clipboardState.Text = "Буфер ПК занят другой программой. Повторите переход с телефона на ПК.";
             }
             catch (OperationCanceledException) { }
             finally { result.TrySetResult(false); }
@@ -300,11 +354,11 @@ internal sealed class LanForm : Form
     private async void CloseAsync(object? sender, FormClosingEventArgs e)
     {
         if (finished) return; e.Cancel = true; if (closing) return; closing = true;
-        timer.Stop(); capture?.Stop(); transfer?.Cancel(); lifetime.Cancel();
+        timer.Stop(); clipboardRetry.Stop(); capture?.Stop(); transfer?.Cancel(); lifetime.Cancel();
         UpdateState(); fileWindow?.Close(); fileWindow = null;
         SystemEvents.SessionSwitch -= SessionChanged; SystemEvents.PowerModeChanged -= PowerChanged;
         if (sending is not null) await sending;
-        await host.DisposeAsync(); capture?.Dispose(); ClearQr(); timer.Dispose(); lifetime.Dispose();
+        await host.DisposeAsync(); capture?.Dispose(); ClearQr(); timer.Dispose(); clipboardRetry.Dispose(); lifetime.Dispose();
         finished = true; shutdown.TrySetResult(); Close();
     }
 }

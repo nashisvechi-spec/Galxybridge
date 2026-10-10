@@ -22,7 +22,7 @@ import javax.net.ssl.*;
 public final class ConnectionService extends Service {
     public static volatile String status="Подключение выключено.";
     public static volatile String fileStatus="Выберите файлы или используйте «Поделиться» → Galaxy Bridge Wi-Fi.";
-    public static volatile String clipboardStatus="Текст и ссылки: «Буфер → ПК» или «Поделиться → Galaxy Bridge Wi-Fi».";
+    public static volatile String clipboardStatus="Общий буфер: копируйте на ПК или на телефоне и возвращайте курсор на ПК.";
     private static volatile ConnectionService instance;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicReference<Pairing> pending=new AtomicReference<>();
@@ -34,6 +34,7 @@ public final class ConnectionService extends Service {
     private volatile Thread uploadWorker;
     private final AtomicBoolean uploadBusy=new AtomicBoolean();
     private final AtomicBoolean clipboardBusy=new AtomicBoolean();
+    private ClipboardBridge clipboardBridge;
     private volatile AtomicBoolean uploadCancel=new AtomicBoolean();
     private final AtomicReference<InputStream> uploadInput=new AtomicReference<>();
     private ConnectivityManager manager;
@@ -42,7 +43,7 @@ public final class ConnectionService extends Service {
         @Override public void onAvailable(Network network) { synchronized(ConnectionService.this) { ConnectionService.this.notifyAll(); } }
     };
     private SharedPreferences prefs() { return getSharedPreferences("lan",MODE_PRIVATE); }
-    @Override public void onCreate() { super.onCreate(); instance=this; manager=getSystemService(ConnectivityManager.class); }
+    @Override public void onCreate() { super.onCreate(); instance=this; manager=getSystemService(ConnectivityManager.class);clipboardBridge=new ClipboardBridge(this,main); }
     @Override public int onStartCommand(Intent intent,int flags,int startId) {
         if(intent!=null && "stop".equals(intent.getAction())) { prefs().edit().putBoolean("enabled",false).commit(); stopSelf(); return START_NOT_STICKY; }
         if(intent==null && !prefs().getBoolean("enabled",false)) { stopSelf(); return START_NOT_STICKY; }
@@ -50,10 +51,8 @@ public final class ConnectionService extends Service {
         notifications.createNotificationChannel(new NotificationChannel("lan","Galaxy Bridge Wi-Fi",NotificationManager.IMPORTANCE_LOW));
         PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,SetupActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,ConnectionService.class).setAction("stop"),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        PendingIntent clipboard=PendingIntent.getActivity(this,2,new Intent(this,ClipboardActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         Notification notification=new Notification.Builder(this,"lan").setContentTitle("Galaxy Bridge Wi-Fi")
             .setContentText("Подключение к сохранённому ноутбуку включено").setSmallIcon(android.R.drawable.ic_menu_share).setContentIntent(open)
-            .addAction(new Notification.Action.Builder(null,"Буфер → ПК",clipboard).build())
             .addAction(new Notification.Action.Builder(null,"Остановить",stop).build()).setOngoing(true).build();
         startForeground(61,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
         if(intent!=null && intent.hasExtra("qr")) {
@@ -155,7 +154,7 @@ public final class ConnectionService extends Service {
                 SharedPreferences prefs=prefs(); String device=prefs.getString("device","");
                 if(!Wire.hex(device,32)) { device=UUID.randomUUID().toString().replace("-",""); if(!prefs.edit().putString("device",device).commit()) throw new IOException("Cannot save identity"); }
                 DataInputStream in=new DataInputStream(socket.getInputStream()); DataOutputStream out=new DataOutputStream(socket.getOutputStream());
-                JSONObject hello=Wire.message(pair!=null?"pair":"hello","v",1,"device",device,"name",Build.MODEL);
+                JSONObject hello=Wire.message(pair!=null?"pair":"hello","v",1,"device",device,"name",Build.MODEL,"clipboardSync",1);
                 if(pair!=null) hello.put("ticket",pair.ticket); else hello.put("token",prefs.getString("token",""));
                 Wire.write(out,hello); JSONObject welcome=Wire.read(in);
                 if(!"welcome".equals(welcome.getString("type")) || welcome.getInt("v")!=1 || !hostId.equals(welcome.getString("host"))) throw new IOException("Invalid welcome");
@@ -165,7 +164,8 @@ public final class ConnectionService extends Service {
                     pending.compareAndSet(pair,null);
                 } else prefs.edit().putString("host",host).apply();
                 Wire.write(out,Wire.message("saved"));
-                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false)); link=active; connecting=null;
+                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1); link=active; connecting=null;
+                main.post(() -> { if(link==active) { clipboardBridge.configure(false);clipboardStatus=active.automaticClipboard?"Общий буфер готов после включения на ПК.":"Для автоматического буфера обновите Windows до 0.7.3."; } });
                 status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();
                 try(Downloads downloads=new Downloads(this)) {
                     while(running && !active.closed.get()) {
@@ -175,6 +175,12 @@ public final class ConnectionService extends Service {
                             main.post(() -> { if(link==active && ControlService.instance!=null) ControlService.instance.poll(); });
                         } else if("uploadAck".equals(type) || "clipboardAck".equals(type)) {
                             active.ack(command);
+                        } else if(Arrays.asList("clipboardConfig","clipboardGet","clipboardSet").contains(type)) {
+                            if(!active.automaticClipboard || !active.commands.tryAcquire()) throw new IOException("Invalid clipboard command");
+                            main.post(() -> {
+                                try { if(link==active && !active.closed.get()) acceptClipboard(active,command); }
+                                finally { active.commands.release(); }
+                            });
                         } else if(type.startsWith("file")) {
                             String request=command.getString("id"); if(!Wire.hex(request,32)) throw new IOException("Invalid request");
                             try { String name=downloads.accept(command); active.send(Wire.message("ack","id",request,"ok",true,"name",name)); }
@@ -183,19 +189,72 @@ public final class ConnectionService extends Service {
                             if(!Arrays.asList("capture","release","mouse","text","key","edit","nav").contains(type)) throw new IOException("Unknown command");
                             if(!active.commands.tryAcquire()) throw new IOException("Input queue full");
                             main.post(() -> {
-                                try { if(link==active && ControlService.instance!=null) ControlService.instance.accept(command); }
+                                try {
+                                    if(link==active && !active.closed.get()) {
+                                        if("capture".equals(type) && command.optBoolean("active",false)) { active.clipboardRequest=null;clipboardBridge.cancel(); }
+                                        if(ControlService.instance!=null) ControlService.instance.accept(command);
+                                    }
+                                }
                                 finally { active.commands.release(); }
                             });
                         }
                     }
                 } finally {
                     if(link==active) link=null; active.close(); active.writer.join(1000);
-                    main.post(() -> { if(ConnectionService.instance==this && link==null && ControlService.instance!=null) ControlService.instance.reset(); });
+                    main.post(() -> { if(ConnectionService.instance==this && link==null) { clipboardBridge.configure(false);if(ControlService.instance!=null) ControlService.instance.reset(); } });
                 }
             }
         } finally { try { raw.close(); } catch(IOException ignored){} if(connecting==raw) connecting=null; }
     }
     static void disconnect() { ConnectionService current=instance; if(current!=null) current.drop(); }
+    static void cancelClipboardRead() { ConnectionService current=instance;if(current!=null) { current.clipboardBridge.cancel();Link active=current.link;if(active!=null) active.clipboardRequest=null; } }
+    private void acceptClipboard(Link target,JSONObject command) {
+        try {
+            String type=command.getString("type");
+            if("clipboardConfig".equals(type)) {
+                target.clipboardEnabled=command.getBoolean("enabled");clipboardBridge.configure(target.clipboardEnabled);
+                if(!target.clipboardEnabled) target.clipboardRequest=null;
+                clipboardStatus=target.clipboardEnabled?"Копируйте на ПК или на телефоне и возвращайте курсор на ПК.":"Общий буфер выключен на ПК.";
+            } else if("clipboardSet".equals(type)) {
+                String id=command.getString("id");if(!Wire.hex(id,32)) throw new IOException("Invalid clipboard id");
+                String text=ClipText.validate(command.getString("text"));
+                target.clipboardRequest=null;
+                boolean ok=target.clipboardEnabled && clipboardBridge.receive(text);
+                target.send(Wire.message("clipboardSetAck","id",id,"ok",ok));
+                clipboardStatus=ok?"Текст с ПК в буфере телефона. Можно вставлять.":"Не удалось записать буфер. Разблокируйте телефон.";
+            } else {
+                String request=command.getString("request");if(!Wire.hex(request,32)) throw new IOException("Invalid clipboard request");
+                target.clipboardRequest=request;
+                clipboardBridge.read((text,timestamp,state) -> {
+                    if(link!=target || target.closed.get() || !target.clipboardEnabled || !request.equals(target.clipboardRequest)) return;
+                    if(text==null) {
+                        target.clipboardRequest=null;target.send(Wire.message("clipboardResult","request",request,"status",state));
+                        clipboardStatus="permission".equals(state)?"Разрешите «Поверх других приложений» для общего буфера.":"unavailable".equals(state)?"Буфер недоступен. Разблокируйте экран и повторите переход.":"Общий текстовый буфер готов.";
+                        return;
+                    }
+                    if(!clipboardBusy.compareAndSet(false,true)) {
+                        target.clipboardRequest=null;target.send(Wire.message("clipboardResult","request",request,"status","unavailable"));return;
+                    }
+                    clipboardStatus="Передаём текст в буфер ПК…";
+                    new Thread(() -> {
+                        boolean delivered=false;
+                        try {
+                            if(link!=target || target.closed.get() || !request.equals(target.clipboardRequest)) return;
+                            JSONObject message=ClipText.request(UUID.randomUUID().toString().replace("-",""),text);message.put("request",request);
+                            if(message.toString().getBytes(StandardCharsets.UTF_8).length>Wire.MAX_FRAME) throw new IOException("Clipboard frame too large");
+                            target.request(message,5000,new AtomicBoolean());delivered=true;
+                            clipboardStatus="Текст в буфере ПК. Вставьте через Ctrl+V.";
+                        } catch(Exception e) { if(link==target) clipboardStatus="Текст не доставлен. Повторите переход на ПК."; }
+                        finally {
+                            final boolean success=delivered;
+                            main.post(() -> { if(link==target && request.equals(target.clipboardRequest)) { target.clipboardRequest=null;if(success) clipboardBridge.delivered(timestamp); } });
+                            clipboardBusy.set(false);
+                        }
+                    },"GalaxyBridge-auto-clipboard").start();
+                });
+            }
+        } catch(Exception e) { target.close(); }
+    }
     static void send(JSONObject message) { ConnectionService current=instance; if(current!=null) { Link active=current.link; if(active!=null) active.send(message); } }
     static boolean uploading() { ConnectionService current=instance; return current!=null && current.uploadBusy.get(); }
     static boolean sendingClipboard() { ConnectionService current=instance;return current!=null && current.clipboardBusy.get(); }
@@ -276,9 +335,11 @@ public final class ConnectionService extends Service {
         final Socket socket; final DataOutputStream out;
         final AtomicBoolean closed=new AtomicBoolean(); final ArrayBlockingQueue<JSONObject> queue=new ArrayBlockingQueue<>(256);
         final Semaphore commands=new Semaphore(128); final Thread writer;
-        final boolean upload,clipboard;
+        final boolean upload,clipboard,automaticClipboard;
+        volatile boolean clipboardEnabled;
+        volatile String clipboardRequest;
         final ConcurrentHashMap<String,CompletableFuture<JSONObject>> replies=new ConcurrentHashMap<>();
-        Link(Socket socket,DataOutputStream out,boolean upload,boolean clipboard) { this.socket=socket; this.out=out; this.upload=upload;this.clipboard=clipboard; writer=new Thread(() -> {
+        Link(Socket socket,DataOutputStream out,boolean upload,boolean clipboard,boolean automaticClipboard) { this.socket=socket; this.out=out; this.upload=upload;this.clipboard=clipboard;this.automaticClipboard=automaticClipboard; writer=new Thread(() -> {
             try { while(!closed.get()) Wire.write(out,queue.take()); } catch(Exception e) { close(); }
         },"GalaxyBridge-send"); }
         void send(JSONObject message) { if(!closed.get() && !queue.offer(message)) close(); }
@@ -313,6 +374,7 @@ public final class ConnectionService extends Service {
     }
     @Override public void onDestroy() {
         running=false; cancelUpload(); pending.set(null); drop(); synchronized(this) { notifyAll(); }
+        clipboardBridge.configure(false);
         try { manager.unregisterNetworkCallback(changes); } catch(RuntimeException ignored){}
         if(ControlService.instance!=null) ControlService.instance.reset();
         status="Подключение выключено."; if(instance==this) instance=null; stopForeground(STOP_FOREGROUND_REMOVE); super.onDestroy();

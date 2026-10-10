@@ -37,16 +37,51 @@ internal sealed class LanSession : IPhoneControl
     private int epoch, closed;
     private volatile bool inputReady;
     private volatile bool clipboardEnabled;
+    public bool AutomaticClipboard { get; }
+    public Func<uint>? ClipboardSequenceReader { get; set; }
+    public Func<bool>? ClipboardReadAllowed { get; set; }
+    public Func<string, uint, CancellationToken, Task<bool>>? AutomaticClipboardWriter { get; set; }
+    public event Action<string>? ClipboardStatus;
+    private readonly object clipboardGate = new();
+    private sealed record ClipboardPull(string Id, uint Sequence, CancellationTokenSource Cancel, CancellationToken Token);
+    private ClipboardPull? clipboardPull;
+    private string? clipboardSetId;
+    private bool controlling;
     private volatile Func<string, CancellationToken, Task<bool>>? clipboardWriter;
     public Func<string, CancellationToken, Task<bool>>? ClipboardWriter { get => clipboardWriter; set => clipboardWriter = value; }
-    public void ConfigureClipboard(bool enabled) => clipboardEnabled = enabled;
+    public void ConfigureClipboard(bool enabled)
+    {
+        clipboardEnabled = enabled;
+        if (!enabled) CancelClipboardPull();
+        if (AutomaticClipboard) Post(new { type = "clipboardConfig", enabled });
+    }
+    public void CancelClipboardPull()
+    {
+        lock (clipboardGate)
+        {
+            clipboardPull?.Cancel.Cancel(); clipboardPull?.Cancel.Dispose(); clipboardPull = null;
+        }
+    }
+    public bool PushClipboard(string text)
+    {
+        if (!clipboardEnabled || !AutomaticClipboard || !IsAlive) return false;
+        string id = Guid.NewGuid().ToString("N");
+        // Validate text and the encoded frame before it reaches the input queue.
+        using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(new { text }));
+        LanProtocol.ClipboardText(document.RootElement);
+        var message = new { type = "clipboardSet", id, text };
+        LanProtocol.Encode(message);
+        lock (clipboardGate) clipboardSetId = id;
+        return Post(message);
+    }
     public string Name { get; }
     public bool InputReady => inputReady && IsAlive;
     public bool IsAlive => Volatile.Read(ref closed) == 0;
     public PhoneEdgeSample? LatestEdge => Volatile.Read(ref edge);
     public Task Completion { get; private set; } = Task.CompletedTask;
     public event Action? Lost;
-    public LanSession(TcpClient socket, SslStream stream, string name) { this.socket = socket; this.stream = stream; Name = name; }
+    public LanSession(TcpClient socket, SslStream stream, string name, bool automaticClipboard = false)
+    { this.socket = socket; this.stream = stream; Name = name; AutomaticClipboard = automaticClipboard; }
     public void Start() => Completion = RunAsync();
     public bool Post(object value)
     {
@@ -56,10 +91,25 @@ internal sealed class LanSession : IPhoneControl
     }
     public int BeginEdgeReturn(PhoneSide side)
     {
+        CancelClipboardPull(); controlling = true;
         held.Clear(); edge = null; int id = checked(++epoch);
         Post(new { type = "capture", active = true, epoch = id, side = (int)side }); return id;
     }
-    public void EndEdgeReturn() { edge = null; Post(new { type = "capture", active = false, epoch, side = 0 }); }
+    public void EndEdgeReturn()
+    {
+        edge = null; Post(new { type = "capture", active = false, epoch, side = 0 });
+        bool wasControlling = controlling; controlling = false;
+        if (!wasControlling || !AutomaticClipboard || !clipboardEnabled || !IsAlive || ClipboardSequenceReader is null || ClipboardReadAllowed?.Invoke() == false) return;
+        CancelClipboardPull();
+        var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        ClipboardPull request = new(Guid.NewGuid().ToString("N"), ClipboardSequenceReader(), cancel, cancel.Token);
+        lock (clipboardGate)
+        {
+            if (!IsAlive) { cancel.Dispose(); return; }
+            clipboardPull = request;
+        }
+        Post(new { type = "clipboardGet", request = request.Id });
+    }
     public void ReleaseInputs() { held.Clear(); Post(new { type = "release" }); }
     public void Mouse(byte buttons, int dx, int dy, int wheel = 0) => Post(new { type = "mouse", buttons, dx, dy, wheel });
     public void Keyboard(byte[] report)
@@ -105,6 +155,33 @@ internal sealed class LanSession : IPhoneControl
                 switch (root.GetProperty("type").GetString())
                 {
                     case "pong": inputReady = root.GetProperty("ready").GetBoolean(); break;
+                    case "clipboardSetAck":
+                        string setId = root.GetProperty("id").GetString() ?? "";
+                        if (!AutomaticClipboard || !LanProtocol.Identifier(setId)) throw new InvalidDataException("Invalid clipboard reply.");
+                        bool latest;
+                        lock (clipboardGate) { latest = setId == clipboardSetId; if (latest) clipboardSetId = null; }
+                        if (latest && clipboardEnabled) ClipboardStatus?.Invoke(root.GetProperty("ok").GetBoolean()
+                            ? "Текст с ПК записан в буфер телефона. Можно вставлять." : "Телефон не принял текст в буфер. Разблокируйте экран и повторите копирование.");
+                        break;
+                    case "clipboardResult":
+                        string pullId = root.GetProperty("request").GetString() ?? "";
+                        if (!AutomaticClipboard || !LanProtocol.Identifier(pullId)) throw new InvalidDataException("Invalid clipboard result.");
+                        bool currentPull;
+                        lock (clipboardGate)
+                        {
+                            currentPull = clipboardPull?.Id == pullId && !clipboardPull.Token.IsCancellationRequested;
+                            if (currentPull) CancelClipboardPull();
+                        }
+                        if (currentPull)
+                        {
+                            string status = root.GetProperty("status").GetString() ?? "";
+                            ClipboardStatus?.Invoke(status switch {
+                                "permission" => "На телефоне разрешите Galaxy Bridge «Поверх других приложений» для общего буфера.",
+                                "unavailable" => "Буфер телефона недоступен. Разблокируйте экран и повторите переход на ПК.",
+                                "unsupported" => "Буфер телефона не содержит обычного текста до 16 КБ.",
+                                _ => "Общий текстовый буфер готов. Копируйте и вставляйте." });
+                        }
+                        break;
                     case "clipboard":
                         string clipboardId = root.GetProperty("id").GetString() ?? "";
                         if (!LanProtocol.Identifier(clipboardId)) throw new InvalidDataException("Invalid clipboard request.");
@@ -112,7 +189,26 @@ internal sealed class LanSession : IPhoneControl
                         bool copied = false;
                         string clipboardError = "Буфер ПК занят или приём текста выключен. Повторите отправку.";
                         var clipboardWriter = ClipboardWriter;
+                        ClipboardPull? pull = null;
+                        bool automatic = root.TryGetProperty("request", out JsonElement requestValue);
+                        if (automatic)
+                        {
+                            string requestId = requestValue.GetString() ?? "";
+                            if (!AutomaticClipboard || !LanProtocol.Identifier(requestId)) throw new InvalidDataException("Invalid automatic clipboard request.");
+                            lock (clipboardGate) pull = clipboardPull?.Id == requestId ? clipboardPull : null;
+                        }
                         if (!clipboardEnabled) clipboardError = "Включите «Общий текстовый буфер» в окне Wi-Fi на ПК.";
+                        else if (automatic)
+                        {
+                            if (pull is not null && !pull.Token.IsCancellationRequested && ClipboardSequenceReader?.Invoke() == pull.Sequence && AutomaticClipboardWriter is { } autoWriter)
+                            {
+                                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, pull.Token);
+                                deadline.CancelAfter(TimeSpan.FromSeconds(3));
+                                try { copied = await autoWriter(clipboardText, pull.Sequence, deadline.Token).WaitAsync(deadline.Token); }
+                                catch (Exception ex) when (ex is OperationCanceledException or ExternalException or InvalidOperationException) { }
+                            }
+                            lock (clipboardGate) { if (clipboardPull == pull) CancelClipboardPull(); }
+                        }
                         else if (clipboardWriter is not null)
                         {
                             using CancellationTokenSource clipboardDeadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -229,6 +325,7 @@ internal sealed class LanSession : IPhoneControl
     public void Close()
     {
         if (Interlocked.Exchange(ref closed, 1) != 0) return;
+        CancelClipboardPull();
         incoming.Cancel("Связь прервалась. Незавершённая передача не повторяется.");
         inputReady = false; outgoing.Writer.TryComplete(); lifetime.Cancel(); socket.Dispose();
     }
