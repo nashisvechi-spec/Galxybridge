@@ -17,7 +17,9 @@ public final class ControlService extends AccessibilityService {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private WindowManager windows;
     private Pointer pointer;
-    private boolean active, gestureBusy;
+    private WindowManager.LayoutParams pointerLayout;
+    private PointerPress press;
+    private boolean active, gestureBusy, pointerAttached;
     private int epoch, width, height, buttons, side;
     private long sequence, pressedAt, generation;
     private float x,y,pressX,pressY;
@@ -30,7 +32,10 @@ public final class ControlService extends AccessibilityService {
         PowerManager power=context.getSystemService(PowerManager.class);
         return instance!=null && !key.isDeviceLocked() && power.isInteractive();
     }
-    @Override protected void onServiceConnected() { super.onServiceConnected(); instance=this; windows=getSystemService(WindowManager.class); }
+    @Override protected void onServiceConnected() {
+        super.onServiceConnected(); instance=this; windows=getSystemService(WindowManager.class);
+        press=new PointerPress(ViewConfiguration.get(this).getScaledTouchSlop());
+    }
     @Override public InputMethod onCreateInputMethod() { return new InputMethod(this); }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) { if(active && !ready(this)) reset(); }
     @Override public void onInterrupt() { reset(); }
@@ -52,10 +57,11 @@ public final class ControlService extends AccessibilityService {
                 // Enter from the edge facing the laptop, but far enough inside to avoid an immediate return.
                 if(side==0) x=32; else if(side==1) x=width-33; else if(side==2) y=height-33; else y=32;
                 pointer=new Pointer(this);
-                WindowManager.LayoutParams params=new WindowManager.LayoutParams(-1,-1,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);
-                params.gravity=Gravity.TOP|Gravity.LEFT; params.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
-                windows.addView(pointer,params); active=true; sequence=0; handler.post(feedback); return;
+                float unit=getResources().getDisplayMetrics().density;
+                pointerLayout=new WindowManager.LayoutParams((int)Math.ceil(20*unit),(int)Math.ceil(27*unit),WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,PixelFormat.TRANSLUCENT);
+                pointerLayout.gravity=Gravity.TOP|Gravity.LEFT; pointerLayout.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+                active=true; showPointer(); sequence=0; handler.post(feedback); return;
             }
             if("nav".equals(type) && ready(this)) {
                 String nav=command.getString("action");
@@ -88,13 +94,14 @@ public final class ControlService extends AccessibilityService {
         int dx=command.getInt("dx"),dy=command.getInt("dy"),next=command.getInt("buttons"),wheel=command.getInt("wheel");
         if(Math.abs((long)dx)>8192 || Math.abs((long)dy)>8192 || Math.abs((long)wheel)>32 || next<0 || next>7) throw new IllegalArgumentException();
         dimensions(); x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
-        if((next&1)!=0 && (buttons&1)==0) { pressX=x;pressY=y;pressedAt=SystemClock.uptimeMillis();drag=new Path();drag.moveTo(x,y);dragPoints=0; }
+        if((next&1)!=0 && (buttons&1)==0) { pressX=x;pressY=y;pressedAt=SystemClock.uptimeMillis();press.begin(x,y);drag=new Path();drag.moveTo(x,y);dragPoints=0; }
+        if(drag!=null) press.move(x,y);
         if((next&1)!=0 && drag!=null && (dx!=0 || dy!=0) && dragPoints++<256) drag.lineTo(x,y);
         if((next&1)==0 && (buttons&1)!=0 && drag!=null) {
-            float distance=(float)Math.hypot(x-pressX,y-pressY); long elapsed=SystemClock.uptimeMillis()-pressedAt;
-            if(distance<6) { drag=new Path();drag.moveTo(pressX,pressY); }
+            long elapsed=SystemClock.uptimeMillis()-pressedAt;
+            if(!press.isDrag()) { drag=new Path();drag.moveTo(pressX,pressY); }
             else drag.lineTo(x,y);
-            long duration=distance<6?(elapsed>=450?550:60):Math.max(100,Math.min(1000,elapsed));
+            long duration=press.duration(elapsed,ViewConfiguration.getLongPressTimeout());
             Path completed=drag; drag=null; gesture(completed,duration);
         }
         if((next&2)!=0 && (buttons&2)==0) performGlobalAction(GLOBAL_ACTION_BACK);
@@ -111,24 +118,45 @@ public final class ControlService extends AccessibilityService {
         gestures.add(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path,0,duration)).build()); nextGesture();
     }
     private void nextGesture() {
-        if(gestureBusy || !active || gestures.isEmpty()) return;
+        if(gestureBusy || !active) return;
+        if(gestures.isEmpty()) { showPointer(); return; }
         GestureDescription gesture=gestures.remove();gestureBusy=true;long current=generation;
+        // Remove the actual window, not just its pixels, before injecting a touch.
+        // File pickers and other protected controls can reject obscured touches.
+        hidePointer();
         GestureResultCallback callback=new GestureResultCallback() {
             private void done() { if(current!=generation) return;gestureBusy=false;nextGesture(); }
             @Override public void onCompleted(GestureDescription gesture) { done(); }
             @Override public void onCancelled(GestureDescription gesture) { done(); }
         };
-        if(!dispatchGesture(gesture,callback,handler)) { gestureBusy=false; nextGesture(); }
+        // Let WindowManager finish removing the overlay before dispatching.
+        handler.postDelayed(() -> {
+            if(current!=generation || !active) return;
+            try {
+                if(!dispatchGesture(gesture,callback,handler)) { gestureBusy=false; nextGesture(); }
+            } catch(RuntimeException e) { reset(); ConnectionService.disconnect(); }
+        },32);
+    }
+    private void showPointer() {
+        if(!active || gestureBusy || pointer==null) return;
+        int left=Math.round(x),top=Math.round(y);
+        boolean moved=pointerLayout.x!=left || pointerLayout.y!=top;
+        pointerLayout.x=left; pointerLayout.y=top;
+        if(pointerAttached) { if(moved) windows.updateViewLayout(pointer,pointerLayout); }
+        else { windows.addView(pointer,pointerLayout); pointerAttached=true; }
+    }
+    private void hidePointer() {
+        if(pointerAttached) { windows.removeViewImmediate(pointer); pointerAttached=false; }
     }
     void poll() {
         if(!active) return; if(!ready(this)) { reset(); ConnectionService.send(Wire.message("pong","ready",false)); return; }
-        dimensions(); if(pointer!=null) pointer.invalidate();
+        dimensions(); showPointer();
         String line=String.format(Locale.ROOT,"GB_EDGE %d %d %d %d %.2f %.2f %d",epoch,++sequence,width,height,x,y,buttons);
         ConnectionService.send(Wire.message("edge","line",line));
     }
     void reset() {
         active=false;generation++;gestures.clear();gestureBusy=false;drag=null;buttons=0;handler.removeCallbacks(feedback);
-        if(pointer!=null) { try { windows.removeView(pointer); } catch(RuntimeException ignored){} pointer=null; }
+        if(pointer!=null) { try { hidePointer(); } catch(RuntimeException ignored){} pointerAttached=false;pointer=null;pointerLayout=null; }
     }
     private final class Pointer extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -144,10 +172,8 @@ public final class ControlService extends AccessibilityService {
             paint.setStrokeWidth(1.5f*unit); paint.setStrokeJoin(Paint.Join.ROUND);
         }
         @Override protected void onDraw(Canvas canvas) {
-            int saved=canvas.save(); canvas.translate(x,y);
             paint.setStyle(Paint.Style.FILL); paint.setColor(Color.WHITE); canvas.drawPath(arrow,paint);
             paint.setStyle(Paint.Style.STROKE); paint.setColor(Color.BLACK); canvas.drawPath(arrow,paint);
-            canvas.restoreToCount(saved);
         }
     }
 }

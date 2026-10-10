@@ -3,6 +3,7 @@ package com.galaxybridge.lan;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Bundle;
@@ -27,10 +28,12 @@ public final class SendActivity extends Activity {
         LinearLayout page=new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(20*getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.0"); title.setTextSize(24); page.addView(title);
+        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.1"); title.setTextSize(24); page.addView(title);
         TextView help=new TextView(this); help.setText("Файлы получит сохранённый ноутбук. Откройте на нём режим Wi-Fi без отладки. Оба устройства должны быть в одной сети. Папку приёма можно изменить в окне файлов Windows."); page.addView(help);
         selection=new TextView(this); selection.setTextSize(18); page.addView(selection);
-        Button choose=new Button(this); choose.setText("Выбрать файлы…"); choose.setOnClickListener(v -> choose()); page.addView(choose);
+        Button choose=new Button(this); choose.setText("Выбрать файлы…"); choose.setOnClickListener(v -> choose(false)); page.addView(choose);
+        Button other=new Button(this); other.setText("Выбрать через файловое приложение…"); other.setOnClickListener(v -> choose(true)); page.addView(other);
+        TextView hint=new TextView(this); hint.setText("Если системное окно не выбирает файл мышью, попробуйте файловое приложение или выберите файл касанием на телефоне. Также можно отправить через «Поделиться → Galaxy Bridge Wi-Fi»."); page.addView(hint);
         send=new Button(this); send.setText("Отправить на ноутбук"); send.setOnClickListener(v -> send()); page.addView(send);
         cancel=new Button(this); cancel.setText("Отменить отправку"); cancel.setOnClickListener(v -> ConnectionService.cancelFiles()); page.addView(cancel);
         progress=new TextView(this); progress.setTextSize(16); page.addView(progress);
@@ -57,9 +60,11 @@ public final class SendActivity extends Activity {
     private void describe() {
         selection.setText("Ноутбук: "+getSharedPreferences("lan",MODE_PRIVATE).getString("name","ещё не сопряжён")+"\nВыбрано файлов: "+files.size()+" (до 100, до 2 ГБ каждый)");
     }
-    private void choose() {
-        Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
-        picker.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true); startActivityForResult(picker,11);
+    private void choose(boolean alternative) {
+        Intent picker=new Intent(alternative?Intent.ACTION_GET_CONTENT:Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+        picker.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);
+        try { startActivityForResult(alternative?Intent.createChooser(picker,"Выберите файловое приложение"):picker,11); }
+        catch(ActivityNotFoundException e) { Toast.makeText(this,"Приложение для выбора файлов не найдено. Используйте «Поделиться» из «Моих файлов».",Toast.LENGTH_LONG).show(); }
     }
     private void send() {
         if(files.isEmpty() || ConnectionService.uploading()) return;
