@@ -8,6 +8,7 @@ import android.os.*;
 import android.util.DisplayMetrics;
 import android.view.*;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import org.json.JSONObject;
 import java.util.ArrayDeque;
 import java.util.Locale;
@@ -25,7 +26,7 @@ public final class ControlService extends AccessibilityService {
     private float x,y,pressX,pressY;
     private Path drag;
     private int dragPoints;
-    private final ArrayDeque<GestureDescription> gestures=new ArrayDeque<>();
+    private final ArrayDeque<PendingGesture> gestures=new ArrayDeque<>();
     private final Runnable feedback=new Runnable() { public void run() { if(active) { poll(); if(active) handler.postDelayed(this,100); } } };
     static boolean ready(Context context) {
         KeyguardManager key=context.getSystemService(KeyguardManager.class);
@@ -102,7 +103,8 @@ public final class ControlService extends AccessibilityService {
             if(!press.isDrag()) { drag=new Path();drag.moveTo(pressX,pressY); }
             else drag.lineTo(x,y);
             long duration=press.duration(elapsed,ViewConfiguration.getLongPressTimeout());
-            Path completed=drag; drag=null; gesture(completed,duration);
+            boolean click=!press.isDrag() && elapsed<ViewConfiguration.getLongPressTimeout();
+            Path completed=drag; drag=null; gesture(completed,duration,click,pressX,pressY);
         }
         if((next&2)!=0 && (buttons&2)==0) performGlobalAction(GLOBAL_ACTION_BACK);
         if((next&4)!=0 && (buttons&4)==0) performGlobalAction(GLOBAL_ACTION_RECENTS);
@@ -114,13 +116,16 @@ public final class ControlService extends AccessibilityService {
         buttons=next; poll();
     }
     private void gesture(Path path,long duration) {
+        gesture(path,duration,false,0,0);
+    }
+    private void gesture(Path path,long duration,boolean click,float tapX,float tapY) {
         if(gestures.size()>=8) { reset(); ConnectionService.disconnect(); return; }
-        gestures.add(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path,0,duration)).build()); nextGesture();
+        gestures.add(new PendingGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path,0,duration)).build(),click,tapX,tapY)); nextGesture();
     }
     private void nextGesture() {
         if(gestureBusy || !active) return;
         if(gestures.isEmpty()) { showPointer(); return; }
-        GestureDescription gesture=gestures.remove();gestureBusy=true;long current=generation;
+        PendingGesture pending=gestures.remove();gestureBusy=true;long current=generation;
         // Remove the actual window, not just its pixels, before injecting a touch.
         // File pickers and other protected controls can reject obscured touches.
         hidePointer();
@@ -132,10 +137,53 @@ public final class ControlService extends AccessibilityService {
         // Let WindowManager finish removing the overlay before dispatching.
         handler.postDelayed(() -> {
             if(current!=generation || !active) return;
+            if(!ready(this)) { reset(); return; }
             try {
-                if(!dispatchGesture(gesture,callback,handler)) { gestureBusy=false; nextGesture(); }
+                if(pending.click && clickElement(pending.x,pending.y)) {
+                    if(current==generation) { gestureBusy=false; nextGesture(); }
+                    return;
+                }
+                if(!dispatchGesture(pending.description,callback,handler)) { gestureBusy=false; nextGesture(); }
             } catch(RuntimeException e) { reset(); ConnectionService.disconnect(); }
         },32);
+    }
+    private boolean clickElement(float tapX,float tapY) {
+        AccessibilityNodeInfo root=null;
+        try {
+            root=getRootInActiveWindow();
+            return root!=null && ClickTarget.click(new ClickNode(root),tapX,tapY);
+        } catch(RuntimeException ignored) { return false; }
+        finally { if(root!=null) root.recycle(); }
+    }
+    private static final class PendingGesture {
+        final GestureDescription description;
+        final boolean click;
+        final float x,y;
+        PendingGesture(GestureDescription description,boolean click,float x,float y) {
+            this.description=description;this.click=click;this.x=x;this.y=y;
+        }
+    }
+    private static final class ClickNode implements ClickTarget.Node {
+        private final AccessibilityNodeInfo node;
+        ClickNode(AccessibilityNodeInfo node) { this.node=node; }
+        public boolean contains(float x,float y) {
+            Rect bounds=new Rect();node.getBoundsInScreen(bounds);
+            return x>=bounds.left && x<bounds.right && y>=bounds.top && y<bounds.bottom;
+        }
+        public boolean available() { return node.isVisibleToUser() && node.isEnabled(); }
+        public boolean clickable() {
+            if(node.isClickable()) return true;
+            for(AccessibilityNodeInfo.AccessibilityAction action:node.getActionList())
+                if(action.getId()==AccessibilityNodeInfo.ACTION_CLICK) return true;
+            return false;
+        }
+        public int childCount() { return node.getChildCount(); }
+        public ClickTarget.Node child(int index) {
+            AccessibilityNodeInfo child=node.getChild(index);
+            return child==null?null:new ClickNode(child);
+        }
+        public boolean click() { return node.performAction(AccessibilityNodeInfo.ACTION_CLICK); }
+        public void release() { node.recycle(); }
     }
     private void showPointer() {
         if(!active || gestureBusy || pointer==null) return;

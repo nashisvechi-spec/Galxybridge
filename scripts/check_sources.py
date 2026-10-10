@@ -186,7 +186,7 @@ def main() -> None:
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
     java = legacy_java + list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java'))
-    require(len(java) == 16, 'Expected legacy, native Android and mouse press test sources')
+    require(len(java) == 18, 'Expected legacy, native Android, mouse press and click target test sources')
     for helper in java:
         balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]
