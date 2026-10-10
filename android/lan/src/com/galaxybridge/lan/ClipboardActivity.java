@@ -24,7 +24,7 @@ public final class ClipboardActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(20*getResources().getDisplayMetrics().density);page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom);return i; });
-        TextView title=new TextView(this);title.setText("Буфер → ПК · 0.7.6");title.setTextSize(24);page.addView(title);
+        TextView title=new TextView(this);title.setText("Буфер → ПК · 0.7.7");title.setTextSize(24);page.addView(title);
         TextView help=new TextView(this);help.setText("Ноутбук: "+getSharedPreferences("lan",MODE_PRIVATE).getString("name","не сопряжён")+"\n\nПроверьте текст или ссылку и нажмите «Отправить». После подтверждения доставки вставьте на ПК через Ctrl+V. Galaxy Bridge на ПК должен быть подключён, а общий текстовый буфер включён.");page.addView(help);
         text=new EditText(this);text.setHint("Текст или ссылка");text.setMinLines(3);text.setMaxLines(8);text.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);page.addView(text);
         Button read=new Button(this);read.setText("Вставить из буфера телефона");read.setOnClickListener(v -> readClipboard());page.addView(read);

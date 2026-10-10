@@ -151,7 +151,7 @@
    test TCP 38271 occupied and UDP 38272 blocked/occupied, firewall denial.
 6. Enable capture by button/hotkey/edge for all four positions. Verify return after
    fresh outward motion with no held buttons/keys, multiple monitors and rotation.
-7. Check clicks, long click, wheel and drag-on-release. Focus a field and type
+7. Check clicks, long click, wheel and live drag while the button remains down. Focus a field and type
    Russian/English, paste Unicode <=16 KB, arrows/Delete/Enter. Check absent focus,
    secure apps and overlay/gesture denial; do not assume native mouse parity.
 8. Kill Wi-Fi during capture, lock/sleep Windows, lock/turn off S25, disable
@@ -318,3 +318,20 @@ LanSession поверх TLS; Java проверяет Wire, формат текс
 - [ ] Проверить обе комбинации нового/старого клиента: нет неизвестных команд,
   управление, файлы и ручной обмен через «Поделиться» сохраняются.
 - [ ] После обновления APK сопряжение сохраняется, новый QR не требуется.
+
+## Android LAN 0.7.7: непрерывное удержание и перетаскивание
+
+Все Java-исходники Android LAN скомпилированы с API 35. Прошли 218 JVM-проверок,
+включая 30 новых проверок `PointerStroke`. Windows и сетевой протокол не изменены.
+
+- `PointerStrokeTest` проверяет передачу DOWN до UP, неподвижное удержание,
+  подавление дрожания, связанные сегменты движения, отпускание через 10 секунд,
+  быстрые клики и ограничение накопления пакетов при медленном Android.
+- [ ] На телефоне удержать левую кнопку на тексте до появления выделения.
+- [ ] Перетаскивать маркеры выделения: результат меняется до отпускания кнопки.
+- [ ] Проверить клики по файлам в системном выборе файлов и обычным кнопкам.
+- [ ] При удержании отключить соединение, заблокировать телефон и выключить
+  службу специальных возможностей; после возврата касание не должно зависать.
+- [ ] Проверить быстрые повторные клики и перетаскивание сразу после колеса.
+
+Натурная проверка этих сценариев на телефоне здесь не выполнена.

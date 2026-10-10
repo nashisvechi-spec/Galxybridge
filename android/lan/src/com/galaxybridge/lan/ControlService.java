@@ -19,13 +19,15 @@ public final class ControlService extends AccessibilityService {
     private WindowManager windows;
     private Pointer pointer;
     private WindowManager.LayoutParams pointerLayout;
-    private PointerPress press;
     private boolean active, gestureBusy, pointerAttached;
     private int epoch, width, height, buttons, side;
-    private long sequence, pressedAt, generation;
-    private float x,y,pressX,pressY;
-    private Path drag;
-    private int dragPoints;
+    private long sequence, generation;
+    private float x,y;
+    private PointerStroke mouseStroke;
+    private PendingGesture currentGesture;
+    private boolean touchReady, touchDispatching;
+    private GestureDescription.StrokeDescription touchStroke;
+    private PointerStroke.Point touchEnd;
     private final ArrayDeque<PendingGesture> gestures=new ArrayDeque<>();
     private final Runnable feedback=new Runnable() { public void run() { if(active) { poll(); if(active) handler.postDelayed(this,100); } } };
     static boolean ready(Context context) {
@@ -35,7 +37,6 @@ public final class ControlService extends AccessibilityService {
     }
     @Override protected void onServiceConnected() {
         super.onServiceConnected(); instance=this; windows=getSystemService(WindowManager.class);
-        press=new PointerPress(ViewConfiguration.get(this).getScaledTouchSlop());
     }
     @Override public InputMethod onCreateInputMethod() { return new InputMethod(this); }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) { if(!ready(this)) { ConnectionService.cancelClipboardRead();if(active) reset(); } }
@@ -95,16 +96,14 @@ public final class ControlService extends AccessibilityService {
         int dx=command.getInt("dx"),dy=command.getInt("dy"),next=command.getInt("buttons"),wheel=command.getInt("wheel");
         if(Math.abs((long)dx)>8192 || Math.abs((long)dy)>8192 || Math.abs((long)wheel)>32 || next<0 || next>7) throw new IllegalArgumentException();
         dimensions(); x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
-        if((next&1)!=0 && (buttons&1)==0) { pressX=x;pressY=y;pressedAt=SystemClock.uptimeMillis();press.begin(x,y);drag=new Path();drag.moveTo(x,y);dragPoints=0; }
-        if(drag!=null) press.move(x,y);
-        if((next&1)!=0 && drag!=null && (dx!=0 || dy!=0) && dragPoints++<256) drag.lineTo(x,y);
-        if((next&1)==0 && (buttons&1)!=0 && drag!=null) {
-            long elapsed=SystemClock.uptimeMillis()-pressedAt;
-            if(!press.isDrag()) { drag=new Path();drag.moveTo(pressX,pressY); }
-            else drag.lineTo(x,y);
-            long duration=press.duration(elapsed,ViewConfiguration.getLongPressTimeout());
-            boolean click=!press.isDrag() && elapsed<ViewConfiguration.getLongPressTimeout();
-            Path completed=drag; drag=null; gesture(completed,duration,click,pressX,pressY);
+        if((next&1)!=0 && (buttons&1)==0) {
+            mouseStroke=new PointerStroke(ViewConfiguration.get(this).getScaledTouchSlop(),x,y,SystemClock.uptimeMillis());
+            enqueue(new PendingGesture(mouseStroke));
+        }
+        if(mouseStroke!=null) {
+            mouseStroke.move(x,y);
+            if((next&1)==0) { mouseStroke.release(x,y,SystemClock.uptimeMillis());mouseStroke=null; }
+            advanceTouch();
         }
         if((next&2)!=0 && (buttons&2)==0) performGlobalAction(GLOBAL_ACTION_BACK);
         if((next&4)!=0 && (buttons&4)==0) performGlobalAction(GLOBAL_ACTION_RECENTS);
@@ -116,21 +115,22 @@ public final class ControlService extends AccessibilityService {
         buttons=next; poll();
     }
     private void gesture(Path path,long duration) {
-        gesture(path,duration,false,0,0);
+        enqueue(new PendingGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path,0,duration)).build()));
     }
-    private void gesture(Path path,long duration,boolean click,float tapX,float tapY) {
+    private void enqueue(PendingGesture pending) {
         if(gestures.size()>=8) { reset(); ConnectionService.disconnect(); return; }
-        gestures.add(new PendingGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path,0,duration)).build(),click,tapX,tapY)); nextGesture();
+        gestures.add(pending);nextGesture();
     }
     private void nextGesture() {
         if(gestureBusy || !active) return;
         if(gestures.isEmpty()) { showPointer(); return; }
-        PendingGesture pending=gestures.remove();gestureBusy=true;long current=generation;
+        PendingGesture pending=gestures.remove();currentGesture=pending;gestureBusy=true;long current=generation;
+        touchReady=false;touchDispatching=false;touchStroke=null;touchEnd=null;
         // Remove the actual window, not just its pixels, before injecting a touch.
         // File pickers and other protected controls can reject obscured touches.
         hidePointer();
         GestureResultCallback callback=new GestureResultCallback() {
-            private void done() { if(current!=generation) return;gestureBusy=false;nextGesture(); }
+            private void done() { if(current==generation) finishGesture(pending); }
             @Override public void onCompleted(GestureDescription gesture) { done(); }
             @Override public void onCancelled(GestureDescription gesture) { done(); }
         };
@@ -139,13 +139,49 @@ public final class ControlService extends AccessibilityService {
             if(current!=generation || !active) return;
             if(!ready(this)) { reset(); return; }
             try {
-                if(pending.click && clickElement(pending.x,pending.y)) {
-                    if(current==generation) { gestureBusy=false; nextGesture(); }
+                if(pending.press!=null) {
+                    // Retain node activation for clicks released before dispatch.
+                    // An injected press is ended through its own stroke, never clicked twice.
+                    if(pending.press.click(ViewConfiguration.getLongPressTimeout()) && clickElement(pending.press.x,pending.press.y)) finishGesture(pending);
+                    else { touchReady=true;advanceTouch(); }
                     return;
                 }
-                if(!dispatchGesture(pending.description,callback,handler)) { gestureBusy=false; nextGesture(); }
+                if(!dispatchGesture(pending.description,callback,handler)) finishGesture(pending);
             } catch(RuntimeException e) { reset(); ConnectionService.disconnect(); }
         },32);
+    }
+    private void advanceTouch() {
+        if(!active || !touchReady || touchDispatching || currentGesture==null || currentGesture.press==null) return;
+        PendingGesture pending=currentGesture;
+        PointerStroke.Segment segment=pending.press.take(ViewConfiguration.getLongPressTimeout());
+        if(segment==null) return; // A stationary continued stroke keeps the finger down.
+        Path path=new Path();path.moveTo(segment.points[0].x,segment.points[0].y);
+        for(int i=1;i<segment.points.length;i++) path.lineTo(segment.points[i].x,segment.points[i].y);
+        try {
+            GestureDescription.StrokeDescription nextStroke=touchStroke==null?new GestureDescription.StrokeDescription(path,0,segment.duration,segment.continues):touchStroke.continueStroke(path,0,segment.duration,segment.continues);
+            touchDispatching=true;long current=generation;
+            GestureResultCallback callback=new GestureResultCallback() {
+                @Override public void onCompleted(GestureDescription gesture) {
+                    if(current!=generation || currentGesture!=pending) return;
+                    touchDispatching=false;
+                    if(segment.continues) advanceTouch(); else finishGesture(pending);
+                }
+                @Override public void onCancelled(GestureDescription gesture) {
+                    if(current==generation && currentGesture==pending) finishGesture(pending);
+                }
+            };
+            if(dispatchGesture(new GestureDescription.Builder().addStroke(nextStroke).build(),callback,handler)) {
+                touchStroke=nextStroke;touchEnd=segment.points[segment.points.length-1];
+            } else {
+                reset();ConnectionService.disconnect();
+            }
+        } catch(RuntimeException e) { reset();ConnectionService.disconnect(); }
+    }
+    private void finishGesture(PendingGesture pending) {
+        if(currentGesture!=pending) return;
+        if(mouseStroke==pending.press) mouseStroke=null;
+        currentGesture=null;touchStroke=null;touchEnd=null;touchReady=false;touchDispatching=false;
+        gestureBusy=false;nextGesture();
     }
     private boolean clickElement(float tapX,float tapY) {
         AccessibilityNodeInfo root=null;
@@ -157,11 +193,9 @@ public final class ControlService extends AccessibilityService {
     }
     private static final class PendingGesture {
         final GestureDescription description;
-        final boolean click;
-        final float x,y;
-        PendingGesture(GestureDescription description,boolean click,float x,float y) {
-            this.description=description;this.click=click;this.x=x;this.y=y;
-        }
+        final PointerStroke press;
+        PendingGesture(GestureDescription description) { this.description=description;press=null; }
+        PendingGesture(PointerStroke press) { this.press=press;description=null; }
     }
     private static final class ClickNode implements ClickTarget.Node {
         private final AccessibilityNodeInfo node;
@@ -203,7 +237,16 @@ public final class ControlService extends AccessibilityService {
         ConnectionService.send(Wire.message("edge","line",line));
     }
     void reset() {
-        active=false;generation++;gestures.clear();gestureBusy=false;drag=null;buttons=0;handler.removeCallbacks(feedback);
+        // Finish even an in-flight continuation on disconnect/lock/re-entry. Android
+        // schedules it after the current segment; stale callbacks cannot revive it.
+        if(touchStroke!=null && touchStroke.willContinue() && touchEnd!=null) {
+            try {
+                Path end=new Path();end.moveTo(touchEnd.x,touchEnd.y);
+                dispatchGesture(new GestureDescription.Builder().addStroke(touchStroke.continueStroke(end,0,1,false)).build(),null,handler);
+            } catch(RuntimeException ignored) {}
+        }
+        active=false;generation++;gestures.clear();gestureBusy=false;mouseStroke=null;buttons=0;handler.removeCallbacks(feedback);
+        currentGesture=null;touchStroke=null;touchEnd=null;touchReady=false;touchDispatching=false;
         if(pointer!=null) { try { hidePointer(); } catch(RuntimeException ignored){} pointerAttached=false;pointer=null;pointerLayout=null; }
     }
     private final class Pointer extends View {
