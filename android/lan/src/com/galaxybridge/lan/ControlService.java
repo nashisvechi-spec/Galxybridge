@@ -38,9 +38,9 @@ public final class ControlService extends AccessibilityService {
         press=new PointerPress(ViewConfiguration.get(this).getScaledTouchSlop());
     }
     @Override public InputMethod onCreateInputMethod() { return new InputMethod(this); }
-    @Override public void onAccessibilityEvent(AccessibilityEvent event) { if(active && !ready(this)) reset(); }
-    @Override public void onInterrupt() { reset(); }
-    @Override public void onDestroy() { reset(); if(instance==this) instance=null; super.onDestroy(); }
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) { if(!ready(this)) { ConnectionService.cancelClipboardRead();if(active) reset(); } }
+    @Override public void onInterrupt() { ConnectionService.cancelClipboardRead();reset(); }
+    @Override public void onDestroy() { ConnectionService.cancelClipboardRead();reset(); if(instance==this) instance=null; super.onDestroy(); }
     private void dimensions() {
         DisplayMetrics metrics=new DisplayMetrics(); windows.getDefaultDisplay().getRealMetrics(metrics);
         width=metrics.widthPixels; height=metrics.heightPixels;

@@ -181,7 +181,7 @@ def main() -> None:
     require(lan_permissions == {'android.permission.INTERNET', 'android.permission.ACCESS_NETWORK_STATE',
         'android.permission.CHANGE_NETWORK_STATE', 'android.permission.FOREGROUND_SERVICE',
         'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE', 'android.permission.POST_NOTIFICATIONS',
-        'android.permission.CAMERA'}, 'Native companion permission scope')
+        'android.permission.CAMERA', 'android.permission.SYSTEM_ALERT_WINDOW'}, 'Native companion permission scope')
     control = lan.find('.//service[@' + ns + 'name=".ControlService"]')
     require(control is not None and control.get(ns + 'permission') == 'android.permission.BIND_ACCESSIBILITY_SERVICE',
         'Control service must require Android accessibility binding')
@@ -199,7 +199,7 @@ def main() -> None:
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
     java = legacy_java + list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java'))
-    require(len(java) == 21, 'Expected legacy, native Android and protocol/input/clipboard test sources')
+    require(len(java) == 24, 'Expected legacy, native Android and protocol/input/clipboard test sources')
     for helper in java:
         balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]

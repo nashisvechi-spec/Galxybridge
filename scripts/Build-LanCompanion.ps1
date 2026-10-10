@@ -1,6 +1,6 @@
 param(
     [string]$Destination = (Join-Path $PSScriptRoot '..\artifacts\GalaxyBridge'),
-    [ValidateRange(1,2100000000)][int]$VersionCode = 705
+    [ValidateRange(1,2100000000)][int]$VersionCode = 706
 )
 $ErrorActionPreference = 'Stop'
 $sdkRoot = $env:ANDROID_HOME
@@ -33,7 +33,7 @@ try {
     & (Join-Path $buildTools 'aapt2.exe') compile --dir (Join-Path $sourceRoot 'res') -o $resources
     if ($LASTEXITCODE -ne 0) { throw 'LAN companion resource compilation failed.' }
     $unsigned = Join-Path $work 'unsigned.apk'
-    & (Join-Path $buildTools 'aapt2.exe') link -o $unsigned --manifest (Join-Path $sourceRoot 'AndroidManifest.xml') -I $androidJar --min-sdk-version 33 --target-sdk-version 35 --version-code $VersionCode --version-name 0.7.5 --java $generated $resources
+    & (Join-Path $buildTools 'aapt2.exe') link -o $unsigned --manifest (Join-Path $sourceRoot 'AndroidManifest.xml') -I $androidJar --min-sdk-version 33 --target-sdk-version 35 --version-code $VersionCode --version-name 0.7.6 --java $generated $resources
     if ($LASTEXITCODE -ne 0) { throw 'LAN companion resource linking failed.' }
     $sources = @(Get-ChildItem (Join-Path $sourceRoot 'src') -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
     $sources += @(Get-ChildItem $generated -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
