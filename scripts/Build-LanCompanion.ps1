@@ -1,4 +1,7 @@
-param([string]$Destination = (Join-Path $PSScriptRoot '..\artifacts\GalaxyBridge'))
+param(
+    [string]$Destination = (Join-Path $PSScriptRoot '..\artifacts\GalaxyBridge'),
+    [ValidateRange(1,2100000000)][int]$VersionCode = 704
+)
 $ErrorActionPreference = 'Stop'
 $sdkRoot = $env:ANDROID_HOME
 if (-not $sdkRoot) { $sdkRoot = $env:ANDROID_SDK_ROOT }
@@ -11,7 +14,6 @@ if (-not $javaRoot) { throw 'JDK 17 is required.' }
 $env:JAVA_HOME = $javaRoot
 $javac = Join-Path $javaRoot 'bin\javac.exe'
 $jarTool = Join-Path $javaRoot 'bin\jar.exe'
-$keytool = Join-Path $javaRoot 'bin\keytool.exe'
 foreach ($tool in 'd8.bat', 'aapt2.exe', 'zipalign.exe', 'apksigner.bat') {
     if (-not (Test-Path -LiteralPath (Join-Path $buildTools $tool))) { throw "Missing Android tool: $tool" }
 }
@@ -23,6 +25,7 @@ try {
     $dex = Join-Path $work 'dex'
     $generated = Join-Path $work 'generated'
     New-Item -ItemType Directory -Path $classes, $dex, $generated -Force | Out-Null
+    $signing = & (Join-Path $PSScriptRoot 'Resolve-AndroidSigning.ps1') -WorkDirectory $work
     $zxing = Join-Path $work 'zxing-core-3.5.3.jar'
     Invoke-WebRequest -Uri 'https://repo.maven.apache.org/maven2/com/google/zxing/core/3.5.3/core-3.5.3.jar' -OutFile $zxing
     if ((Get-FileHash -LiteralPath $zxing -Algorithm SHA256).Hash.ToLowerInvariant() -ne '8d8064c1636fdaef7189dd9055c7d59950a8940a12f2293956446ec3c109fd82') { throw 'ZXing checksum mismatch.' }
@@ -30,7 +33,7 @@ try {
     & (Join-Path $buildTools 'aapt2.exe') compile --dir (Join-Path $sourceRoot 'res') -o $resources
     if ($LASTEXITCODE -ne 0) { throw 'LAN companion resource compilation failed.' }
     $unsigned = Join-Path $work 'unsigned.apk'
-    & (Join-Path $buildTools 'aapt2.exe') link -o $unsigned --manifest (Join-Path $sourceRoot 'AndroidManifest.xml') -I $androidJar --min-sdk-version 33 --target-sdk-version 35 --version-code 703 --version-name 0.7.3 --java $generated $resources
+    & (Join-Path $buildTools 'aapt2.exe') link -o $unsigned --manifest (Join-Path $sourceRoot 'AndroidManifest.xml') -I $androidJar --min-sdk-version 33 --target-sdk-version 35 --version-code $VersionCode --version-name 0.7.4 --java $generated $resources
     if ($LASTEXITCODE -ne 0) { throw 'LAN companion resource linking failed.' }
     $sources = @(Get-ChildItem (Join-Path $sourceRoot 'src') -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
     $sources += @(Get-ChildItem $generated -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
@@ -46,14 +49,13 @@ try {
     $aligned = Join-Path $work 'aligned.apk'
     & (Join-Path $buildTools 'zipalign.exe') -f 4 $unsigned $aligned
     if ($LASTEXITCODE -ne 0) { throw 'LAN companion zipalign failed.' }
-    # Development signing only. A new key each manual run requires uninstalling an older test APK.
-    $keystore = Join-Path $work 'debug.keystore'
-    & $keytool -genkeypair -noprompt -keystore $keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=Android,C=US'
-    if ($LASTEXITCODE -ne 0) { throw 'LAN companion signing key generation failed.' }
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     $apk = Join-Path $Destination 'GalaxyBridgeLan.apk'
-    & (Join-Path $buildTools 'apksigner.bat') sign --ks $keystore --ks-pass pass:android --key-pass pass:android --out $apk $aligned
+    & (Join-Path $buildTools 'apksigner.bat') sign --ks $signing.Keystore --ks-key-alias $signing.Alias --ks-pass env:GALAXYBRIDGE_ANDROID_SIGNING_PASSWORD --key-pass env:GALAXYBRIDGE_ANDROID_SIGNING_PASSWORD --out $apk $aligned
     if ($LASTEXITCODE -ne 0) { throw 'LAN companion signing failed.' }
     & (Join-Path $buildTools 'apksigner.bat') verify --verbose $apk
     if ($LASTEXITCODE -ne 0) { throw 'LAN companion signature verification failed.' }
-} finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+} finally {
+    [Environment]::SetEnvironmentVariable('GALAXYBRIDGE_ANDROID_SIGNING_PASSWORD', $null)
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+}

@@ -19,6 +19,10 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - name: Validate persistent Android update key
+        env:
+          GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE: ${{ secrets.ANDROID_SIGNING_BUNDLE }}
+        run: ./scripts/Test-AndroidSigning.ps1
       - name: Set up .NET 8
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
@@ -42,11 +46,15 @@ jobs:
         with:
           packages: platforms;android-35 build-tools;35.0.0
       - name: Build edge-return companion APK
-        run: ./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge
+        env:
+          GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE: ${{ secrets.ANDROID_SIGNING_BUNDLE }}
+        run: ./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge -VersionCode (100000 + [int]$env:GITHUB_RUN_NUMBER)
       - name: Test Android LAN wire and pairing parsers on JVM
         run: ./scripts/Test-LanProtocol.ps1
       - name: Build independent Wi-Fi companion APK
-        run: ./scripts/Build-LanCompanion.ps1 -Destination artifacts/GalaxyBridge
+        env:
+          GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE: ${{ secrets.ANDROID_SIGNING_BUNDLE }}
+        run: ./scripts/Build-LanCompanion.ps1 -Destination artifacts/GalaxyBridge -VersionCode (100000 + [int]$env:GITHUB_RUN_NUMBER)
       - name: Include instructions and notices
         run: |
           Copy-Item README.ru.md, LICENSE, THIRD_PARTY_NOTICES.md -Destination artifacts/GalaxyBridge

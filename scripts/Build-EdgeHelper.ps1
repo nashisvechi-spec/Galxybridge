@@ -1,4 +1,7 @@
-param([string]$Destination = (Join-Path $PSScriptRoot '..\artifacts\GalaxyBridge'))
+param(
+    [string]$Destination = (Join-Path $PSScriptRoot '..\artifacts\GalaxyBridge'),
+    [ValidateRange(1,2100000000)][int]$VersionCode = 302
+)
 $ErrorActionPreference = 'Stop'
 $sdkRoot = $env:ANDROID_HOME
 if (-not $sdkRoot) { $sdkRoot = $env:ANDROID_SDK_ROOT }
@@ -14,13 +17,13 @@ if (-not $javaRoot) { $javaRoot = $env:JAVA_HOME }
 if (-not $javaRoot) { throw 'JDK 17 is required. Set JAVA_HOME.' }
 $javac = Join-Path $javaRoot 'bin\javac.exe'
 $jarTool = Join-Path $javaRoot 'bin\jar.exe'
-$keytool = Join-Path $javaRoot 'bin\keytool.exe'
 $env:JAVA_HOME = $javaRoot
 $work = Join-Path ([IO.Path]::GetTempPath()) ('GalaxyBridgeEdge-' + [Guid]::NewGuid().ToString('N'))
 try {
     $classes = Join-Path $work 'classes'
     $dex = Join-Path $work 'dex'
     New-Item -ItemType Directory -Path $classes, $dex -Force | Out-Null
+    $signing = & (Join-Path $PSScriptRoot 'Resolve-AndroidSigning.ps1') -WorkDirectory $work
     $sources = @(Get-ChildItem (Join-Path $PSScriptRoot '..\android\edge-return\src') -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
     & $javac --release 8 -encoding UTF-8 -classpath $androidJar -d $classes @sources
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion Java compilation failed.' }
@@ -35,7 +38,7 @@ try {
     $resources = Join-Path $work 'resources.zip'
     & (Join-Path $buildTools 'aapt2.exe') compile --dir (Join-Path $sourceRoot 'res') -o $resources
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion resource compilation failed.' }
-    & (Join-Path $buildTools 'aapt2.exe') link -o $unsigned --manifest $manifest -I $androidJar --min-sdk-version 30 --target-sdk-version 35 --version-code 301 --version-name 0.3.1 $resources
+    & (Join-Path $buildTools 'aapt2.exe') link -o $unsigned --manifest $manifest -I $androidJar --min-sdk-version 30 --target-sdk-version 35 --version-code $VersionCode --version-name 0.3.2 $resources
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion manifest packaging failed.' }
     & $jarTool --update --file $unsigned -C $dex classes.dex
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion dex insertion failed.' }
@@ -43,15 +46,14 @@ try {
     & (Join-Path $buildTools 'zipalign.exe') -f 4 $unsigned $aligned
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion zipalign failed.' }
 
-    # Development APK only. Supply a persistent private signing key for production upgrades.
-    $keystore = Join-Path $work 'debug.keystore'
-    & $keytool -genkeypair -noprompt -keystore $keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=Android,C=US'
-    if ($LASTEXITCODE -ne 0) { throw 'Development signing key generation failed.' }
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     $apk = Join-Path $Destination 'GalaxyBridgeEdge.apk'
-    & (Join-Path $buildTools 'apksigner.bat') sign --ks $keystore --ks-pass pass:android --key-pass pass:android --out $apk $aligned
+    & (Join-Path $buildTools 'apksigner.bat') sign --ks $signing.Keystore --ks-key-alias $signing.Alias --ks-pass env:GALAXYBRIDGE_ANDROID_SIGNING_PASSWORD --key-pass env:GALAXYBRIDGE_ANDROID_SIGNING_PASSWORD --out $apk $aligned
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion signing failed.' }
     & (Join-Path $buildTools 'apksigner.bat') verify --verbose $apk
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion signature verification failed.' }
     Write-Host 'GalaxyBridgeEdge.apk created. Install it manually on the phone and grant overlay permission.'
-} finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+} finally {
+    [Environment]::SetEnvironmentVariable('GALAXYBRIDGE_ANDROID_SIGNING_PASSWORD', $null)
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+}

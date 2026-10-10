@@ -26,7 +26,7 @@ public final class SetupActivity extends Activity {
             view.setPadding(padding + bars.left, padding + bars.top, padding + bars.right, padding + bars.bottom);
             return insets;
         });
-        TextView title = new TextView(this); title.setText("Galaxy Bridge Edge · 0.3.0"); title.setTextSize(24);
+        TextView title = new TextView(this); title.setText("Galaxy Bridge Edge · 0.3.2"); title.setTextSize(24);
         page.addView(title);
         TextView help = new TextView(this);
         help.setText("Этот компонент возвращает курсор с телефона на ноутбук.\n\n"

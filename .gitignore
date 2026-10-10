@@ -12,3 +12,6 @@ __pycache__/
 *.apk
 *.apk.idsig
 *.keystore
+*.jks
+*.p12
+*AndroidSigningSecret*

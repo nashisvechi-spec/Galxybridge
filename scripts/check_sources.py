@@ -142,6 +142,19 @@ def main() -> None:
             'Actions must use pinned commit IDs')
     require('contents: read' in workflow and 'contents: write' not in workflow,
             'Build workflow requires read-only repository permissions')
+    signing_pin = read('android/signing-cert.sha256').strip()
+    require(re.fullmatch(r'[0-9a-f]{64}', signing_pin) is not None, 'Android update certificate pin')
+    read('scripts/Resolve-AndroidSigning.ps1')
+    read('scripts/Test-AndroidSigning.ps1')
+    read('docs/ANDROID_UPDATES.ru.md')
+    require('secrets.ANDROID_SIGNING_BUNDLE' in workflow and './scripts/Test-AndroidSigning.ps1' in workflow,
+            'Manual workflow validates persistent APK signing before builds')
+    require('-VersionCode (100000 + [int]$env:GITHUB_RUN_NUMBER)' in workflow,
+            'APK version code must increase with manual workflow runs')
+    for script_name in ('scripts/Build-EdgeHelper.ps1', 'scripts/Build-LanCompanion.ps1'):
+        signing_script = read(script_name)
+        require('Resolve-AndroidSigning.ps1' in signing_script and '-genkeypair' not in signing_script,
+                'APK builds must restore the persistent key instead of replacing it')
     require('dotnet run --project tests/GalaxyBridge.Core.Tests/' in workflow,
             'Workflow must run portable tests')
     require('dotnet run --project tests/GalaxyBridge.LanTls.Tests/' in workflow,
