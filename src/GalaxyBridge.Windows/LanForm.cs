@@ -24,6 +24,8 @@ internal sealed class LanForm : Form
     private readonly CheckBox edgeEntry = new() { Text = "Вход через край экрана", AutoSize = true };
     private readonly Label transferState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly Label receiveState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
+    private readonly CheckBox share = new() { Text = "Общий текстовый буфер", AutoSize = true };
+    private readonly Label clipboardState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private LanReceiveState received = new(false, 0, 0, "Файлы с телефона ещё не получены.");
     private readonly NumericUpDown speed = new() { Minimum = .25M, Maximum = 4M, Increment = .05M, DecimalPlaces = 2, Width = 90 };
     private FileDropForm? fileWindow;
@@ -37,12 +39,22 @@ internal sealed class LanForm : Form
     {
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
-        Text = "Galaxy Bridge • Wi-Fi без отладки • 0.7.1"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • Wi-Fi без отладки • 0.7.2"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterParent; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
         page.Controls.Add(state);
         page.Controls.Add(connectionDetail);
+        share.Checked = settings.ClipboardEnabled; page.Controls.Add(share);
+        clipboardState.Text = "С телефона: «Буфер → ПК» в уведомлении или «Поделиться → Galaxy Bridge Wi-Fi». После отправки вставьте через Ctrl+V.";
+        page.Controls.Add(clipboardState);
+        share.CheckedChanged += (_, _) =>
+        {
+            settings.ClipboardEnabled = share.Checked; session?.ConfigureClipboard(share.Checked);
+            try { settings.Save(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            { clipboardState.Text = "Настройка буфера применена, но не сохранена на диск."; }
+        };
         Button renew = new() { Text = "Показать новый QR (2 минуты)", AutoSize = true };
         FlowLayoutPanel pair = new() { AutoSize = true }; pair.Controls.Add(addresses); pair.Controls.Add(renew); page.Controls.Add(pair); page.Controls.Add(qr);
         side.Items.AddRange(["Справа", "Слева", "Сверху", "Снизу"]); side.SelectedIndex = (int)settings.PhoneSide;
@@ -94,7 +106,7 @@ internal sealed class LanForm : Form
     {
         try
         {
-            capture = new InputCapture { PasteText = () => { try { return Clipboard.ContainsText() ? Clipboard.GetText() : null; } catch (ExternalException) { return null; } } };
+            capture = new InputCapture { PasteText = () => { try { return share.Checked && Clipboard.ContainsText() ? Clipboard.GetText() : null; } catch (ExternalException) { return null; } } };
             capture.ToggleRequested += Toggle; capture.EdgeReturnRequested += () => capture?.Stop();
             capture.DesktopChanged += () => Ui(() => capture?.Stop()); capture.Error += text => { state.Text = text; };
             host.Start(); RefreshAddresses(); timer.Start();
@@ -132,6 +144,8 @@ internal sealed class LanForm : Form
     private void Attach(LanSession candidate)
     {
         capture?.Stop(); session = candidate; armed = false; edgeSince = null; ClearQr(); host.ClosePairing();
+        candidate.ClipboardWriter = (text, ct) => SetPhoneClipboardAsync(candidate, text, ct);
+        candidate.ConfigureClipboard(share.Checked);
         candidate.Lost += () => Ui(() => { if (session == candidate) { received = candidate.ReceiveState; capture?.Stop(); session = null; armed = false; UpdateState(); } });
         if (!candidate.IsAlive) { session = null; UpdateState(); }
     }
@@ -151,6 +165,32 @@ internal sealed class LanForm : Form
         if (closing || suspended || paused || sending is not null || session is not { InputReady: true } current || capture is null) return;
         try { capture.Start(current, settings.Sensitivity, settings.PhoneSide, true); armed = false; }
         catch (InvalidOperationException ex) { state.Text = ex.Message; }
+    }
+    private Task<bool> SetPhoneClipboardAsync(LanSession source, string text, CancellationToken ct)
+    {
+        if (closing || IsDisposed || !IsHandleCreated || ct.IsCancellationRequested) return Task.FromResult(false);
+        TaskCompletionSource<bool> result = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Ui(async () =>
+        {
+            try
+            {
+                for (int attempt = 0; attempt < 4; attempt++)
+                {
+                    if (ct.IsCancellationRequested || closing || suspended || paused || source != session || !source.IsAlive || !share.Checked) return;
+                    try
+                    {
+                        Clipboard.SetText(text, TextDataFormat.UnicodeText);
+                        clipboardState.Text = "Текст с телефона принят в буфер ПК. Вставьте через Ctrl+V.";
+                        result.TrySetResult(true); return;
+                    }
+                    catch (ExternalException) { if (attempt < 3) await Task.Delay(50, ct); }
+                }
+                clipboardState.Text = "Буфер ПК занят другой программой. Повторите отправку с телефона.";
+            }
+            catch (OperationCanceledException) { }
+            finally { result.TrySetResult(false); }
+        });
+        return result.Task;
     }
     private void CheckEdge()
     {

@@ -24,11 +24,12 @@ public final class SetupActivity extends Activity {
         LinearLayout page = new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p = (int)(20 * getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b = i.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.4"); title.setTextSize(24); page.addView(title);
+        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.5"); title.setTextSize(24); page.addView(title);
         TextView help = new TextView(this); help.setText("Подключение к ноутбуку без отладки.\n\nНа Windows откройте «Wi-Fi без отладки» и покажите QR. Оба устройства подключите к одной локальной сети.\n\nФайлы сохраняются в Download/GalaxyBridge. Для мыши и ввода текста включите службу в специальных возможностях. Приложение получает команды только от сопряжённого ноутбука."); help.setTextSize(16); page.addView(help);
         status = new TextView(this); status.setTextSize(16); page.addView(status);
         button(page,"Сканировать QR", () -> startActivityForResult(new Intent(this, ScanActivity.class), 7));
         button(page,"Отправить на ПК", () -> startActivity(new Intent(this,SendActivity.class)));
+        button(page,"Буфер → ПК", () -> startActivity(new Intent(this,ClipboardActivity.class)));
         button(page,"Включить специальные возможности", () -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         button(page,"Разрешить уведомления", () -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 8));
         button(page,"Подключиться к сохранённому ноутбуку", () -> startForegroundService(new Intent(this, ConnectionService.class)));

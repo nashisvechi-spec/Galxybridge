@@ -8,6 +8,17 @@ public static class LanProtocol
 {
     public const int Version = 1, Port = 38271, DiscoveryPort = 38272, MaxFrame = 65536, ChunkSize = 32768;
     public const long MaxFile = 2L * 1024 * 1024 * 1024;
+    public const int MaxClipboardBytes = 16000;
+    public static string ClipboardText(JsonElement message)
+    {
+        if (!message.TryGetProperty("text", out JsonElement value) || value.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException("Invalid clipboard text.");
+        string text = value.GetString()!;
+        if (text.Length == 0 || text.Length > MaxClipboardBytes || text.Contains('\0') ||
+            System.Text.Encoding.UTF8.GetByteCount(text) > MaxClipboardBytes)
+            throw new InvalidDataException("Invalid clipboard text size or characters.");
+        return text;
+    }
     public static byte[] Encode(object value)
     {
         byte[] body = JsonSerializer.SerializeToUtf8Bytes(value);

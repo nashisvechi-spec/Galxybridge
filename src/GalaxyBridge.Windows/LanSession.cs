@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -35,6 +36,10 @@ internal sealed class LanSession : IPhoneControl
     private PhoneEdgeSample? edge;
     private int epoch, closed;
     private volatile bool inputReady;
+    private volatile bool clipboardEnabled;
+    private volatile Func<string, CancellationToken, Task<bool>>? clipboardWriter;
+    public Func<string, CancellationToken, Task<bool>>? ClipboardWriter { get => clipboardWriter; set => clipboardWriter = value; }
+    public void ConfigureClipboard(bool enabled) => clipboardEnabled = enabled;
     public string Name { get; }
     public bool InputReady => inputReady && IsAlive;
     public bool IsAlive => Volatile.Read(ref closed) == 0;
@@ -100,6 +105,23 @@ internal sealed class LanSession : IPhoneControl
                 switch (root.GetProperty("type").GetString())
                 {
                     case "pong": inputReady = root.GetProperty("ready").GetBoolean(); break;
+                    case "clipboard":
+                        string clipboardId = root.GetProperty("id").GetString() ?? "";
+                        if (!LanProtocol.Identifier(clipboardId)) throw new InvalidDataException("Invalid clipboard request.");
+                        string clipboardText = LanProtocol.ClipboardText(root);
+                        bool copied = false;
+                        string clipboardError = "Буфер ПК занят или приём текста выключен. Повторите отправку.";
+                        var clipboardWriter = ClipboardWriter;
+                        if (!clipboardEnabled) clipboardError = "Включите «Общий текстовый буфер» в окне Wi-Fi на ПК.";
+                        else if (clipboardWriter is not null)
+                        {
+                            using CancellationTokenSource clipboardDeadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                            clipboardDeadline.CancelAfter(TimeSpan.FromSeconds(3));
+                            try { copied = await clipboardWriter(clipboardText, clipboardDeadline.Token).WaitAsync(clipboardDeadline.Token); }
+                            catch (Exception ex) when (ex is OperationCanceledException or ExternalException or InvalidOperationException) { }
+                        }
+                        Post(new { type = "clipboardAck", id = clipboardId, ok = copied, error = copied ? "" : clipboardError });
+                        break;
                     case "edge":
                         if (PhoneEdgeSample.TryParse(root.GetProperty("line").GetString() ?? "", Environment.TickCount64, out PhoneEdgeSample? sample))
                             Volatile.Write(ref edge, sample);

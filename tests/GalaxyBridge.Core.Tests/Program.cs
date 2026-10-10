@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using System.Text.Json;
 using GalaxyBridge.Core;
 
 int checks = 0;
@@ -295,6 +296,25 @@ catch (InvalidDataException) { arrayRejected = true; }
 Check(arrayRejected, "LAN reject non-object frame");
 
 checks += LanFileReceiverTests.Run();
+foreach (string clipboardValue in new[] { "Текст с телефона 🌍\n", "https://example.com/?q=икона&n=2", "  text\n", new string('Я', 8000) })
+{
+    using var clipboardMessage = JsonDocument.Parse(JsonSerializer.Serialize(new { text = clipboardValue }));
+    Check(LanProtocol.ClipboardText(clipboardMessage.RootElement) == clipboardValue, "LAN clipboard keeps exact Unicode text and links");
+}
+foreach (object clipboardValue in new object[] { "", "x\0y", new string('x', 16001), new string('Я', 8001), 123 })
+{
+    using var clipboardMessage = JsonDocument.Parse(JsonSerializer.Serialize(new { text = clipboardValue }));
+    bool rejectedClipboard = false;
+    try { LanProtocol.ClipboardText(clipboardMessage.RootElement); } catch (InvalidDataException) { rejectedClipboard = true; }
+    Check(rejectedClipboard, "reject invalid LAN clipboard text");
+}
+using (var missingClipboard = JsonDocument.Parse("{}"))
+{
+    bool rejectedClipboard = false;
+    try { LanProtocol.ClipboardText(missingClipboard.RootElement); } catch (InvalidDataException) { rejectedClipboard = true; }
+    Check(rejectedClipboard, "reject missing LAN clipboard text");
+}
+await LanClipboardTests.RunAsync(Check);
 Console.WriteLine($"PASS: {checks} core assertions");
 
 sealed class FragmentedStream(Stream inner) : Stream

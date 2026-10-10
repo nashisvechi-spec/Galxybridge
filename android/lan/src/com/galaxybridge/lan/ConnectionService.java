@@ -22,6 +22,7 @@ import javax.net.ssl.*;
 public final class ConnectionService extends Service {
     public static volatile String status="Подключение выключено.";
     public static volatile String fileStatus="Выберите файлы или используйте «Поделиться» → Galaxy Bridge Wi-Fi.";
+    public static volatile String clipboardStatus="Текст и ссылки: «Буфер → ПК» или «Поделиться → Galaxy Bridge Wi-Fi».";
     private static volatile ConnectionService instance;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicReference<Pairing> pending=new AtomicReference<>();
@@ -32,6 +33,7 @@ public final class ConnectionService extends Service {
     private Thread worker;
     private volatile Thread uploadWorker;
     private final AtomicBoolean uploadBusy=new AtomicBoolean();
+    private final AtomicBoolean clipboardBusy=new AtomicBoolean();
     private volatile AtomicBoolean uploadCancel=new AtomicBoolean();
     private final AtomicReference<InputStream> uploadInput=new AtomicReference<>();
     private ConnectivityManager manager;
@@ -48,8 +50,10 @@ public final class ConnectionService extends Service {
         notifications.createNotificationChannel(new NotificationChannel("lan","Galaxy Bridge Wi-Fi",NotificationManager.IMPORTANCE_LOW));
         PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,SetupActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,ConnectionService.class).setAction("stop"),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent clipboard=PendingIntent.getActivity(this,2,new Intent(this,ClipboardActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         Notification notification=new Notification.Builder(this,"lan").setContentTitle("Galaxy Bridge Wi-Fi")
             .setContentText("Подключение к сохранённому ноутбуку включено").setSmallIcon(android.R.drawable.ic_menu_share).setContentIntent(open)
+            .addAction(new Notification.Action.Builder(null,"Буфер → ПК",clipboard).build())
             .addAction(new Notification.Action.Builder(null,"Остановить",stop).build()).setOngoing(true).build();
         startForeground(61,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
         if(intent!=null && intent.hasExtra("qr")) {
@@ -161,7 +165,7 @@ public final class ConnectionService extends Service {
                     pending.compareAndSet(pair,null);
                 } else prefs.edit().putString("host",host).apply();
                 Wire.write(out,Wire.message("saved"));
-                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false)); link=active; connecting=null;
+                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false)); link=active; connecting=null;
                 status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();
                 try(Downloads downloads=new Downloads(this)) {
                     while(running && !active.closed.get()) {
@@ -169,7 +173,7 @@ public final class ConnectionService extends Service {
                         if("ping".equals(type)) {
                             active.send(Wire.message("pong","ready",ControlService.ready(this)));
                             main.post(() -> { if(link==active && ControlService.instance!=null) ControlService.instance.poll(); });
-                        } else if("uploadAck".equals(type)) {
+                        } else if("uploadAck".equals(type) || "clipboardAck".equals(type)) {
                             active.ack(command);
                         } else if(type.startsWith("file")) {
                             String request=command.getString("id"); if(!Wire.hex(request,32)) throw new IOException("Invalid request");
@@ -194,6 +198,24 @@ public final class ConnectionService extends Service {
     static void disconnect() { ConnectionService current=instance; if(current!=null) current.drop(); }
     static void send(JSONObject message) { ConnectionService current=instance; if(current!=null) { Link active=current.link; if(active!=null) active.send(message); } }
     static boolean uploading() { ConnectionService current=instance; return current!=null && current.uploadBusy.get(); }
+    static boolean sendingClipboard() { ConnectionService current=instance;return current!=null && current.clipboardBusy.get(); }
+    static void sendClipboard(String text) {
+        // Validate the actual JSON frame before starting a worker or changing a clipboard.
+        ClipText.request("00000000000000000000000000000000",text);
+        ConnectionService current=instance;Link target=current==null?null:current.link;
+        if(target==null || target.closed.get()) { clipboardStatus="Ноутбук не подключён. Подключитесь и повторите отправку.";return; }
+        if(!target.clipboard) { clipboardStatus="Обновите Windows Galaxy Bridge до 0.7.2 для приёма текста.";return; }
+        if(!current.clipboardBusy.compareAndSet(false,true)) { clipboardStatus="Дождитесь подтверждения предыдущей отправки.";return; }
+        clipboardStatus="Передаём текст в буфер ПК…";
+        new Thread(() -> {
+            try {
+                target.request(Wire.message("clipboard","text",text),5000,new AtomicBoolean());
+                clipboardStatus="Текст доставлен в буфер ПК. Теперь вставьте через Ctrl+V.";
+            } catch(Exception e) {
+                clipboardStatus=e instanceof IOException?e.getMessage():"Подтверждение не получено. Проверьте буфер ПК и соединение; отправка автоматически не повторяется.";
+            } finally { current.clipboardBusy.set(false); }
+        },"GalaxyBridge-clipboard").start();
+    }
     static void cancelFiles() { ConnectionService current=instance; if(current!=null) current.cancelUpload(); }
     private void cancelUpload() {
         uploadCancel.set(true);
@@ -254,9 +276,9 @@ public final class ConnectionService extends Service {
         final Socket socket; final DataOutputStream out;
         final AtomicBoolean closed=new AtomicBoolean(); final ArrayBlockingQueue<JSONObject> queue=new ArrayBlockingQueue<>(256);
         final Semaphore commands=new Semaphore(128); final Thread writer;
-        final boolean upload;
+        final boolean upload,clipboard;
         final ConcurrentHashMap<String,CompletableFuture<JSONObject>> replies=new ConcurrentHashMap<>();
-        Link(Socket socket,DataOutputStream out,boolean upload) { this.socket=socket; this.out=out; this.upload=upload; writer=new Thread(() -> {
+        Link(Socket socket,DataOutputStream out,boolean upload,boolean clipboard) { this.socket=socket; this.out=out; this.upload=upload;this.clipboard=clipboard; writer=new Thread(() -> {
             try { while(!closed.get()) Wire.write(out,queue.take()); } catch(Exception e) { close(); }
         },"GalaxyBridge-send"); }
         void send(JSONObject message) { if(!closed.get() && !queue.offer(message)) close(); }
@@ -265,6 +287,7 @@ public final class ConnectionService extends Service {
             CompletableFuture<JSONObject> result=replies.remove(id); if(result!=null) result.complete(message);
         }
         String request(JSONObject message,int timeout,AtomicBoolean cancel) throws Exception {
+            boolean clipboardRequest="clipboard".equals(message.optString("type"));
             Upload.check(cancel); if(closed.get()) throw new IOException("Ноутбук отключён.");
             String id=UUID.randomUUID().toString().replace("-",""); message.put("id",id);
             CompletableFuture<JSONObject> result=new CompletableFuture<>(); replies.put(id,result);
@@ -273,10 +296,10 @@ public final class ConnectionService extends Service {
                 while(true) {
                     Upload.check(cancel);
                     if(closed.get()) throw new IOException("Связь прервалась.");
-                    long remaining=deadline-System.nanoTime(); if(remaining<=0) throw new IOException("ПК не подтвердил приём файла.");
+                    long remaining=deadline-System.nanoTime(); if(remaining<=0) throw new IOException(clipboardRequest?"ПК не подтвердил запись в буфер. Проверьте буфер и соединение; отправка автоматически не повторяется.":"ПК не подтвердил приём файла.");
                     try {
                         JSONObject reply=result.get(Math.min(remaining,TimeUnit.MILLISECONDS.toNanos(200)),TimeUnit.NANOSECONDS);
-                        if(!reply.getBoolean("ok")) throw new IOException(reply.optString("error","ПК не принял файл."));
+                        if(!reply.getBoolean("ok")) throw new IOException(reply.optString("error",clipboardRequest?"ПК не принял текст в буфер.":"ПК не принял файл."));
                         return reply.optString("name","");
                     } catch(TimeoutException again) { }
                 }

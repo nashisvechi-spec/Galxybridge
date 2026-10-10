@@ -25,10 +25,20 @@ public final class SendActivity extends Activity {
     }};
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        if(saved==null) {
+            collect(getIntent());
+            CharSequence shared=getIntent().getCharSequenceExtra(Intent.EXTRA_TEXT);
+            if(files.isEmpty() && Intent.ACTION_SEND.equals(getIntent().getAction()) && shared!=null) {
+                try {
+                    String value=ClipText.validate(shared);
+                    startActivity(new Intent(this,ClipboardActivity.class).putExtra("sharedText",value));finish();return;
+                } catch(IllegalArgumentException e) { ConnectionService.fileStatus=e.getMessage(); }
+            }
+        }
         LinearLayout page=new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(20*getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.4"); title.setTextSize(24); page.addView(title);
+        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.5"); title.setTextSize(24); page.addView(title);
         TextView help=new TextView(this); help.setText("Файлы получит сохранённый ноутбук. Откройте на нём режим Wi-Fi без отладки. Оба устройства должны быть в одной сети. Папку приёма можно изменить в окне файлов Windows."); page.addView(help);
         selection=new TextView(this); selection.setTextSize(18); page.addView(selection);
         Button choose=new Button(this); choose.setText("Выбрать файлы…"); choose.setOnClickListener(v -> choose(false)); page.addView(choose);

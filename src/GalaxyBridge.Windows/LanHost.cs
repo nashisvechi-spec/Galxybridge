@@ -106,7 +106,7 @@ internal sealed class LanHost : IAsyncDisposable
                     session.ConfigureReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder);
                     current?.Close(); current = session;
                 }
-                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true }), hello.Token);
+                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, clipboard = true }), hello.Token);
                 // Explicit acknowledgement proves the phone saved its new token before any control session is accepted.
                 stage = "подтверждение телефона";
                 State?.Invoke("Ожидаем подтверждение сохранения сопряжения…");
