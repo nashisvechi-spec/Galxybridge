@@ -3,6 +3,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
@@ -23,7 +24,7 @@ public final class SetupActivity extends Activity {
         LinearLayout page = new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p = (int)(20 * getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b = i.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.2"); title.setTextSize(24); page.addView(title);
+        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.3"); title.setTextSize(24); page.addView(title);
         TextView help = new TextView(this); help.setText("Подключение к ноутбуку без отладки.\n\nНа Windows откройте «Wi-Fi без отладки» и покажите QR. Оба устройства подключите к одной локальной сети.\n\nФайлы сохраняются в Download/GalaxyBridge. Для мыши и ввода текста включите службу в специальных возможностях. Приложение получает команды только от сопряжённого ноутбука."); help.setTextSize(16); page.addView(help);
         status = new TextView(this); status.setTextSize(16); page.addView(status);
         button(page,"Сканировать QR", () -> startActivityForResult(new Intent(this, ScanActivity.class), 7));
@@ -46,10 +47,26 @@ public final class SetupActivity extends Activity {
         String raw = data.getStringExtra("qr");
         try {
             Pairing pair = new Pairing(raw);
+            if(data.getBooleanExtra("confirmed",false)) {
+                if(!data.getBooleanExtra("started",false)) connect(raw);
+                else status.setText(ConnectionService.status);
+                return;
+            }
             new AlertDialog.Builder(this).setTitle("Подключить ноутбук?").setMessage(pair.name + "\n" + pair.host + "\n\nОн сможет отправлять файлы и управлять телефоном, пока подключение включено.")
-                .setNegativeButton("Отмена",null).setPositiveButton("Подключить",(d,w) -> {
-                    Intent intent = new Intent(this,ConnectionService.class); intent.putExtra("qr",raw); startForegroundService(intent);
-                }).show();
-        } catch (IllegalArgumentException e) { status.setText("Это не QR Galaxy Bridge. Покажите новый код в режиме без отладки."); }
+                .setNegativeButton("Отмена",null).setPositiveButton("Подключить",(d,w) -> connect(raw)).show();
+        } catch (IllegalArgumentException e) { ConnectionService.status="Это не QR Galaxy Bridge. Покажите новый код в режиме без отладки.";status.setText(ConnectionService.status); }
+    }
+    private void connect(String raw) {
+        startPairing(this,raw);status.setText(ConnectionService.status);
+    }
+    static boolean startPairing(Context context,String raw) {
+        try {
+            Intent intent=new Intent(context,ConnectionService.class);intent.putExtra("qr",raw);
+            ConnectionService.status="QR подтверждён. Подключаемся к ноутбуку…";context.startForegroundService(intent);
+            return true;
+        } catch(RuntimeException e) {
+            ConnectionService.status="Не удалось включить подключение: "+e.getClass().getSimpleName()+". Откройте приложение на телефоне и повторите.";
+            return false;
+        }
     }
 }

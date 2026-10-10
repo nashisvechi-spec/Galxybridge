@@ -1,6 +1,7 @@
 package com.galaxybridge.lan;
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.Camera;
@@ -15,6 +16,7 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @SuppressWarnings("deprecation")
@@ -25,14 +27,18 @@ public final class ScanActivity extends Activity implements SurfaceHolder.Callba
     private final ExecutorService decoder = Executors.newSingleThreadExecutor();
     private final AtomicBoolean decoding = new AtomicBoolean();
     private volatile boolean done;
-    private boolean surface;
+    private boolean surface,resumed;
+    private String pendingQr;
+    private AlertDialog confirmation;
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        if(saved!=null) pendingQr=saved.getString("pendingQr");
+        done=pendingQr!=null;
         LinearLayout page = new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         message = new TextView(this); message.setText("Наведите камеру на QR из окна «Wi-Fi без отладки». Держите код полностью в кадре."); message.setPadding(24,48,24,24); page.addView(message);
         preview = new SurfaceView(this); page.addView(preview,new LinearLayout.LayoutParams(-1,0,1));
         preview.getHolder().addCallback(this); setContentView(page);
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.CAMERA},1);
+        if (!done && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.CAMERA},1);
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {
         super.onRequestPermissionsResult(request,permissions,grants);
@@ -42,7 +48,7 @@ public final class ScanActivity extends Activity implements SurfaceHolder.Callba
     @Override public void surfaceChanged(SurfaceHolder h,int f,int w,int height) { }
     @Override public void surfaceDestroyed(SurfaceHolder holder) { surface=false; release(); }
     private void open() {
-        if (!surface || camera != null || done || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
+        if (!resumed || !surface || camera != null || done || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
         try {
             camera = Camera.open(); Camera.Parameters params = camera.getParameters();
             Camera.Size best = null;
@@ -60,7 +66,8 @@ public final class ScanActivity extends Activity implements SurfaceHolder.Callba
             camera.setPreviewCallback((bytes,c) -> {
                 if (done || !decoding.compareAndSet(false,true)) return;
                 byte[] owned = bytes.clone();
-                decoder.execute(() -> decode(owned,size.width,size.height));
+                try { decoder.execute(() -> decode(owned,size.width,size.height)); }
+                catch(RejectedExecutionException ignored) { decoding.set(false); }
             });
             camera.startPreview();
         } catch (Exception e) { release(); message.setText("Не удалось открыть камеру. Закройте другие приложения с камерой и повторите."); }
@@ -72,13 +79,56 @@ public final class ScanActivity extends Activity implements SurfaceHolder.Callba
             MultiFormatReader reader = new MultiFormatReader(); reader.setHints(hints);
             String raw = reader.decodeWithState(new BinaryBitmap(new HybridBinarizer(new PlanarYUVLuminanceSource(bytes,width,height,0,0,width,height,false)))).getText();
             new Pairing(raw); done=true;
-            runOnUiThread(() -> { release(); Intent data = new Intent(); data.putExtra("qr",raw); setResult(RESULT_OK,data); finish(); });
+            runOnUiThread(() -> {
+                if(isFinishing() || isDestroyed()) return;
+                pendingQr=raw;release();confirm();
+            });
         } catch (ReaderException ignored) { }
         catch (IllegalArgumentException e) { runOnUiThread(() -> message.setText("Нужен QR из окна Galaxy Bridge «Wi-Fi без отладки».")); }
         finally { decoding.set(false); }
     }
-    private void release() { if (camera != null) { camera.setPreviewCallback(null); camera.stopPreview(); camera.release(); camera=null; } }
-    @Override protected void onPause() { release(); super.onPause(); }
-    @Override protected void onResume() { super.onResume(); open(); }
-    @Override protected void onDestroy() { done=true; release(); decoder.shutdown(); super.onDestroy(); }
+    private void confirm() {
+        if(!resumed || pendingQr==null || confirmation!=null || isFinishing()) return;
+        final String raw=pendingQr;
+        final Pairing pair;
+        try { pair=new Pairing(raw); }
+        catch(IllegalArgumentException e) { retryScan();message.setText("Это не QR Galaxy Bridge. Покажите новый код в режиме без отладки.");return; }
+        message.setText("QR распознан. Проверьте название и адрес ноутбука и нажмите «Подключить».");
+        confirmation=new AlertDialog.Builder(this).setTitle("Подключить ноутбук?")
+            .setMessage(pair.name+"\n"+pair.host+"\n\nОн сможет отправлять файлы и управлять телефоном, пока подключение включено.")
+            .setNegativeButton("Сканировать заново",(d,w) -> retryScan())
+            .setPositiveButton("Подключить",null).setOnCancelListener(d -> retryScan()).create();
+        confirmation.show();
+        confirmation.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            // Start while this activity is visible, after explicit confirmation.
+            // Connection no longer depends on delivery of the activity result.
+            v.setEnabled(false);
+            if(!SetupActivity.startPairing(this,raw)) { v.setEnabled(true);message.setText(ConnectionService.status);return; }
+            Intent data=new Intent();data.putExtra("qr",raw);data.putExtra("confirmed",true);data.putExtra("started",true);
+            setResult(RESULT_OK,data);finish();
+        });
+    }
+    private void retryScan() {
+        confirmation=null;pendingQr=null;done=false;
+        message.setText("Наведите камеру на новый QR из окна «Wi-Fi без отладки».");open();
+    }
+    private void release() {
+        Camera closing=camera;camera=null;
+        if(closing==null) return;
+        // Camera drivers can throw when the preview has already stopped.
+        // Cleanup must not prevent confirmation or delivery of the scan result.
+        try { closing.setPreviewCallback(null); } catch(RuntimeException ignored) { }
+        try { closing.stopPreview(); } catch(RuntimeException ignored) { }
+        try { closing.release(); } catch(RuntimeException ignored) { }
+    }
+    @Override protected void onSaveInstanceState(Bundle state) {
+        state.putString("pendingQr",pendingQr);super.onSaveInstanceState(state);
+    }
+    @Override protected void onPause() { resumed=false;release();super.onPause(); }
+    @Override protected void onResume() { super.onResume();resumed=true;if(pendingQr!=null) confirm();else open(); }
+    @Override protected void onDestroy() {
+        done=true;release();decoder.shutdownNow();
+        if(confirmation!=null) { confirmation.dismiss();confirmation=null; }
+        super.onDestroy();
+    }
 }
