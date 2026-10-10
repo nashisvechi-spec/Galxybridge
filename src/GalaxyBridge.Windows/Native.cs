@@ -32,7 +32,7 @@ internal static class Native
     [DllImport("user32.dll")] internal static extern uint GetClipboardSequenceNumber();
 
     internal static bool KeyDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
-    internal static bool MouseButtonDown => KeyDown(1) || KeyDown(2) || KeyDown(4);
+    internal static bool MouseButtonDown => KeyDown(1) || KeyDown(2) || KeyDown(4) || KeyDown(5) || KeyDown(6);
     internal static void ReleaseHostModifiers()
     {
         int[] keys = [0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C];

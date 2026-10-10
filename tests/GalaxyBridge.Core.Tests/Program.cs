@@ -47,14 +47,15 @@ Check(ScanCodes.ToUsage(999, false) == 0, "unsupported key ignored");
 Random random = new(240);
 for (int i = 0; i < 1000; i++)
 {
-    int x = random.Next(-2000, 2001), y = random.Next(-2000, 2001), w = random.Next(-300, 301);
-    byte button = (byte)random.Next(0, 8);
-    byte[][] reports = Hid.MouseReports(button, x, y, w).ToArray();
-    Check(reports.Sum(r => (sbyte)r[1]) == x && reports.Sum(r => (sbyte)r[2]) == y && reports.Sum(r => (sbyte)r[3]) == w, "mouse split preserves motion " + i);
-    Check(reports.All(r => r.Length == 4 && r[0] == button && r.Skip(1).All(b => (sbyte)b != -128)), "mouse split preserves held buttons " + i);
+    int x = random.Next(-2000, 2001), y = random.Next(-2000, 2001), w = random.Next(-300, 301), h = random.Next(-300, 301);
+    byte button = (byte)random.Next(0, 32);
+    byte[][] reports = Hid.MouseReports(button, x, y, w, h).ToArray();
+    Check(reports.Sum(r => (sbyte)r[1]) == x && reports.Sum(r => (sbyte)r[2]) == y && reports.Sum(r => (sbyte)r[3]) == w && reports.Sum(r => (sbyte)r[4]) == h, "mouse split preserves both motion and wheel axes " + i);
+    Check(reports.All(r => r.Length == Hid.MouseReportLength && r[0] == button && r.Skip(1).All(b => (sbyte)b != -128)), "mouse split preserves all five held buttons " + i);
 }
-Equal(Hid.MouseReports(0, 0, 0).Single(), "00000000", "zero mouse report releases buttons");
-Reject(() => Hid.MouseReports(8, 1, 2).ToArray(), "invalid mouse buttons rejected");
+Equal(Hid.MouseReports(0, 0, 0).Single(), "0000000000", "zero mouse report releases all five buttons and both wheels");
+Reject(() => Hid.MouseReports(32, 1, 2).ToArray(), "undefined sixth mouse button rejected");
+await NativeMouseTests.RunAsync(Check);
 
 Check(AdbEndpoint.Parse(" 192.168.1.10:37121 ").ToString() == "192.168.1.10:37121", "Wi-Fi IPv4 endpoint");
 Check(AdbEndpoint.Parse("[fd00::1]:2222").ToString() == "[fd00::1]:2222", "Wi-Fi IPv6 endpoint");

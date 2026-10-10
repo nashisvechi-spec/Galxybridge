@@ -91,13 +91,18 @@ internal sealed class LanSession : IPhoneControl
     }
     public int BeginEdgeReturn(PhoneSide side)
     {
-        CancelClipboardPull(); controlling = true;
+        BeginNativeControl();
         held.Clear(); edge = null; int id = checked(++epoch);
         Post(new { type = "capture", active = true, epoch = id, side = (int)side }); return id;
     }
     public void EndEdgeReturn()
     {
         edge = null; Post(new { type = "capture", active = false, epoch, side = 0 });
+        EndNativeControl();
+    }
+    public void BeginNativeControl() { CancelClipboardPull(); controlling = true; }
+    public void EndNativeControl()
+    {
         bool wasControlling = controlling; controlling = false;
         if (!wasControlling || !AutomaticClipboard || !clipboardEnabled || !IsAlive || ClipboardSequenceReader is null || ClipboardReadAllowed?.Invoke() == false) return;
         CancelClipboardPull();
@@ -111,7 +116,9 @@ internal sealed class LanSession : IPhoneControl
         Post(new { type = "clipboardGet", request = request.Id });
     }
     public void ReleaseInputs() { held.Clear(); Post(new { type = "release" }); }
-    public void Mouse(byte buttons, int dx, int dy, int wheel = 0) => Post(new { type = "mouse", buttons, dx, dy, wheel });
+    // The touch backend supports three buttons and vertical swipes. Keep its
+    // wire format compatible with installed APKs; native HID bypasses this path.
+    public void Mouse(byte buttons, int dx, int dy, int wheel = 0, int horizontalWheel = 0) => Post(new { type = "mouse", buttons = (byte)(buttons & 7), dx, dy, wheel });
     public void Keyboard(byte[] report)
     {
         if (report.Length != 8) throw new ArgumentException("Keyboard report.");

@@ -97,7 +97,8 @@ def main() -> None:
             require((path.parent / reference.attrib['Include']).is_file(),
                     f"Broken project reference in {path.relative_to(ROOT)}")
     windows = ET.parse(ROOT / 'src/GalaxyBridge.Windows/GalaxyBridge.Windows.csproj')
-    require(windows.findtext('.//TargetFramework') == 'net8.0-windows', 'Windows framework')
+    require(windows.findtext('.//TargetFramework') == 'net8.0-windows10.0.19041.0', 'Windows framework with BLE GATT server support')
+    require(windows.findtext('.//WindowsSdkPackageVersion') == '10.0.19041.56', 'Pinned Windows SDK projections')
     require(windows.findtext('.//UseWindowsForms') == 'true', 'WinForms enabled')
     require(windows.findtext('.//OutputType') == 'WinExe', 'Windows executable configuration')
     qr_package = windows.find('.//PackageReference[@Include="QRCoder"]')

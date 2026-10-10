@@ -2,6 +2,7 @@ namespace GalaxyBridge.Core;
 
 public static class Hid
 {
+    public const int MouseReportLength = 5;
     // Standard USB HID boot keyboard: modifier byte, reserved byte, six key usages.
     public static readonly byte[] KeyboardDescriptor =
     [
@@ -19,22 +20,31 @@ public static class Hid
     public static readonly byte[] MouseDescriptor =
     [
         0x05,0x01, 0x09,0x02, 0xA1,0x01, 0x09,0x01, 0xA1,0x00,
-        0x05,0x09, 0x19,0x01, 0x29,0x03, 0x15,0x00, 0x25,0x01,
-        0x95,0x03, 0x75,0x01, 0x81,0x02, 0x95,0x01, 0x75,0x05, 0x81,0x01,
+        0x05,0x09, 0x19,0x01, 0x29,0x05, 0x15,0x00, 0x25,0x01,
+        0x95,0x05, 0x75,0x01, 0x81,0x02, 0x95,0x01, 0x75,0x03, 0x81,0x01,
         0x05,0x01, 0x09,0x30, 0x09,0x31, 0x09,0x38,
-        0x15,0x81, 0x25,0x7F, 0x75,0x08, 0x95,0x03, 0x81,0x06, 0xC0,0xC0
+        0x15,0x81, 0x25,0x7F, 0x75,0x08, 0x95,0x03, 0x81,0x06,
+        // Consumer AC Pan: horizontal wheel, positive to the right.
+        0x05,0x0C, 0x0A,0x38,0x02, 0x95,0x01, 0x81,0x06, 0xC0,0xC0
     ];
 
-    public static IEnumerable<byte[]> MouseReports(byte buttons, int dx, int dy, int wheel = 0)
+    // GATT's Report Reference identifies each report; notification payloads do
+    // not contain this ID. UHID keeps separate devices and uses the maps above.
+    public static byte[] BluetoothReportMap =>
+        [.. KeyboardDescriptor[..6], 0x85, 1, .. KeyboardDescriptor[6..],
+         .. MouseDescriptor[..6], 0x85, 2, .. MouseDescriptor[6..]];
+
+    public static IEnumerable<byte[]> MouseReports(byte buttons, int dx, int dy, int wheel = 0, int horizontalWheel = 0)
     {
-        if ((buttons & ~7) != 0) throw new ArgumentOutOfRangeException(nameof(buttons));
+        if ((buttons & ~31) != 0) throw new ArgumentOutOfRangeException(nameof(buttons));
         do
         {
             int x = Math.Clamp(dx, -127, 127), y = Math.Clamp(dy, -127, 127);
             int w = Math.Clamp(wheel, -127, 127);
-            yield return [buttons, unchecked((byte)(sbyte)x), unchecked((byte)(sbyte)y), unchecked((byte)(sbyte)w)];
-            dx -= x; dy -= y; wheel -= w;
-        } while (dx != 0 || dy != 0 || wheel != 0);
+            int h = Math.Clamp(horizontalWheel, -127, 127);
+            yield return [buttons, unchecked((byte)(sbyte)x), unchecked((byte)(sbyte)y), unchecked((byte)(sbyte)w), unchecked((byte)(sbyte)h)];
+            dx -= x; dy -= y; wheel -= w; horizontalWheel -= h;
+        } while (dx != 0 || dy != 0 || wheel != 0 || horizontalWheel != 0);
     }
 }
 

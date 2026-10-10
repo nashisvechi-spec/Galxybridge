@@ -107,9 +107,9 @@ internal sealed class PhoneSession : IAsyncDisposable, IPhoneControl
         return false;
     }
     public void Keyboard(byte[] report) => Send(ControlProtocol.HidInput(ControlProtocol.KeyboardId, report));
-    public void Mouse(byte buttons, int dx, int dy, int wheel = 0)
+    public void Mouse(byte buttons, int dx, int dy, int wheel = 0, int horizontalWheel = 0)
     {
-        foreach (byte[] report in Hid.MouseReports(buttons, dx, dy, wheel))
+        foreach (byte[] report in Hid.MouseReports(buttons, dx, dy, wheel, horizontalWheel))
             Send(ControlProtocol.HidInput(ControlProtocol.MouseId, report));
     }
     public void ReleaseInputs() { Keyboard(new byte[8]); Mouse(0, 0, 0); }
@@ -178,7 +178,7 @@ internal sealed class PhoneSession : IAsyncDisposable, IPhoneControl
         if (writer is not null && !lifetime.IsCancellationRequested)
         {
             outgoing.Writer.TryWrite(new Outgoing(ControlProtocol.HidInput(ControlProtocol.KeyboardId, new byte[8])));
-            outgoing.Writer.TryWrite(new Outgoing(ControlProtocol.HidInput(ControlProtocol.MouseId, new byte[4])));
+            outgoing.Writer.TryWrite(new Outgoing(ControlProtocol.HidInput(ControlProtocol.MouseId, new byte[Hid.MouseReportLength])));
             outgoing.Writer.TryWrite(new Outgoing(ControlProtocol.DestroyHid(ControlProtocol.KeyboardId)));
             outgoing.Writer.TryWrite(new Outgoing(ControlProtocol.DestroyHid(ControlProtocol.MouseId)));
             TaskCompletionSource barrier = new(TaskCreationOptions.RunContinuationsAsynchronously);

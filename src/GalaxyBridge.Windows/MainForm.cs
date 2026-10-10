@@ -190,9 +190,10 @@ internal sealed class MainForm : Form
         if (busy || disconnecting || closing || nativeWindow is not null) return;
         recovery.Pause(); autoTimer.Stop(); edgeTimer.Stop(); await DisconnectAsync();
         StopCapture(); capture?.Dispose(); capture = null;
+        bool systemMouseQr = false;
         try
         {
-            using LanForm dialog = new(settings); nativeWindow = dialog; dialog.ShowDialog(this);
+            using LanForm dialog = new(settings); nativeWindow = dialog; dialog.ShowDialog(this);systemMouseQr = dialog.SystemMouseQrRequested;
             speed.Value = (decimal)settings.Sensitivity; side.SelectedIndex = (int)settings.PhoneSide; edge.Checked = settings.EdgeEntryEnabled;
             SaveSettings();
         }
@@ -203,6 +204,7 @@ internal sealed class MainForm : Form
             nativeWindow = null;
             if (!closing) { InitializeCapture(); edgeTimer.Start(); autoTimer.Start(); UpdateButtons(); }
         }
+        if (systemMouseQr && !closing) await RunAsync(PairQrAsync);
     }
     protected override void WndProc(ref Message m)
     {

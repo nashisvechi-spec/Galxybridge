@@ -61,7 +61,7 @@ jobs:
         run: |
           Copy-Item README.ru.md, LICENSE, THIRD_PARTY_NOTICES.md -Destination artifacts/GalaxyBridge
           Copy-Item licenses -Destination artifacts/GalaxyBridge -Recurse
-          Copy-Item docs/TESTING.md, docs/NATIVE_WIFI.ru.md -Destination artifacts/GalaxyBridge
+          Copy-Item docs/TESTING.md, docs/NATIVE_WIFI.ru.md, docs/SYSTEM_MOUSE.ru.md -Destination artifacts/GalaxyBridge
           Copy-Item scripts/backend.lock.json -Destination artifacts/GalaxyBridge/backend
       - name: Package portable application
         run: Compress-Archive -Path artifacts/GalaxyBridge/* -DestinationPath artifacts/GalaxyBridge-win10-x64.zip

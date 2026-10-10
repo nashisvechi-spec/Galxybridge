@@ -335,3 +335,32 @@ LanSession поверх TLS; Java проверяет Wire, формат текс
 - [ ] Проверить быстрые повторные клики и перетаскивание сразу после колеса.
 
 Натурная проверка этих сценариев на телефоне здесь не выполнена.
+
+## Windows 0.7.4: native BLE HID / five-button UHID
+
+- PASS: 2284 portable Core assertions, including actual LAN clipboard exchange
+  over certificate-checked TLS. No Android source changes in this version.
+- Entire Core/Windows sources compile with Roslyn C# 12, .NET 8 and the pinned
+  Windows SDK 10.0.19041.56. Compiler warnings are errors, with the SDK's standard
+  NoWarn 1701/1702 assembly-unification policy and WinForms reference profile.
+- Portable tests independently parse report sizes, exercise five mouse buttons,
+  both wheel axes/remainders, Shift+drag ordering, queue cancellation, target
+  isolation, radio errors and overflow. Native capture's clipboard return uses
+  the real LanSession over TLS without sending a touch capture command.
+- Full MSBuild/publish could not run here: an internal Process.GetProcessName
+  error occurs before restore/build. Portable tests invoke Roslyn/the runtime
+  directly. No signed APK or self-contained Windows ZIP was created here.
+- [ ] Run the manual Windows workflow on main; verify SDK restore and packaging.
+- [ ] Unsupported radio and Bluetooth off show clear failure, with touch mode usable.
+- [ ] On HP/S25, pair in system Bluetooth; verify both input subscriptions and capture.
+- [ ] Verify system pointer forms and hover; click/double/triple click in a text editor,
+  browser and file picker. Selection follows each app's physical-mouse behavior.
+- [ ] Test hold/drag, Shift+click, Shift+drag, Ctrl+wheel, five buttons and both wheels.
+- [ ] Connect a second HID host; input must reach only the selected phone.
+- [ ] Stop capture, switch host, lock/sleep PC, lose radio and close the app while holding
+  a mouse button/modifier. Input returns to Windows and no old queued actions replay.
+- [ ] Restart Windows app; check Android HID reconnect. If subscriptions do not return,
+  use Connect/re-pair; do not infer success from the Bluetooth bond alone.
+- [ ] Verify physical keyboard layouts on Android; Ctrl+C/X/V and LAN shared clipboard.
+- [ ] Verify Wi-Fi+QR fallback closes LAN/BLE before the ADB wizard and supports the
+  same five buttons and both scroll axes with native UHID.

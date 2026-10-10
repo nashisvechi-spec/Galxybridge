@@ -115,6 +115,19 @@ static class LanClipboardTests
             try { peer.Session.PushClipboard(invalid); } catch (Exception e) when (e is InvalidDataException or ArgumentException) { rejected = true; }
             check(rejected && peer.Session.IsAlive, "invalid PC clipboard is rejected before queuing, without disconnect");
         }
+        peer.Session.ClipboardReadAllowed = () => true;
+        peer.Session.AutomaticClipboardWriter = (text, expected, ct) =>
+        {
+            if (ct.IsCancellationRequested || expected != sequence) return Task.FromResult(false);
+            copied = text; writes++; return Task.FromResult(true);
+        };
+        peer.Session.BeginNativeControl();peer.Session.EndNativeControl();
+        using (var nativePull = await peer.NextAsync())
+        {
+            check(nativePull.RootElement.GetProperty("type").GetString() == "clipboardGet", "native HID return reads clipboard without enabling the touch cursor");
+            using var ack = await AutoReplyAsync(peer, nativePull.RootElement.GetProperty("request").GetString()!, "Native HID clipboard");
+            check(ack.RootElement.GetProperty("ok").GetBoolean() && writes == 2, "Bluetooth HID retains automatic LAN clipboard delivery");
+        }
         await using var legacy = await Peer.CreateAsync();legacy.Session.ConfigureClipboard(true);
         check(!legacy.Session.AutomaticClipboard && !legacy.Session.PushClipboard("legacy"), "no automatic command is sent to an old peer");
     }

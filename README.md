@@ -1,14 +1,22 @@
-# Independent Wi-Fi preview — Windows 0.7.3 / Android LAN 0.7.7
+# Independent Wi-Fi preview — Windows 0.7.4 / Android LAN 0.7.7
 
 Install **GalaxyBridgeLan.apk** (Android 13+), open **Wi-Fi without debugging**
 on Windows, scan its QR inside the phone app and confirm the laptop. Pairing,
 certificate-pinned TLS, reconnection, file transfer and accessibility control
 use the existing LAN connection.
 
-Android LAN 0.7.7 sends held touches and dragging while the mouse button is
-down. To select text, hold still for Android's long press, then drag the
-selection handles. This mode follows touchscreen gestures; the ADB mode
-below provides native mouse input.
+Windows 0.7.4 adds **System mouse via Bluetooth (test)** inside the LAN window.
+On a BLE peripheral-capable adapter, pair the phone with the PC in Bluetooth,
+choose it and start control. Android receives native HID keyboard/mouse input:
+five buttons, hover, dragging and both scroll axes. LAN continues to carry files
+and the clipboard. Physical keyboard layout is selected on Android; return to
+the PC with Ctrl+Alt+F12. The ADB UHID path receives the same extended mouse map.
+This BLE path has compiled and passed portable input/queue tests; real pairing,
+application behavior and reconnection still require device validation.
+See [research, setup and support limits](docs/SYSTEM_MOUSE.ru.md).
+
+The touch-only LAN fallback sends held touches while the button is down.
+To select text there, hold still for Android's long press, then drag its handles.
 
 Enable the shared text clipboard on Windows and grant **Display over other apps**
 once on Android. New PC copies update the phone's system clipboard. Phone copies

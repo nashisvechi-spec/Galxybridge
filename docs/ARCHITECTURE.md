@@ -3,7 +3,22 @@
 Galaxy Bridge is a native .NET 8 WinForms application. `GalaxyBridge.Core`
 contains protocol encoding, HID reports, scan-code mapping, endpoint parsing
 and edge geometry. `GalaxyBridge.Windows` owns the UI, Windows hooks, ADB
-processes and the scrcpy control connection.
+processes, the scrcpy control connection and the BLE HID peripheral.
+
+## Native mouse without debugging (Windows 0.7.4)
+
+`BleHidSession` publishes HOGP via the Windows GATT server on peripheral-capable
+Bluetooth radios. A paired Android system HID host subscribes to keyboard and
+five-button mouse reports; only the explicitly selected subscriber receives
+notifications. Mouse reports contain relative X/Y, Wheel and Consumer AC Pan.
+The native Android pointer and event semantics replace accessibility touch
+injection for that capture; `LatestEdge` stays null instead of reporting fake
+coordinates. LAN remains independent for files and clipboard, including a pull
+on return after queued HID releases complete. `HidReportPump` serializes both
+devices, discards stale input and releases the old host on capture termination.
+The UI checks capability and actual subscriptions and offers the existing ADB
+QR path if BLE is unavailable. This transport requires Windows 10 build 19041+
+and hardware validation. See [research](SYSTEM_MOUSE.ru.md).
 
 ## Connection
 

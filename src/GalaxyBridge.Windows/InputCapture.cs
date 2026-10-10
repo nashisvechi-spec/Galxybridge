@@ -16,9 +16,9 @@ internal sealed class InputCapture : IDisposable
     private Form? overlay;
     private Point anchor, returnPoint;
     private nint returnWindow;
-    private byte buttons;
+    private readonly MouseInputState mouse = new();
+    private byte buttons => mouse.Buttons;
     private bool cursorHidden;
-    private int wheelRemainder;
     private int returnEpoch, lastDx, lastDy;
     private long enteredAt, motionAt;
     private PhoneSide phoneSide;
@@ -60,7 +60,7 @@ internal sealed class InputCapture : IDisposable
         enteredAt = Environment.TickCount64; motionAt = 0; lastDx = lastDy = 0;
         anchor = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
         sensitivity = Math.Clamp(speed, .25, 4);
-        pendingX = pendingY = 0; buttons = 0; wheelRemainder = 0; keyboard.Clear(); pastedKeys.Clear();
+        pendingX = pendingY = 0; mouse.Clear(); keyboard.Clear(); pastedKeys.Clear();
         ignoreUntilReleased.Clear(); foreach (byte key in physical) ignoreUntilReleased.Add(key);
         // Keys used to activate capture must not remain pressed in Windows or Android.
         Native.ReleaseHostModifiers();
@@ -87,7 +87,7 @@ internal sealed class InputCapture : IDisposable
         IPhoneControl? previous = phone;
         phone = null; motion.Stop();
         previous?.EndEdgeReturn(); returnEpoch = 0;
-        keyboard.Clear(); buttons = 0; wheelRemainder = 0; pendingX = pendingY = 0; pastedKeys.Clear(); ignoreUntilReleased.Clear();
+        keyboard.Clear(); mouse.Clear(); pendingX = pendingY = 0; pastedKeys.Clear(); ignoreUntilReleased.Clear();
         previous?.ReleaseInputs();
         if (cursorHidden) { Cursor.Show(); cursorHidden = false; }
         overlay?.Close(); overlay?.Dispose(); overlay = null;
@@ -124,6 +124,9 @@ internal sealed class InputCapture : IDisposable
             { if (up) ignoreUntilReleased.Remove(usage); return 1; }
             if (pastedKeys.Contains(usage))
             { if (up) pastedKeys.Remove(usage); return 1; }
+            // Motion accumulated before a modifier changes must reach Android
+            // while that modifier still has its original state (e.g. Shift-drag).
+            FlushMotion();
             bool shift = (keyboard.Modifiers & 0x22) != 0;
             bool paste = (usage == 0x19 && (keyboard.Modifiers & 0x11) != 0 && !shift && !alt)
                 || (usage == 0x49 && shift && !ctrl && !alt);
@@ -159,20 +162,12 @@ internal sealed class InputCapture : IDisposable
                 if (dx != 0 || dy != 0)
                 { pendingX += dx * sensitivity; pendingY += dy * sensitivity; _ = Native.SetCursorPos(anchor.X, anchor.Y); }
             }
-            else if (message is 0x201 or 0x202 or 0x204 or 0x205 or 0x207 or 0x208)
+            else if (MouseInputState.Handles(message))
             {
+                // Pending motion belongs to the old button state, before DOWN/UP.
                 FlushMotion();
-                byte mask = message is 0x201 or 0x202 ? (byte)1 : message is 0x204 or 0x205 ? (byte)2 : (byte)4;
-                bool down = message is 0x201 or 0x204 or 0x207;
-                buttons = down ? (byte)(buttons | mask) : (byte)(buttons & ~mask);
-                phone?.Mouse(buttons, 0, 0);
-            }
-            else if (message == 0x20A)
-            {
-                FlushMotion();
-                wheelRemainder += (short)(data.MouseDataValue >> 16);
-                int wheel = wheelRemainder / 120; wheelRemainder %= 120;
-                if (wheel != 0) phone?.Mouse(buttons, 0, 0, wheel);
+                if (mouse.Update(message, data.MouseDataValue, out MouseUpdate update))
+                    phone?.Mouse(update.Buttons, 0, 0, update.Wheel, update.HorizontalWheel);
             }
             return 1;
         }
