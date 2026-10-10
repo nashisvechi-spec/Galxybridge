@@ -30,8 +30,12 @@ try {
     & (Join-Path $buildTools 'd8.bat') --min-api 30 --lib $androidJar --output $dex $bytecode
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion dex compilation failed.' }
     $unsigned = Join-Path $work 'unsigned.apk'
-    $manifest = Join-Path $PSScriptRoot '..\android\edge-return\AndroidManifest.xml'
-    & (Join-Path $buildTools 'aapt2.exe') link -o $unsigned --manifest $manifest -I $androidJar --min-sdk-version 30 --target-sdk-version 35 --version-code 300 --version-name 0.3.0
+    $sourceRoot = Join-Path $PSScriptRoot '..\android\edge-return'
+    $manifest = Join-Path $sourceRoot 'AndroidManifest.xml'
+    $resources = Join-Path $work 'resources.zip'
+    & (Join-Path $buildTools 'aapt2.exe') compile --dir (Join-Path $sourceRoot 'res') -o $resources
+    if ($LASTEXITCODE -ne 0) { throw 'Edge companion resource compilation failed.' }
+    & (Join-Path $buildTools 'aapt2.exe') link -o $unsigned --manifest $manifest -I $androidJar --min-sdk-version 30 --target-sdk-version 35 --version-code 301 --version-name 0.3.1 $resources
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion manifest packaging failed.' }
     & $jarTool --update --file $unsigned -C $dex classes.dex
     if ($LASTEXITCODE -ne 0) { throw 'Edge companion dex insertion failed.' }

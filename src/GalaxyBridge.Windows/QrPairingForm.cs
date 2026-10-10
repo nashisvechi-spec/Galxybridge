@@ -19,6 +19,7 @@ internal sealed class QrPairingForm : Form
 
     public QrPairingForm(AdbClient adb, CancellationToken ct, Action<string> log)
     {
+        Icon = AppIcon.Value;
         this.adb = adb; this.log = log;
         lifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
         lifetime.CancelAfter(TimeSpan.FromMinutes(2));

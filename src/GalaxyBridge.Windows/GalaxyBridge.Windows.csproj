@@ -5,9 +5,11 @@
     <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Resources/App.ico</ApplicationIcon>
     <AssemblyName>GalaxyBridge</AssemblyName>
-    <Version>0.7.0</Version>
+    <Version>0.7.1</Version>
   </PropertyGroup>
+  <ItemGroup><EmbeddedResource Include="Resources/App.ico" LogicalName="GalaxyBridge.App.ico" /></ItemGroup>
   <ItemGroup><ProjectReference Include="../GalaxyBridge.Core/GalaxyBridge.Core.csproj" /></ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />

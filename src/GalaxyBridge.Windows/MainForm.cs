@@ -43,7 +43,7 @@ internal sealed class MainForm : Form
         wifiConnect = Button("Подключиться по Wi-Fi"), sendFile = Button("Выбрать файлы…"), layout = Button("Раскладка клавиатуры");
     private readonly Button nativeWifi = Button("Wi-Fi без отладки (тест)");
     private readonly Button pairQr = Button("Сопряжение по QR-коду"), forget = Button("Забыть последний телефон");
-    private readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Visible = true, Text = "Galaxy Bridge" };
+    private readonly NotifyIcon tray = new() { Icon = AppIcon.Value, Visible = true, Text = "Galaxy Bridge" };
     private readonly System.Windows.Forms.Timer edgeTimer = new() { Interval = 50 };
     private readonly System.Windows.Forms.Timer clipboardRetry = new() { Interval = 50 };
     private readonly System.Windows.Forms.Timer autoTimer = new() { Interval = 1000 };
@@ -51,6 +51,7 @@ internal sealed class MainForm : Form
 
     public MainForm()
     {
+        Icon = AppIcon.Value;
         discovery = new(adb);
         Text = "Galaxy Bridge • Windows 10"; StartPosition = FormStartPosition.CenterScreen;
         Size = new Size(760, Math.Min(760, (Screen.PrimaryScreen?.WorkingArea.Height ?? 800) - 50));
@@ -468,7 +469,7 @@ internal sealed class MainForm : Form
     private async Task PairAsync(CancellationToken ct)
     {
         recovery.Pause();
-        using Form dialog = new() { Text = "Сопряжение с S25", Size = new Size(480, 330), StartPosition = FormStartPosition.CenterParent, MinimizeBox = false, MaximizeBox = false };
+        using Form dialog = new() { Icon = AppIcon.Value, Text = "Сопряжение с S25", Size = new Size(480, 330), StartPosition = FormStartPosition.CenterParent, MinimizeBox = false, MaximizeBox = false };
         TableLayoutPanel panel = new() { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(16) };
         TextBox endpoint = new() { Dock = DockStyle.Fill, PlaceholderText = "IP:порт из окна кода сопряжения" };
         TextBox code = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true, MaxLength = 6 };

@@ -25,6 +25,7 @@ internal sealed class FileDropForm : Form
     public FileDropForm(Func<string[], Task> send, Action cancelTransfer, Action<bool> allowReceive,
         Action selectFolder, Action openFolder, Action cancelReceive)
     {
+        Icon = AppIcon.Value;
         this.send = send;
         Text = "Galaxy Bridge • Файлы"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterParent; Size = new Size(540, 540);
