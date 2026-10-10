@@ -30,8 +30,10 @@ jobs:
       - name: Check source package
         run: python scripts/check_sources.py
       - name: Run portable protocol tests
+        timeout-minutes: 3
         run: dotnet run --project tests/GalaxyBridge.Core.Tests/GalaxyBridge.Core.Tests.csproj -c Release
       - name: Test LAN certificate import and TLS on Windows
+        timeout-minutes: 3
         run: dotnet run --project tests/GalaxyBridge.LanTls.Tests/GalaxyBridge.LanTls.Tests.csproj -c Release
       - name: Publish Windows x64
         run: >-
