@@ -1,6 +1,6 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.11** / Android **0.7.11**. The application starts directly in its LAN
+Windows **0.7.12** / Android **0.7.12**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -27,6 +27,12 @@ Version 0.7.11 restores movement behavior from Windows 0.7.8 and its Android
 Android pointer updates. Update both Windows and APK. Wheel zoom remains an
 optional field on wheel events only. Pairing, signing identity and settings remain
 compatible; the new version number permits an in-place APK update.
+
+Version 0.7.12 routes ordinary left clicks through the accessibility click action
+on button release, including 50–499ms clicks that previously became injected
+continued touches. Drag begins at touch slop. Stationary hold is classified at
+Android's long-press deadline, then injected; selection can therefore take about
+two long-press timeouts. Free pointer movement retains the 0.7.8 pipeline.
 
 The supplied Windows GlideX uses a separate Classic Bluetooth HID driver.
 BLE Peripheral support does not measure Classic HID compatibility; Galaxy Bridge

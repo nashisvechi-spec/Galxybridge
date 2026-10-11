@@ -38,12 +38,12 @@ public final class SendActivity extends Activity {
         LinearLayout page=new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(20*getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.8"); title.setTextSize(24); page.addView(title);
+        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.12"); title.setTextSize(24); page.addView(title);
         TextView help=new TextView(this); help.setText("Файлы получит сохранённый ноутбук. Откройте на нём режим Wi-Fi без отладки. Оба устройства должны быть в одной сети. Папку приёма можно изменить в окне файлов Windows."); page.addView(help);
         selection=new TextView(this); selection.setTextSize(18); page.addView(selection);
         Button choose=new Button(this); choose.setText("Выбрать файлы…"); choose.setOnClickListener(v -> choose(false)); page.addView(choose);
         Button other=new Button(this); other.setText("Выбрать через файловое приложение…"); other.setOnClickListener(v -> choose(true)); page.addView(other);
-        TextView hint=new TextView(this); hint.setText("Если системное окно не выбирает файл мышью, попробуйте файловое приложение или выберите файл касанием на телефоне. Также можно отправить через «Поделиться → Galaxy Bridge Wi-Fi»."); page.addView(hint);
+        TextView hint=new TextView(this); hint.setText("Щёлкните по названию файла, чтобы выбрать его. Для нескольких файлов используйте режим выделения файлового приложения и подтвердите выбор в файловом окне. Также можно отправить через «Поделиться → Galaxy Bridge Wi-Fi»."); page.addView(hint);
         send=new Button(this); send.setText("Отправить на ноутбук"); send.setOnClickListener(v -> send()); page.addView(send);
         cancel=new Button(this); cancel.setText("Отменить отправку"); cancel.setOnClickListener(v -> ConnectionService.cancelFiles()); page.addView(cancel);
         progress=new TextView(this); progress.setTextSize(16); page.addView(progress);

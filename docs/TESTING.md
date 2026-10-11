@@ -121,3 +121,25 @@ or the behavior of Android applications. See VALIDATION.md for this revision.
 - APK 0.7.8 must receive the original mouse packet and scroll normally. APK
   0.7.9/0.7.10 with new Windows must also receive baseline motion without seq.
   Use the matching 0.7.11 APK to restore Android's pointer rendering too.
+
+## File picker clicks (0.7.12)
+
+- Update APK 0.7.12 over the previous APK. In Wi-Fi control open Send files,
+  click Choose files and click a file name. Try ordinary clicks lasting roughly
+  50ms, 100ms and 300ms. The file must return to Send with a nonzero selection.
+  Verify both the system picker and the alternative file application.
+- Click a folder, go back and select a file. Repeat on image/video/PDF rows,
+  in list/grid layouts and after scrolling. Send the selected file to Windows.
+- Compare free pointer movement with 0.7.11 / the 0.7.8 baseline.
+- Check that an ordinary button activates once, including rapid repeated clicks.
+  A gesture-only surface falls back to one completed tap. Drag before releasing:
+  it must continue live and must not activate the original row on release.
+- Hold stationary until text selection appears, then drag a selection handle.
+  Classification delays touch-down until the system long-press timeout; a
+  stationary long press takes about two timeouts. A release just after that
+  timeout must still produce a hold rather than an accidental tap. Some app
+  gesture listeners reject accessibility's UNKNOWN tool type; hardware testing
+  remains necessary for long press/drag in protected file lists.
+- Exit control, lock or disconnect while waiting for hold classification and
+  during an injected hold. No deferred click/hold may run after release/reset.
+  Re-enter and click again. Check wheel zoom and Bluetooth routing.

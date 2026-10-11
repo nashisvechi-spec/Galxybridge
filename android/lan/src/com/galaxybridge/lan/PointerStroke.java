@@ -10,7 +10,8 @@ final class PointerStroke {
     private final ArrayList<Point> points=new ArrayList<>();
     private final long pressedAt;
     private long releasedAt;
-    private boolean down=true, started, finished;
+    private long startedAt;
+    private boolean down=true, started, finished, stationaryHold;
     final float x,y;
     PointerStroke(float slop,float x,float y,long now) {
         this.x=x;this.y=y;pressedAt=now;
@@ -31,8 +32,19 @@ final class PointerStroke {
         move(x,y);down=false;releasedAt=now;
     }
     boolean click(int timeout) { return !started && !down && !press.isDrag() && releasedAt-pressedAt<timeout; }
-    Segment take(int timeout) {
+    long waitForIntent(long now,int timeout) {
+        // Until release, movement or the long-press deadline, this could still
+        // be an ordinary click. Do not inject a finger and then click a node too.
+        if(!started && down && !press.isDrag()) return Math.max(0,pressedAt+timeout-now);
+        // A classified hold must stay down long enough for Android to recognize
+        // it, even if the physical button is released soon after injection.
+        if(started && !down && stationaryHold && !press.isDrag()) return Math.max(0,startedAt+timeout+100L-now);
+        return 0;
+    }
+    Segment take(long now,int timeout) {
+        if(waitForIntent(now,timeout)>0) return null;
         if(finished || (started && down && points.size()==1)) return null;
+        if(!started) { startedAt=now;stationaryHold=down && !press.isDrag(); }
         Point[] path=points.toArray(new Point[0]);
         long duration=started || down?16:press.duration(releasedAt-pressedAt,timeout);
         points.clear();points.add(path[path.length-1]);

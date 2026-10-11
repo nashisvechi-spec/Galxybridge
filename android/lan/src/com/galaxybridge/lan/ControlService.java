@@ -29,6 +29,7 @@ public final class ControlService extends AccessibilityService {
     private GestureDescription.StrokeDescription touchStroke;
     private PointerStroke.Point touchEnd;
     private final ArrayDeque<PendingGesture> gestures=new ArrayDeque<>();
+    private final Runnable touchIntent=new Runnable() { public void run() { advanceTouch(); } };
     private final Runnable feedback=new Runnable() { public void run() { if(active) { poll(); if(active) handler.postDelayed(this,100); } } };
     static boolean ready(Context context) {
         KeyguardManager key=context.getSystemService(KeyguardManager.class);
@@ -140,10 +141,7 @@ public final class ControlService extends AccessibilityService {
             if(!ready(this)) { reset(); return; }
             try {
                 if(pending.press!=null) {
-                    // Retain node activation for clicks released before dispatch.
-                    // An injected press is ended through its own stroke, never clicked twice.
-                    if(pending.press.click(ViewConfiguration.getLongPressTimeout()) && clickElement(pending.press.x,pending.press.y)) finishGesture(pending);
-                    else { touchReady=true;advanceTouch(); }
+                    touchReady=true;advanceTouch();
                     return;
                 }
                 if(!dispatchGesture(wheelDescription(pending.wheel),callback,handler)) finishGesture(pending);
@@ -166,8 +164,18 @@ public final class ControlService extends AccessibilityService {
     }
     private void advanceTouch() {
         if(!active || !touchReady || touchDispatching || currentGesture==null || currentGesture.press==null) return;
+        if(!ready(this)) { reset();return; }
         PendingGesture pending=currentGesture;
-        PointerStroke.Segment segment=pending.press.take(ViewConfiguration.getLongPressTimeout());
+        handler.removeCallbacks(touchIntent);
+        int timeout=ViewConfiguration.getLongPressTimeout();
+        long now=SystemClock.uptimeMillis(),wait=pending.press.waitForIntent(now,timeout);
+        if(wait>0) { handler.postDelayed(touchIntent,wait);return; }
+        // DocumentsUI's gesture listener accepts finger/stylus tool types, whereas
+        // accessibility injection may use UNKNOWN. Activate an actionable node
+        // for ordinary clicks, regardless of how long the physical click took.
+        // Once a drag/hold was injected, only its own touch-up can end it.
+        if(pending.press.click(timeout) && clickElement(pending.press.x,pending.press.y)) { finishGesture(pending);return; }
+        PointerStroke.Segment segment=pending.press.take(now,timeout);
         if(segment==null) return; // A stationary continued stroke keeps the finger down.
         Path path=new Path();path.moveTo(segment.points[0].x,segment.points[0].y);
         for(int i=1;i<segment.points.length;i++) path.lineTo(segment.points[i].x,segment.points[i].y);
@@ -193,6 +201,7 @@ public final class ControlService extends AccessibilityService {
     }
     private void finishGesture(PendingGesture pending) {
         if(currentGesture!=pending) return;
+        handler.removeCallbacks(touchIntent);
         if(mouseStroke==pending.press) mouseStroke=null;
         currentGesture=null;touchStroke=null;touchEnd=null;touchReady=false;touchDispatching=false;
         gestureBusy=false;nextGesture();
@@ -259,7 +268,7 @@ public final class ControlService extends AccessibilityService {
                 dispatchGesture(new GestureDescription.Builder().addStroke(touchStroke.continueStroke(end,0,1,false)).build(),null,handler);
             } catch(RuntimeException ignored) {}
         }
-        active=false;generation++;gestures.clear();gestureBusy=false;mouseStroke=null;buttons=0;handler.removeCallbacks(feedback);
+        active=false;generation++;gestures.clear();gestureBusy=false;mouseStroke=null;buttons=0;handler.removeCallbacks(feedback);handler.removeCallbacks(touchIntent);
         currentGesture=null;touchStroke=null;touchEnd=null;touchReady=false;touchDispatching=false;
         if(pointer!=null) { try { hidePointer(); } catch(RuntimeException ignored){} pointerAttached=false;pointer=null;pointerLayout=null; }
     }

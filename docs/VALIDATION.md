@@ -1,6 +1,48 @@
-# Validation — Windows 0.7.11 / Android 0.7.11
+# Validation — Windows 0.7.12 / Android 0.7.12
 
-## Restore 0.7.8 movement (0.7.11)
+## File picker click path (0.7.12)
+
+The supplied 15.56s recording shows file rows highlighting without completing
+selection. Source inspection found that ACTION_CLICK was attempted only if
+mouse-up arrived before the 32ms overlay-removal delay. Typical longer clicks
+were sent only as continued accessibility touch strokes.
+
+AOSP MotionEventInjector assigns TOOL_TYPE_UNKNOWN to injected touches;
+DocumentsUI configures its gesture listeners for FINGER/STYLUS and provides a
+separate accessibility click handler to open/select items. This explains a
+plausible failure path; the exact Samsung implementation is not available here.
+Sources inspected:
+- https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/services/accessibility/java/com/android/server/accessibility/MotionEventInjector.java
+- https://android.googlesource.com/platform/packages/apps/DocumentsUI/+/master/src/com/android/documentsui/dirlist/DirectoryFragment.java
+
+Ordinary stationary clicks now stay uncommitted until mouse-up and activate
+one accessible element. Node rejection falls back to one completed tap. Movement
+past touch slop begins a continued drag immediately. Stationary hold begins at
+the system long-press timeout; Android then needs its own recognition interval,
+so selection can take about two timeouts. Early physical release of a classified
+hold does not turn it into a tap. Deferred intent work is removed on reset/end;
+timer callbacks recheck lock/readiness. No package-specific workaround is used.
+
+Windows InputCapture, Core EdgeReturn and Android free pointer motion/rendering
+retain the 0.7.8 pipeline. No permissions, protocol, Bluetooth or signing change.
+APK activity titles now show 0.7.12; they previously still displayed 0.7.8 even
+when the build version was newer. Full packaging remains in the manual workflow;
+actual S25 system-picker selection has not been tested here.
+
+- 726 portable JVM assertions passed, including 62 pointer-stroke checks for
+  20/50/100/200/499ms clicks, click fallback, drag, jitter, bounded backpressure,
+  rapid next clicks, timeout boundaries and early release of a classified hold.
+- 2249 Core assertions passed, including actual TLS motion/wheel/clipboard tests.
+- All Windows/Core sources compiled with warnings as errors. All Android LAN
+  sources compiled for Java 8 against API 35/ZXing with existing warnings only.
+- 47,954 structural source-package checks passed. Workflow remains manual-only.
+- Exact comparison confirmed Windows InputCapture/Core EdgeReturn and Android
+  readiness, dimensions, showPointer and poll against the 0.7.8 baseline.
+
+The tests verify code paths, not physical S25 picker behavior. See TESTING.md
+for device checks and the long-press timing tradeoff.
+
+## Historical: restore 0.7.8 movement (0.7.11)
 
 The user requested the mouse movement behavior from Windows 0.7.8 and its
 Android 0.7.8 companion. Baseline commit: 22177123178b152ef0ed8ece7a392c8f627a6f54.
