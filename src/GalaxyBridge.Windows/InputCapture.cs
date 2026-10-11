@@ -24,7 +24,7 @@ internal sealed class InputCapture : IDisposable
     private long enteredAt, motionAt;
     private PhoneSide phoneSide;
     private DesktopBounds laptopBounds;
-    private double pendingX, pendingY, sensitivity = 1;
+    private readonly PointerMotion pendingMotion = new();
     public bool Active => phone is not null;
     public bool KeyHeld => physical.Count != 0;
     public Func<string?>? PasteText { get; set; }
@@ -60,8 +60,7 @@ internal sealed class InputCapture : IDisposable
         laptopBounds = new(bounds.X, bounds.Y, bounds.Width, bounds.Height); phoneSide = side;
         enteredAt = Environment.TickCount64; motionAt = 0; lastDx = lastDy = 0; inwardEdgeSequence = 0;
         anchor = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
-        sensitivity = Math.Clamp(speed, .25, 4);
-        pendingX = pendingY = 0; mouse.Clear(); keyboard.Clear(); pastedKeys.Clear();
+        pendingMotion.Reset(speed); mouse.Clear(); keyboard.Clear(); pastedKeys.Clear();
         ignoreUntilReleased.Clear(); foreach (byte key in physical) ignoreUntilReleased.Add(key);
         // Keys used to activate capture must not remain pressed in Windows or Android.
         Native.ReleaseHostModifiers();
@@ -88,7 +87,7 @@ internal sealed class InputCapture : IDisposable
         IPhoneControl? previous = phone;
         phone = null; motion.Stop();
         previous?.EndEdgeReturn(); returnEpoch = 0;
-        keyboard.Clear(); mouse.Clear(); pendingX = pendingY = 0; pastedKeys.Clear(); ignoreUntilReleased.Clear();
+        keyboard.Clear(); mouse.Clear(); pendingMotion.Reset(); pastedKeys.Clear(); ignoreUntilReleased.Clear();
         previous?.ReleaseInputs();
         if (cursorHidden) { Cursor.Show(); cursorHidden = false; }
         overlay?.Close(); overlay?.Dispose(); overlay = null;
@@ -127,7 +126,7 @@ internal sealed class InputCapture : IDisposable
             { if (up) pastedKeys.Remove(usage); return 1; }
             // Motion accumulated before a modifier changes must reach Android
             // while that modifier still has its original state (e.g. Shift-drag).
-            FlushMotion();
+            FlushMotion(true);
             bool shift = (keyboard.Modifiers & 0x22) != 0;
             bool paste = (usage == 0x19 && (keyboard.Modifiers & 0x11) != 0 && !shift && !alt)
                 || (usage == 0x49 && shift && !ctrl && !alt);
@@ -159,12 +158,15 @@ internal sealed class InputCapture : IDisposable
             {
                 int dx = data.Point.X - anchor.X, dy = data.Point.Y - anchor.Y;
                 if (dx != 0 || dy != 0)
-                { pendingX += dx * sensitivity; pendingY += dy * sensitivity; _ = Native.SetCursorPos(anchor.X, anchor.Y); }
+                {
+                    pendingMotion.Add(dx, dy); _ = Native.SetCursorPos(anchor.X, anchor.Y);
+                    FlushMotion();
+                }
             }
             else if (MouseInputState.Handles(message))
             {
                 // Pending motion belongs to the old button state, before DOWN/UP.
-                FlushMotion();
+                FlushMotion(true);
                 if (mouse.Update(message, data.MouseDataValue, out MouseUpdate update))
                     phone?.Mouse(update.Buttons, 0, 0, update.Wheel, update.HorizontalWheel);
             }
@@ -174,11 +176,9 @@ internal sealed class InputCapture : IDisposable
         { Stop(); Error?.Invoke("Управление остановлено: " + ex.GetType().Name); return Native.CallNextHookEx(mouseHook, code, wParam, lParam); }
     }
 
-    private void FlushMotion()
+    private void FlushMotion(bool force = false)
     {
-        int dx = (int)Math.Truncate(pendingX), dy = (int)Math.Truncate(pendingY);
-        pendingX -= dx; pendingY -= dy;
-        if (dx != 0 || dy != 0)
+        while (pendingMotion.TryTake(Environment.TickCount64, force, out int dx, out int dy))
         {
             // Moving back into the phone invalidates the old boundary sample.
             // A rapid direction reversal must wait for a new phone observation.
@@ -189,6 +189,7 @@ internal sealed class InputCapture : IDisposable
             };
             if (inward && phone?.LatestEdge is { } observed) inwardEdgeSequence = Math.Max(inwardEdgeSequence, observed.Sequence);
             lastDx = dx; lastDy = dy; motionAt = Environment.TickCount64; phone?.Mouse(buttons, dx, dy);
+            if (!force) break;
         }
     }
     private void CheckReturn()

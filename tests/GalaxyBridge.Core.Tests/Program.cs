@@ -45,6 +45,7 @@ for (int i = 0; i < 1000; i++)
 Equal(Hid.MouseReports(0, 0, 0).Single(), "0000000000", "zero mouse report releases all five buttons and both wheels");
 Reject(() => Hid.MouseReports(32, 1, 2).ToArray(), "undefined sixth mouse button rejected");
 await NativeMouseTests.RunAsync(Check);
+PointerMotionTests.Run(Check);
 PhoneControlRouteTests.Run(Check);
 
 DesktopBounds bounds = new(-1920, -100, 1920, 1080);

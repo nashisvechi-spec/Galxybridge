@@ -1,12 +1,12 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.9** / Android **0.7.9**. The application starts directly in its LAN
+Windows **0.7.10** / Android **0.7.10**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
 - **LAN touch control:** Android AccessibilityService performs taps, long presses,
   continued touch drags, swipes and two-finger zoom. No Bluetooth adapter is required.
-  With APK 0.7.9, Ctrl+wheel zooms PDFs/images; the saved “Масштабировать колёсиком
+  With APK 0.7.10, Ctrl+wheel zooms PDFs/images; the saved “Масштабировать колёсиком
   по Wi-Fi” option enables zoom with the wheel alone. The viewer must support pinch
   gestures. Wi-Fi edge return uses phone-confirmed outward motion and rejects
   late input after a direction reversal.
@@ -22,6 +22,10 @@ Only this edition is maintained; the previous debugging edition remains in Git h
   Ctrl+Alt+F12 switches control. BLE return through the phone edge uses actual
   Android mouse hover over a one-pixel overlay and the authorized LAN connection.
   It requires APK 0.7.8 and overlay permission; it does not require accessibility.
+
+Version 0.7.10 sends motion directly from the Windows mouse hook at paced 8ms
+intervals and updates the Android pointer once per display frame. Update both
+Windows and APK to use the responsiveness changes.
 
 The supplied Windows GlideX uses a separate Classic Bluetooth HID driver.
 BLE Peripheral support does not measure Classic HID compatibility; Galaxy Bridge

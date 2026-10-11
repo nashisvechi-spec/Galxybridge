@@ -88,3 +88,20 @@ or the behavior of Android applications. See VALIDATION.md for this revision.
   capture must remain on the phone. Re-enter: old-capture feedback must not return.
 - Check Ctrl+Alt+F12 and BLE HID behavior still work. An old APK retains legacy
   scrolling/edge return and must not receive enhanced touch commands.
+
+## Pointer responsiveness (0.7.10)
+
+- Update Windows and APK. In Wi-Fi touch mode, move the pointer slowly, quickly
+  and diagonally, then stop. It should follow promptly without replaying queued
+  movement after stopping. Test 60 Hz and 120 Hz display modes where available.
+- Test sensitivity 0.25x, 1x and 4x, a low polling-rate mouse and a high-rate mouse.
+  Fast movement followed immediately by a click/Shift/drag must use the correct
+  coordinates and previous button/modifier state for pending movement.
+- Send multiple packets between display frames: the arrow should show the latest
+  position once per frame. Clicks, wheel gestures and releases must remain ordered.
+- Rotate, lock, disconnect and re-enter control; no old frame callback may restore
+  a removed arrow. Actual taps/drag segments/zoom/navigation must remain blocked
+  while locked. Plain arrow motion injects no touch and is stopped by lock events
+  or the 100ms readiness heartbeat.
+- Recheck all four edge-return directions, Ctrl-wheel zoom and shared clipboard.
+  Compare perceived responsiveness on the same Wi-Fi with VPN disabled.

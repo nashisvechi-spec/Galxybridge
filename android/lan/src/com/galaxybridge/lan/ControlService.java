@@ -20,6 +20,13 @@ public final class ControlService extends AccessibilityService {
     private Pointer pointer;
     private WindowManager.LayoutParams pointerLayout;
     private boolean active, gestureBusy, pointerAttached;
+    private boolean pointerFramePending, reportedOutward;
+    private Choreographer choreographer;
+    private final Choreographer.FrameCallback pointerFrame=time -> {
+        pointerFramePending=false;
+        try { renderPointer(); }
+        catch(RuntimeException e) { reset();ConnectionService.disconnect(); }
+    };
     private int epoch, width, height, buttons, side;
     private long sequence, generation, inputSequence;
     private final PointerEdgeIntent edgeIntent=new PointerEdgeIntent();
@@ -37,7 +44,7 @@ public final class ControlService extends AccessibilityService {
         return instance!=null && !key.isDeviceLocked() && power.isInteractive();
     }
     @Override protected void onServiceConnected() {
-        super.onServiceConnected(); instance=this; windows=getSystemService(WindowManager.class);
+        super.onServiceConnected(); instance=this; windows=getSystemService(WindowManager.class);choreographer=Choreographer.getInstance();
     }
     @Override public InputMethod onCreateInputMethod() { return new InputMethod(this); }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) { if(!ready(this)) { ConnectionService.cancelClipboardRead();if(active) reset(); } }
@@ -72,7 +79,11 @@ public final class ControlService extends AccessibilityService {
                 if(nav.equals("back")) performGlobalAction(GLOBAL_ACTION_BACK); else if(nav.equals("home")) performGlobalAction(GLOBAL_ACTION_HOME); else if(nav.equals("recents")) performGlobalAction(GLOBAL_ACTION_RECENTS);
                 return;
             }
-            if(!active || !ready(this)) { if(active) reset(); return; }
+            // Moving the visible arrow injects no input. Lock events and the
+            // 100ms heartbeat stop it; actual presses/gestures still check ready.
+            boolean pointerOnly="mouse".equals(type) && command.getInt("buttons")==0 && buttons==0 && command.getInt("wheel")==0;
+            if(!active || (!pointerOnly && !ready(this))) { if(active) reset(); return; }
+            if("mouse".equals(type) && !pointerOnly) dimensions();
             switch(type) {
                 case "mouse": mouse(command); break;
                 case "text":
@@ -102,7 +113,8 @@ public final class ControlService extends AccessibilityService {
             if(nextSequence<=inputSequence) throw new IllegalArgumentException();
             inputSequence=nextSequence;
         }
-        dimensions(); x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
+        // Display geometry is refreshed by poll(), not by every mouse packet.
+        x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
         edgeIntent.move(side,width,height,x,y,dx,dy,next,wheel,SystemClock.uptimeMillis());
         if((next&1)!=0 && (buttons&1)==0) {
             mouseStroke=new PointerStroke(ViewConfiguration.get(this).getScaledTouchSlop(),x,y,SystemClock.uptimeMillis());
@@ -122,7 +134,9 @@ public final class ControlService extends AccessibilityService {
                 if(tail.wheel.steps==0) gestures.removeLast();
             } else enqueue(new PendingGesture(wheelGesture));
         }
-        buttons=next; poll();
+        boolean buttonChanged=buttons!=next;buttons=next;showPointer();
+        boolean outward=inputSequence>0 && edgeIntent.active(SystemClock.uptimeMillis());
+        if(buttonChanged || outward!=reportedOutward) sendEdge();
     }
     private void enqueue(PendingGesture pending) {
         if(gestures.size()>=8) { reset(); ConnectionService.disconnect(); return; }
@@ -242,6 +256,10 @@ public final class ControlService extends AccessibilityService {
     }
     private void showPointer() {
         if(!active || gestureBusy || pointer==null) return;
+        if(!pointerFramePending) { pointerFramePending=true;choreographer.postFrameCallback(pointerFrame); }
+    }
+    private void renderPointer() {
+        if(!active || gestureBusy || pointer==null) return;
         int left=Math.round(x),top=Math.round(y);
         boolean moved=pointerLayout.x!=left || pointerLayout.y!=top;
         pointerLayout.x=left; pointerLayout.y=top;
@@ -254,8 +272,12 @@ public final class ControlService extends AccessibilityService {
     void poll() {
         if(!active) return; if(!ready(this)) { reset(); ConnectionService.send(Wire.message("pong","ready",false)); return; }
         dimensions(); showPointer();
+        sendEdge();
+    }
+    private void sendEdge() {
+        reportedOutward=inputSequence>0 && edgeIntent.active(SystemClock.uptimeMillis());
         String line=String.format(Locale.ROOT,"GB_EDGE %d %d %d %d %.2f %.2f %d",epoch,++sequence,width,height,x,y,buttons);
-        ConnectionService.send(Wire.message("edge","line",line,"inputSequence",inputSequence,"outward",inputSequence>0 && edgeIntent.active(SystemClock.uptimeMillis())));
+        ConnectionService.send(Wire.message("edge","line",line,"inputSequence",inputSequence,"outward",reportedOutward));
     }
     void reset() {
         // Finish even an in-flight continuation on disconnect/lock/re-entry. Android
@@ -267,7 +289,8 @@ public final class ControlService extends AccessibilityService {
             } catch(RuntimeException ignored) {}
         }
         active=false;generation++;gestures.clear();gestureBusy=false;mouseStroke=null;buttons=0;handler.removeCallbacks(feedback);
-        inputSequence=0;edgeIntent.clear();
+        inputSequence=0;edgeIntent.clear();reportedOutward=false;
+        if(choreographer!=null) choreographer.removeFrameCallback(pointerFrame);pointerFramePending=false;
         currentGesture=null;touchStroke=null;touchEnd=null;touchReady=false;touchDispatching=false;
         if(pointer!=null) { try { hidePointer(); } catch(RuntimeException ignored){} pointerAttached=false;pointer=null;pointerLayout=null; }
     }

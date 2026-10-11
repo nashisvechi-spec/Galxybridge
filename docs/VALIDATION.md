@@ -1,4 +1,34 @@
-# Validation — Windows 0.7.9 / Android 0.7.9
+# Validation — Windows 0.7.10 / Android 0.7.10
+
+## Pointer responsiveness (0.7.10)
+
+The supplied 7.88-second screen recording shows the Wi-Fi arrow over ChatGPT.
+It demonstrates the reported uneven movement; physical mouse input and packet
+latency are not recorded, so it does not isolate a single measured root cause.
+
+Windows now batches high-rate hook events at 8ms intervals without relying on
+the UI timer for every movement. The timer still flushes the final tail. Forced
+flushes drain all pending bounded packets before button/modifier transitions;
+fractional sensitivity and capture resets retain their previous semantics.
+
+Android uses Choreographer to apply the newest pointer coordinates once per
+frame. Pure arrow motion no longer queries lock/display state twice per packet
+or replies to every packet. The 100ms poll validates readiness and dimensions;
+actions still check readiness immediately, and presses/gestures refresh dimensions.
+Button and exit-intent transitions send feedback immediately. Reset removes the
+pending frame callback. No predictive motion or interpolation changes click targets.
+
+- 2410 Core assertions passed, including 139 motion pacing/ordering checks and
+  the existing actual TLS tests for zoom, edge return, clipboard and compatibility.
+- All Core/Windows C# sources compiled with warnings as errors.
+- All Android LAN sources compiled against API 35 / ZXing for Java 8. Only the
+  existing deprecation/unused warnings remain. Portable Java helpers are unchanged;
+  their preceding 725 passing assertions are listed under 0.7.9 below.
+- 49,225 structural source-package checks passed; workflow remains manual-only.
+
+Physical frame timing and responsiveness still require the user's Windows/phone
+session; no hardware improvement is claimed as measured here. Full MSBuild/APK
+packaging remains in the manual workflow. No new permissions or debugging added.
 
 ## Wi-Fi edge return and PDF zoom (0.7.9)
 
