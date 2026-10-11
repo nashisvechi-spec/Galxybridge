@@ -34,7 +34,7 @@ internal sealed class BleHidSession : IPhoneControl, IAsyncDisposable
     {
         BluetoothAdapter? adapter = await BluetoothAdapter.GetDefaultAsync().AsTask(ct);
         if (adapter is null) throw new IOException("Адаптер Bluetooth не найден. Включите Bluetooth на ноутбуке.");
-        if (!adapter.IsPeripheralRoleSupported) throw new IOException("Адаптер ноутбука не поддерживает Bluetooth LE Peripheral. Системная мышь без отладки на этом адаптере недоступна; используйте Wi-Fi + QR в режиме ADB.");
+        if (!adapter.IsPeripheralRoleSupported) throw new IOException("Адаптер ноутбука не поддерживает Bluetooth LE Peripheral. На этом адаптере доступно сенсорное управление через Wi-Fi.");
         GattServiceProvider hid = await ProviderAsync(0x1812, ct);
         await ConstantAsync(hid, 0x2A4A, [0x11, 0x01, 0, 2], ct);
         await ConstantAsync(hid, 0x2A4B, Hid.BluetoothReportMap, ct);
@@ -213,7 +213,7 @@ internal sealed class BleHidSession : IPhoneControl, IAsyncDisposable
         catch (TimeoutException) { }
         if (generation == captureGeneration && !pump.IsActive) source?.EndNativeControl();
     }
-    public bool Send(byte[] packet) => false; // Clipboard text goes through the LAN listener; Ctrl+V stays a real HID shortcut.
+    public bool Paste(string text) => false; // Clipboard text goes through LAN; Ctrl+V stays a real HID shortcut.
     public void Keyboard(byte[] report) => pump.Post(1, report);
     public void Mouse(byte buttons, int dx, int dy, int wheel = 0, int horizontalWheel = 0)
     { foreach (byte[] report in Hid.MouseReports(buttons, dx, dy, wheel, horizontalWheel)) if (!pump.Post(2, report)) break; }

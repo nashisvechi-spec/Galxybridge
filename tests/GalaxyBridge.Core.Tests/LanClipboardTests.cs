@@ -16,6 +16,17 @@ static class LanClipboardTests
         Console.WriteLine("LAN clipboard: creating TLS test connection (10 second deadline)");
         await using var peer = await Peer.CreateAsync();
         Console.WriteLine("LAN clipboard: TLS ready; checking delivery and rejection");
+        string pasted = "  Привет 🌍\nhttps://example.com/?q=текст";
+        check(peer.Session.Paste(pasted), "LAN paste is queued without a legacy binary packet");
+        using (JsonDocument delivered = await peer.NextAsync())
+            check(delivered.RootElement.GetProperty("type").GetString() == "text" &&
+                delivered.RootElement.GetProperty("text").GetString() == pasted, "direct LAN paste preserves exact Unicode and whitespace");
+        check(peer.Session.Paste(new string('Я', 8000)), "paste allows 16000 UTF-8 bytes");
+        using (JsonDocument delivered = await peer.NextAsync())
+            check(delivered.RootElement.GetProperty("text").GetString() == new string('Я', 8000), "paste sends complete text at the byte limit");
+        bool rejectedPaste = false;
+        try { peer.Session.Paste(new string('Я', 8001)); } catch (ArgumentException) { rejectedPaste = true; }
+        check(rejectedPaste && peer.Session.IsAlive, "oversized UTF-8 paste rejects without breaking LAN");
         string? copied = null; int writes = 0;
         peer.Session.ConfigureClipboard(true);
         peer.Session.ClipboardWriter = (text, ct) => { copied = text; writes++; return Task.FromResult(true); };

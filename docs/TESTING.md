@@ -1,366 +1,51 @@
-# Проверка Windows 0.5.1 (Android-компонент 0.3.0) на HP 240 G8 + Galaxy S25
+# Testing the no-debugging edition
 
-Эти проверки **ещё не выполнены**. Заполняйте список после ручной сборки.
-Тесты C# проверяют протокол и данные, а не работу телефона и Windows hooks.
+## Automated checks
 
-## USB и ввод
+```powershell
+python scripts/check_sources.py
+dotnet run --project tests/GalaxyBridge.Core.Tests -c Release
+dotnet run --project tests/GalaxyBridge.LanTls.Tests -c Release
+./scripts/Test-LanProtocol.ps1
+```
 
-- [ ] Полный артефакт запускается на Windows 10 x64 без установленного .NET.
-- [ ] Пока S25 не авторизован, видно `unauthorized`; после подтверждения — `device`.
-- [ ] USB-подключение открывается; в журнале нет ошибок создания UHID.
-- [ ] Ctrl + Alt + F12 передаёт управление, курсор ноутбука скрывается.
-- [ ] На телефоне есть курсор: движение в обе стороны, диагональ и быстрые движения.
-- [ ] Левый/правый/средний клик, удержание/перетаскивание и колесо работают.
-- [ ] Возврат хоткеем работает при мыши у каждого края телефона.
-- [ ] После возврата ни клавиши, ни кнопки мыши не остаются нажатыми.
-- [ ] Нажатие/отпускание обоих Ctrl, Alt, Shift, Win, стрелок и F12 корректно.
-- [ ] Активация с удерживаемой другой клавишей отказывается захватывать ввод.
-- [ ] Настроены EN/RU для физической клавиатуры; ввод и автоповтор корректны.
-- [ ] Caps Lock / Num Lock проверены; при необходимости состояния выставлены вручную.
-- [ ] Тачпад ноутбука и внешняя мышь проверены отдельно.
-- [ ] Включение/выключение опции входа с края работает без повторного захвата сразу после возврата.
-- [ ] На втором мониторе, в том числе с отрицательными координатами и иным DPI, переход между мониторами свободен.
+Source validation checks pinned packages/actions, manual-only builds, persistent
+APK signing, Android permissions and the absence of removed debug components.
+Core tests exercise HID report sizes and button/wheel splitting, ordered transport,
+release/cancellation and failures, desktop/phone edge geometry, LAN framing,
+clipboard TLS delivery and stale-result rejection, and file receipt validation.
+LAN TLS tests use the production certificate import on Windows. JVM tests cover
+pairing/wire parsing, file upload, pointer gestures, click targets and clipboard.
 
-## Автовозврат через край S25
+The GitHub workflow runs these before packaging. Final artifacts must be only
+GalaxyBridge-win10-x64 and GalaxyBridgeLan-android; the ZIP must contain no adb.exe,
+scrcpy-server, backend directory or GalaxyBridgeEdge.apk.
 
-- [ ] Workflow выдаёт Windows ZIP с APK и отдельный артефакт GalaxyBridgeEdge-android.
-- [ ] APK устанавливается и открывается на S25; переход к разрешению поверх других приложений работает.
-- [ ] Без APK или без разрешения появляется инструкция, но мышь, клавиатура и возврат хоткеем работают.
-- [ ] После выдачи разрешения и переподключения журнал сообщает APK 0.3.0.
-- [ ] Разрешённые и запрещённые уведомления не мешают работе служебного подключения.
-- [ ] После включения управления в журнале есть «Зона автовозврата создана на телефоне», без WINDOW/VIEW_CREATE/WINDOW_ADD ошибок.
-- [ ] При ошибке в журнале видны её этап и сообщение.
-- [ ] Телефон справа: уход через левый край возвращает курсор к правому краю ноутбука без хоткея.
-- [ ] Телефон слева/сверху/снизу: возврат через обращённый к ноутбуку край работает во всех расположениях.
-- [ ] Портретная ориентация, альбомная ориентация и поворот во время управления проверены.
-- [ ] Верхний/нижний край учитывает статусную/навигационную панель; боковой край — вырез при повороте.
-- [ ] Позиция вдоль границы соответствует положению на телефоне, включая мониторы с отрицательными координатами.
-- [ ] Движение внутрь телефона и вдоль края не вызывает возврата; при входе нет немедленного отскока.
-- [ ] Перетаскивание и зажатая клавиша блокируют возврат; после отпускания и нового движения возврат работает.
-- [ ] Быстрый подход к краю по Wi-Fi с задержками не вызывает ложного возврата из старой сессии.
-- [ ] После возврата, отключения, сна и закрытия 4-пиксельная полоса удаляется; управление касанием доступно.
-- [ ] Флажок выключен: возврата через край нет, горячая клавиша работает.
-- [ ] Если компонент отсутствует или прошивка запрещает окно: понятная ошибка в журнале, мышь и горячая клавиша работают.
-- [ ] Остановка APK кнопкой на телефоне не оставляет окно и не блокирует возврат хоткеем.
-- [ ] После потери канала/heartbeat окно удаляется по 6-секундному таймауту чтения.
-- [ ] Быстрое повторное подключение не закрывается очисткой предыдущей сессии.
-- [ ] Для APK из другой сборки проверено удаление прежнего приложения и повторная выдача разрешения после установки.
-- [ ] Проверено по USB и Wi-Fi, в том числе после повторного подключения.
+## Windows/Android device checks
 
-## Буфер и файлы
+1. Start with existing settings that include the old mode selector; confirm
+   the LAN screen always opens. Existing QR pairing and sensitivity survive.
+2. Pair a fresh phone from the in-app QR scanner; test rejection, expiry,
+   a second phone and explicit forget. Change both devices to another common LAN.
+3. Test without Bluetooth: accessibility taps, long press, continuous drag,
+   selected text handles, file picker, scroll and navigation. Check all four
+   screen sides, multiple monitors and scaling. Ctrl+Alt+F12 must always return.
+4. Test BLE with a Peripheral-capable adapter: pair, select the phone, verify
+   both subscriptions, real cursor/hover, five buttons, double/triple click,
+   Shift/Ctrl drag, both wheel axes and keyboard layouts. Disconnect while
+   dragging; no buttons or modifiers may remain held. Test reconnect/restart.
+5. Test an unsupported/disabled Bluetooth adapter: show a clear failure and
+   keep LAN touch available. No debugging setup should be suggested.
+6. Copy Unicode text/links in both directions. Return from LAN and BLE input;
+   check no echo, no stale response after new copying, disabled clipboard,
+   occupied clipboard, locked phone and focus failure. Check the on-screen
+   keyboard and protected applications during the brief clipboard focus change.
+7. Send files both ways, duplicate names and 2 GB boundary. Cancel, disconnect,
+   fill disk, deny receipt and change receive folder. No partial file or overwrite.
+8. Minimize, reopen via tray, pause/resume, sleep/wake, lock/unlock, exit while
+   sending or starting BLE, and launch a second instance. All input must release.
+9. Install the next persistently signed APK over the previous APK. Confirm
+   app data, pairing and permission state are retained as Android permits.
 
-- [ ] Копирование EN/RU/эмодзи на телефоне доступно для вставки в Windows.
-- [ ] Ctrl + V и Shift + Insert на телефоне вставляют текущий текст Windows.
-- [ ] При отключённом общем буфере текст Windows не отправляется и не заменяется.
-- [ ] Копирование картинки не вызывает падения; действует ограничение размера текста.
-- [ ] Обычный файл отправляется кнопкой и перетаскиванием в окно; на телефоне он находится в Download/GalaxyBridge.
-- [ ] Несколько файлов передаются по очереди; номер файла и индикатор видны, интерфейс отвечает.
-- [ ] Кириллица, emoji, пробелы, апостроф, $, ; и обратная кавычка в имени сохраняются буквально.
-- [ ] Одноимённые файлы из разных папок получают суффиксы; существующие файлы и папки учитываются. Повторная отправка того же имени получает новый суффикс в общей папке.
-- [ ] Повторный выбор одного пути не создаёт две копии в одной отправке.
-- [ ] Папки, смесь файла с папкой и удалённый перед отправкой файл отклоняются.
-- [ ] Отмена во время большого файла прекращает очередь, завершённые файлы остаются, .part удаляется при доступной связи.
-- [ ] Обрыв Wi-Fi останавливает очередь; восстановление соединения не запускает отправку повторно. Последний файл проверен на телефоне перед повтором.
-- [ ] После отправки курсор остаётся на ПК; управление телефоном и возврат продолжают работать.
-- [ ] Во время передачи второй drop/выбор файлов не запускает параллельную очередь.
-- [ ] Закрытие программы во время push останавливает процесс; очистка не удаляет готовые файлы.
-- [ ] Недостаток места/запрет записи показывает ошибку и число подтверждённых файлов.
-- [ ] Отправка работает с APK 0.3.0 и без установленного Android-компонента.
-- [ ] Перетаскивание проверено на разных вкладках и при масштабировании Windows; обычный запуск без повышения прав.
-- [ ] Отмена передачи не закрывает приложение и не оставляет зависший процесс.
-
-## Разрывы связи и закрытие
-
-- [ ] Отсоединение USB во время удержания клавиши или кнопки освобождает ввод Windows.
-- [ ] Закрытие программы во время подключения и передачи дожидается отмены операции.
-- [ ] После закрытия нет процессов Galaxy Bridge или её shell-процесса сервера.
-- [ ] `adb forward --list` не содержит форварда закрытой сессии; чужие форварды остаются.
-- [ ] Сон/пробуждение, Win + L и смена рабочего стола/UAC возвращают управление ноутбуку.
-- [ ] Не зависает аварийный Ctrl + Alt + Delete; после его использования можно закрыть приложение.
-- [ ] После неудачного подключения можно подключиться повторно.
-- [ ] Двойной запуск показывает уведомление и не создаёт второй перехватчик.
-- [ ] Сворачивание, меню значка, открытие окна и выход из области уведомлений работают.
-
-## Wi-Fi
-
-- [ ] Сопряжение выполняется кодом с отдельным портом сопряжения.
-- [ ] Подключение использует порт с основной страницы беспроводной отладки.
-- [ ] Управление, EN/RU, буфер и передача файла проверены по Wi-Fi.
-- [ ] Отключение сети/беспроводной отладки освобождает ввод Windows.
-- [ ] После смены порта новое подключение с актуальным адресом работает.
-
-## Автоподключение, восстановление и QR
-
-- [ ] Первый ручной успешный вход сохраняет профиль; перезапуск программы подключает тот же S25 по USB/Wi-Fi.
-- [ ] Нет сохранённого телефона: программа не выбирает произвольный готовый телефон.
-- [ ] Второй авторизованный телефон подключён одновременно: автоматическое управление открывается только для сохранённого.
-- [ ] Другой телефон получает прежний IP: проверка идентичности отвергает его.
-- [ ] Выключение/включение беспроводной отладки меняет порт; mDNS находит новый.
-- [ ] Обрыв USB и тихая потеря Wi-Fi во время удержания кнопки/клавиши возвращают управление Windows; после появления телефона связь восстанавливается.
-- [ ] Автоподключение и восстановление отключаются независимо; ручное «Отключить»/отмена останавливает повторы.
-- [ ] «Забыть последний телефон» удаляет профиль, но не разрывает текущее ручное управление и не удаляет ключ ADB.
-- [ ] Сон/блокировка приостанавливают автоматические попытки; после пробуждения мышь сама на телефон не переключается.
-- [ ] Закрытие во время поиска/подключения не оставляет запущенный процесс этой операции или свой форвард.
-- [ ] QR читается сканером беспроводной отладки S25 на масштабе Windows 100/125/150%.
-- [ ] После QR-сопряжения управление открывается без ручного IP, если mDNS доступен.
-- [ ] Сопряжение шестизначным кодом также пытается открыть управление автоматически.
-- [ ] Два QR-окна в разных программах: принимается только точное имя своей попытки.
-- [ ] Истёкший QR, закрытие окна и «Выход» из трея во время ожидания не оставляют QR-операцию.
-- [ ] Повторное открытие QR создаёт новое имя и секрет; они отсутствуют в settings.json, журнале и аргументах процессов.
-- [ ] При блокировке multicast понятно предложен ручной код/IP, без ложного сообщения об успешном подключении.
-- [ ] После отзыва ADB-разрешения нужно повторное сопряжение; программа не обходит запрос телефона.
-- [ ] Старый settings.json без новых полей читается; повреждённый/неполный профиль игнорируется.
-- [ ] В артефакте присутствует лицензия QRCoder.
-
-## Запись результата
-
-Укажите Windows build, версию One UI/Android, способ подключения, устройство
-ввода и точный сценарий ошибки. Для журнала достаточно текста из окна;
-коды сопряжения, личное содержимое буфера и файлы прикладывать не нужно.
-
-До прохождения этого списка версия остаётся прототипом. Отдельно проверьте
-лицензионные уведомления в первом артефакте перед публичным распространением
-бинарников.
-
-## Исправления 0.5.1
-
-- [ ] Несколько отправок остаются в одной папке Download/GalaxyBridge; новых подпапок по датам нет.
-- [ ] Имена уже существующих файлов, папок, Unicode и длинные имена с суффиксом не заменяются.
-- [ ] Старые подпапки 0.5.0 и их содержимое сохранены.
-- [ ] Временный сбой/тайм-аут adb mdns services не убирает QR и не останавливает ожидание.
-- [ ] QR сопрягается при пустом кеше mDNS работающего ADB, когда прямой локальный mDNS доступен.
-- [ ] После такого сопряжения найден текущий порт TLS и открыто управление.
-- [ ] «Новый QR-код» отменяет старый запрос/сопряжение; прежний секрет не используется.
-- [ ] Проверены закрытие QR во время UDP-поиска/adb pair, двухминутное истечение и отмена из трея.
-- [ ] Изоляция клиентов/блокировка multicast показывает ожидание и позволяет ручное сопряжение; правила брандмауэра и работающий ADB не меняются.
-- [ ] Две QR-попытки/несколько телефонов: принят только нужный экземпляр, чужое готовое устройство не выбрано.
-- [ ] UDP IPv4 fallback проверен на Realtek и Windows 10; VPN/несколько интерфейсов не мешают обнаружению.
-
-## Native Wi-Fi preview 0.6.0 — HP/S25 tests still required
-
-1. Install GalaxyBridgeLan.apk, leave wireless/USB debugging off. Scan LAN QR,
-   confirm laptop, enable accessibility, check files still work without accessibility.
-2. Reject old ADB QR, expired/refreshed/used ticket, QR with modified certificate,
-   duplicate query fields, unknown version; ensure no saved trust on failure.
-3. Close/reopen Windows LAN mode, restart Android foreground service, verify
-   remembered pairing. Forget at either endpoint and verify authorization is revoked.
-4. Move both devices from Wi-Fi A to B with different subnets and laptop IP.
-   Verify discovery/TLS reconnect, cursor remains on PC, no partial transfer replay.
-   Test Wi-Fi with no internet and networks with guest/AP isolation separately.
-5. Choose another adapter in the QR dropdown, refresh after network change;
-   test TCP 38271 occupied and UDP 38272 blocked/occupied, firewall denial.
-6. Enable capture by button/hotkey/edge for all four positions. Verify return after
-   fresh outward motion with no held buttons/keys, multiple monitors and rotation.
-7. Check clicks, long click, wheel and live drag while the button remains down. Focus a field and type
-   Russian/English, paste Unicode <=16 KB, arrows/Delete/Enter. Check absent focus,
-   secure apps and overlay/gesture denial; do not assume native mouse parity.
-8. Kill Wi-Fi during capture, lock/sleep Windows, lock/turn off S25, disable
-   accessibility. Ensure immediate/heartbeat-bounded return and clean reconnect.
-9. Upload empty/Unicode/duplicate files, multiple batches, cancel mid-chunk,
-   disconnect mid-upload, insufficient storage, checksum/sequence mismatch,
-   changed local file and 2 GiB limit. Verify only unfinished app-owned row removed.
-10. Kill Android process mid-upload (pending row may remain until system cleanup),
-    lose final ACK (completed file may exist), check neither is automatically replayed.
-11. Pause/resume, forget, notification Stop, close LAN/parent through tray,
-    repeatedly reconnect and check socket/thread/overlay cleanup.
-12. Rerun existing ADB tests with legacy APK to check IPhoneControl refactor.
-
-`tests/android-protocol/WireTest.java` executes real Wire/Pairing parser code on
-JVM with reference org.json. It validates QR fields, Unicode, chunked reads and
-hostile frame lengths; it does not test camera, Android network routing, MediaStore
-or accessibility. Portable C# tests add LAN frame bounds/fragmentation. After the CS0136 fix,
-the actual core/test sources were compiled directly with Roslyn and all 2164
-assertions passed locally (no Windows EXE or APK produced). The manual workflow runs the C# tests before publishing.
-
-Run these JVM tests with JDK 17 using `./scripts/Test-LanProtocol.ps1`; the manual
-workflow also runs them. The reference org.json JAR is checksum-pinned, used only
-for tests, and is not packaged in the portable ZIP or APK.
-
-## Windows 0.6.1: восстановление QR-сопряжения
-
-- [ ] Новый ручной workflow проходит Test LAN certificate import and TLS on Windows
-  (16 assertions с настоящим импортом сертификата и временным DPAPI-профилем).
-- [ ] Старый Android APK 0.6.0 подключается к Windows 0.6.1; переустановка не нужна.
-- [ ] После сканирования внутри Galaxy Bridge Wi-Fi и подтверждения ноутбука
-  появляются этапы TCP/TLS, затем подключённый телефон.
-- [ ] После закрытия и открытия окна Windows прежний сертификат/сопряжение работают.
-- [ ] Закрытый TCP-порт, неверный IP и изоляция сети оставляют «Ожидаем соединение».
-- [ ] TLS-ошибка остаётся видимой более секунды и содержит этап/тип/код, без секретов.
-- [ ] Истёкший или заменённый QR отклоняется; новый QR успешно принимается.
-- [ ] При остановке/закрытии окна управление возвращается ПК, новый TLS-ключ
-  не помещается в доверенные корневые сертификаты Windows.
-
-## Android 0.6.1: стрелка вместо точки
-
-- [ ] В заголовке Galaxy Bridge Wi-Fi указана версия 0.6.1.
-- [ ] При управлении видна белая стрелка с чёрной обводкой на светлом и тёмном фоне.
-- [ ] Выбор маленькой кнопки происходит кончиком стрелки, а не её центром.
-- [ ] Размер стрелки остаётся читаемым после поворота экрана телефона.
-- [ ] Возврат курсора через край экрана продолжает работать.
-
-## Windows 0.6.2: скорость и окно отправки файлов
-
-- [ ] В окне Wi-Fi без отладки указана версия 0.6.2; установленный LAN APK
-  0.6.0/0.6.1 подключается без повторного сопряжения.
-- [ ] Значения 0,25× / 1× / 4× меняют скорость курсора телефона; на 0,25×
-  медленное движение не теряется. «Сбросить на 1×» возвращает обычную скорость.
-- [ ] Изменение скорости прекращает захват; новое включение использует новое значение.
-  Выход из LAN-режима и перезапуск сохраняют его, включая прежний режим ADB.
-- [ ] После успешного сопряжения и после истечения QR пустая область кода скрывается.
-- [ ] «Окно для отправки файлов» открывает одно окно; повторное нажатие поднимает
-  его, закрытие и повторное открытие работают. Проверить 100%/150%/200% DPI,
-  изменение размера и переключатель «Поверх окон».
-- [ ] Один и несколько файлов из Проводника, а также выбор через диалог отправляются
-  в Download/GalaxyBridge. Статус показывает телефон, текущий файл и итог.
-  Папки отклоняются, новая очередь не принимается до завершения старой.
-- [ ] Во время потери связи окно остаётся открытым и отключает приём файлов.
-  После восстановления доступно снова, прерванная очередь не повторяется сама.
-- [ ] Отмена из отдельного окна удаляет текущий незавершённый файл;
-  ранее завершённые файлы остаются. Закрытие только окна отправки не отменяет передачу.
-- [ ] Блокировка/сон Windows и закрытие LAN-режима отменяют передачу;
-  закрытие главного приложения закрывает оба дополнительных окна без зависания.
-
-## Windows / Android LAN 0.7.0: с телефона на ПК
-
-- [ ] Установить новый APK с новой тестовой подписью, выполнить QR и включить
-  специальные возможности только для управления. В обоих заголовках версия 0.7.0.
-- [ ] В Галерее и «Моих файлах» выбрать один/несколько файлов → Поделиться →
-  Galaxy Bridge Wi-Fi → проверить ноутбук/число файлов → Отправить на ноутбук.
-- [ ] «Отправить на ПК» внутри приложения открывает системный выбор;
-  локальные файлы, фото и доступный облачный документ читаются без широкого
-  доступа к хранилищу. Проверить сворачивание/поворот Activity и временные URI grants.
-- [ ] До отправки нет сопряжения, права на URI отозваны, файл удалён/изменён,
-  нет общей сети: понятная ошибка, очередь не отправляется чужому ноутбуку.
-- [ ] Проверить пустой файл, Unicode, неизвестный размер, несколько файлов,
-  размер >2 ГБ и выбор >100 файлов. Ссылки/текст без файлов не отправляются.
-- [ ] Windows принимает в общей папке Downloads/GalaxyBridge; другая папка
-  сохраняется после перезапуска. Коллизии добавляют номер без перезаписи;
-  «Открыть папку» открывает выбранный каталог. Файл не запускается автоматически.
-- [ ] Проценты/объём и имя файла обновляются на телефоне и ПК. Закрытие только
-  окна файлов не останавливает приём; повторное открытие показывает текущую передачу.
-- [ ] Отмена с телефона/ПК, выключение приёма, sleep/lock Windows и обрыв
-  Wi-Fi удаляют текущий .part и сохраняют завершённые файлы. Повторная связь
-  не повторяет очередь автоматически. Проверить медленный provider и idle timeout.
-- [ ] Отказ доступа к папке, заполненный диск, невозможность удалить .part
-  и потеря последнего ACK отражаются в статусе. Завершённый файл может уже существовать.
-- [ ] Новый Android + старый Windows: управление работает, обратная отправка
-  предлагает обновить Windows. Старый Android + новый Windows: управление и
-  передача с ПК на телефон работают; обратной кнопки ещё нет.
-- [ ] Передачи в обе стороны одновременно не смешивают ACK/очереди;
-  mouse/keyboard/edge return и восстановление продолжают работать.
-
-Автоматические Core/JVM проверки проверяют реальный приёмник/отправитель;
-они не заменяют Android providers, URI permissions и WinForms UI на устройствах.
-
-## Android Wi-Fi 0.7.4 / Edge 0.3.2: постоянная подпись
-
-Автоматически проверено: 11 PowerShell/keytool-проверок — одинаковый сертификат
-и ключ в независимых папках сборки, отказ при отсутствии/неверном формате секрета,
-неверном пароле и несовпадении отпечатка; очистка после отказа. APK/EXE не собирались.
-Настройка владельцем: [ANDROID_UPDATES.ru.md](ANDROID_UPDATES.ru.md).
-
-- [ ] Добавить ANDROID_SIGNING_BUNDLE и вручную собрать первый APK с постоянной подписью.
-- [ ] Один раз перейти с прежнего тестового APK: удалить его, установить новый,
-  разрешить специальные возможности и выполнить QR.
-- [ ] Запустить следующий manual workflow, установить APK кнопкой «Обновить»
-  без удаления; сверить сертификат и увеличение versionCode.
-- [ ] Сопряжение сохранилось, телефон соединяется без нового QR; доступны управление,
-  выбор и отправка файлов. Проверить также обновление Edge с сохранением настройки overlay.
-- [ ] При неверном/потерянном ключе workflow останавливается до сборки,
-  не создаёт APK с другой подписью и не выводит закрытый ключ или пароль в лог.
-
-## Windows 0.7.2 / Android 0.7.5: текст с телефона в буфер ПК
-
-Автоматически: 177 JVM-проверок и 2233 C#-проверки, включая настоящий LanSession
-через TLS с проверкой сертификата: текст/ссылки/Unicode, подтверждение после записи,
-выключенный/занятый буфер, таймаут без повтора, отсутствие UI-приёмника и неверный id.
-Исходники Android Java и Windows C# скомпилированы без создания EXE/APK. Тесты подставляют
-получатель текста вместо реального буфера ОС; ClipboardManager/WinForms проверяются ниже.
-
-- [ ] Обновить Windows до 0.7.2, Wi-Fi APK до 0.7.5, включить общий текстовый буфер на ПК.
-- [ ] Скопировать текст в приложении на S25, открыть уведомление → «Буфер → ПК» →
-  проверить текст → «Отправить» → дождаться подтверждения → вставить Ctrl+V в Блокнот.
-- [ ] Повторить для ссылки с параметрами, русского текста, эмодзи и нескольких строк.
-- [ ] В браузере/другом приложении «Поделиться → Galaxy Bridge Wi-Fi» предлагает
-  подтверждение текста; фото/файлы по-прежнему открывают файловую отправку.
-- [ ] При выключенном общем буфере, занятом буфере ПК или обрыве связи нет ложного успеха,
-  автоматического повтора и записи в буфер другого/уже отключённого сеанса.
-- [ ] Старый Windows не поддерживает приём текста: телефон просит обновить Windows,
-  подключение и передача файлов продолжают работать.
-- [ ] Буфер читается только в активном окне по действию пользователя; при сворачивании
-  чтения в фоне нет. Поворот окна отправки сохраняет введённый текст.
-
-
-## Windows 0.7.3 / Android 0.7.6: автоматический общий буфер
-
-Автоматически: 2254 C#-проверки и 188 JVM-проверок. C# использует настоящий
-LanSession поверх TLS; Java проверяет Wire, формат текста и историю обмена.
-Проверены отправка без вставки, подтверждение, отклонение дубликатов, устаревших
-ответов после нового копирования/входа на телефон, отмена ожидающего UI-приёмника,
-выключение, отказ прав, старые стороны и лимиты. Android API 35 и весь Windows-код
-скомпилированы (Windows — с warnings-as-errors). EXE/APK не созданы.
-
-- [ ] Обновить обе стороны, разрешить overlay на телефоне, включить общий буфер на ПК.
-- [ ] Скопировать русский текст/ссылку/эмодзи на ПК, вставить пальцем на S25;
-  затем проверить Ctrl+V при управлении телефоном. Не должно быть двойной вставки.
-- [ ] Скопировать на телефоне через Ctrl+C и через меню, вернуться через край
-  и горячую клавишу, вставить на ПК; повторить без изменений и затем с новым текстом.
-- [ ] Оставить экранную клавиатуру открытой. Короткое окно не остаётся на экране,
-  ввод и клики после нового входа на телефон продолжают работать. Проверить IME,
-  браузер, редактор и приложение с запретом overlay; отказ не рвёт LAN.
-- [ ] Отозвать overlay, заблокировать S25, заблокировать/усыпить ПК, выключить
-  общий буфер во время ответа, быстро уйти/вернуться, оборвать Wi-Fi и переподключить.
-  Нет оставшегося окна, старого ответа или повтора после восстановления.
-- [ ] Во время ответа телефона скопировать новый текст на ПК: он сохраняется.
-  Копирование полученного с ПК текста заново на телефоне считается новым действием.
-- [ ] Фото, URI файлов, пустой буфер, NUL, >16 КБ и сильно экранируемый JSON
-  не отправляются как текст и не разрывают соединение.
-- [ ] Проверить обе комбинации нового/старого клиента: нет неизвестных команд,
-  управление, файлы и ручной обмен через «Поделиться» сохраняются.
-- [ ] После обновления APK сопряжение сохраняется, новый QR не требуется.
-
-## Android LAN 0.7.7: непрерывное удержание и перетаскивание
-
-Все Java-исходники Android LAN скомпилированы с API 35. Прошли 218 JVM-проверок,
-включая 30 новых проверок `PointerStroke`. Windows и сетевой протокол не изменены.
-
-- `PointerStrokeTest` проверяет передачу DOWN до UP, неподвижное удержание,
-  подавление дрожания, связанные сегменты движения, отпускание через 10 секунд,
-  быстрые клики и ограничение накопления пакетов при медленном Android.
-- [ ] На телефоне удержать левую кнопку на тексте до появления выделения.
-- [ ] Перетаскивать маркеры выделения: результат меняется до отпускания кнопки.
-- [ ] Проверить клики по файлам в системном выборе файлов и обычным кнопкам.
-- [ ] При удержании отключить соединение, заблокировать телефон и выключить
-  службу специальных возможностей; после возврата касание не должно зависать.
-- [ ] Проверить быстрые повторные клики и перетаскивание сразу после колеса.
-
-Натурная проверка этих сценариев на телефоне здесь не выполнена.
-
-## Windows 0.7.4: native BLE HID / five-button UHID
-
-- PASS: 2284 portable Core assertions, including actual LAN clipboard exchange
-  over certificate-checked TLS. No Android source changes in this version.
-- Entire Core/Windows sources compile with Roslyn C# 12, .NET 8 and the pinned
-  Windows SDK 10.0.19041.56. Compiler warnings are errors, with the SDK's standard
-  NoWarn 1701/1702 assembly-unification policy and WinForms reference profile.
-- Portable tests independently parse report sizes, exercise five mouse buttons,
-  both wheel axes/remainders, Shift+drag ordering, queue cancellation, target
-  isolation, radio errors and overflow. Native capture's clipboard return uses
-  the real LanSession over TLS without sending a touch capture command.
-- Full MSBuild/publish could not run here: an internal Process.GetProcessName
-  error occurs before restore/build. Portable tests invoke Roslyn/the runtime
-  directly. No signed APK or self-contained Windows ZIP was created here.
-- [ ] Run the manual Windows workflow on main; verify SDK restore and packaging.
-- [ ] Unsupported radio and Bluetooth off show clear failure, with touch mode usable.
-- [ ] On HP/S25, pair in system Bluetooth; verify both input subscriptions and capture.
-- [ ] Verify system pointer forms and hover; click/double/triple click in a text editor,
-  browser and file picker. Selection follows each app's physical-mouse behavior.
-- [ ] Test hold/drag, Shift+click, Shift+drag, Ctrl+wheel, five buttons and both wheels.
-- [ ] Connect a second HID host; input must reach only the selected phone.
-- [ ] Stop capture, switch host, lock/sleep PC, lose radio and close the app while holding
-  a mouse button/modifier. Input returns to Windows and no old queued actions replay.
-- [ ] Restart Windows app; check Android HID reconnect. If subscriptions do not return,
-  use Connect/re-pair; do not infer success from the Bluetooth bond alone.
-- [ ] Verify physical keyboard layouts on Android; Ctrl+C/X/V and LAN shared clipboard.
-- [ ] Verify Wi-Fi+QR fallback closes LAN/BLE before the ADB wizard and supports the
-  same five buttons and both scroll axes with native UHID.
+Passing source/transport tests does not establish real Bluetooth compatibility
+or the behavior of Android applications. See VALIDATION.md for this revision.

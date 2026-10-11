@@ -8,7 +8,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Resources/App.ico</ApplicationIcon>
     <AssemblyName>GalaxyBridge</AssemblyName>
-    <Version>0.7.4</Version>
+    <Version>0.7.5</Version>
   </PropertyGroup>
   <ItemGroup><EmbeddedResource Include="Resources/App.ico" LogicalName="GalaxyBridge.App.ico" /></ItemGroup>
   <ItemGroup><ProjectReference Include="../GalaxyBridge.Core/GalaxyBridge.Core.csproj" /></ItemGroup>

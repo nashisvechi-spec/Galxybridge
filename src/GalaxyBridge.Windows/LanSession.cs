@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -140,11 +139,8 @@ internal sealed class LanSession : IPhoneControl
         }
         held.Clear(); held.UnionWith(keys);
     }
-    public bool Send(byte[] packet)
+    public bool Paste(string text)
     {
-        // InputCapture's paste shortcut supplies the existing scrcpy-shaped clipboard packet.
-        if (packet.Length < 14 || packet[0] != 9 || packet.Length - 14 != BinaryPrimitives.ReadInt32BigEndian(packet.AsSpan(10))) return false;
-        string text = Encoding.UTF8.GetString(packet, 14, packet.Length - 14);
         if (Encoding.UTF8.GetByteCount(text) > 16000) throw new ArgumentException("Вставка в Wi-Fi режиме ограничена 16 КБ текста.");
         return Post(new { type = "text", text });
     }

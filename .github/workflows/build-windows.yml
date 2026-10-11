@@ -41,16 +41,10 @@ jobs:
           -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -o artifacts/GalaxyBridge
-      - name: Download verified connection backend
-        run: ./scripts/Fetch-Backend.ps1 -Destination artifacts/GalaxyBridge/backend
-      - name: Set up Android SDK for the edge companion APK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platforms;android-35 build-tools;35.0.0
-      - name: Build edge-return companion APK
-        env:
-          GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE: ${{ secrets.ANDROID_SIGNING_BUNDLE }}
-        run: ./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge -VersionCode (100000 + [int]$env:GITHUB_RUN_NUMBER)
       - name: Test Android LAN wire and pairing parsers on JVM
         run: ./scripts/Test-LanProtocol.ps1
       - name: Build independent Wi-Fi companion APK
@@ -61,8 +55,13 @@ jobs:
         run: |
           Copy-Item README.ru.md, LICENSE, THIRD_PARTY_NOTICES.md -Destination artifacts/GalaxyBridge
           Copy-Item licenses -Destination artifacts/GalaxyBridge -Recurse
-          Copy-Item docs/TESTING.md, docs/NATIVE_WIFI.ru.md, docs/SYSTEM_MOUSE.ru.md -Destination artifacts/GalaxyBridge
-          Copy-Item scripts/backend.lock.json -Destination artifacts/GalaxyBridge/backend
+          Copy-Item docs -Destination artifacts/GalaxyBridge -Recurse
+      - name: Verify the single application package
+        run: |
+          $apks = @(Get-ChildItem artifacts/GalaxyBridge -Recurse -File -Filter '*.apk')
+          $executables = @(Get-ChildItem artifacts/GalaxyBridge -Recurse -File -Filter '*.exe')
+          if ($apks.Count -ne 1 -or $apks[0].Name -ne 'GalaxyBridgeLan.apk') { throw 'Expected only the LAN companion APK.' }
+          if ($executables.Count -ne 1 -or $executables[0].Name -ne 'GalaxyBridge.exe') { throw 'Expected only the Galaxy Bridge executable.' }
       - name: Package portable application
         run: Compress-Archive -Path artifacts/GalaxyBridge/* -DestinationPath artifacts/GalaxyBridge-win10-x64.zip
       - name: Upload portable ZIP
@@ -70,13 +69,6 @@ jobs:
         with:
           name: GalaxyBridge-win10-x64
           path: artifacts/GalaxyBridge-win10-x64.zip
-          if-no-files-found: error
-          retention-days: 14
-      - name: Upload Android companion APK
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: GalaxyBridgeEdge-android
-          path: artifacts/GalaxyBridge/GalaxyBridgeEdge.apk
           if-no-files-found: error
           retention-days: 14
       - name: Upload independent Wi-Fi APK

@@ -130,10 +130,8 @@ internal sealed class InputCapture : IDisposable
             bool shift = (keyboard.Modifiers & 0x22) != 0;
             bool paste = (usage == 0x19 && (keyboard.Modifiers & 0x11) != 0 && !shift && !alt)
                 || (usage == 0x49 && shift && !ctrl && !alt);
-            if (fresh && paste && PasteText?.Invoke() is string text)
+            if (fresh && paste && PasteText?.Invoke() is string text && phone?.Paste(text) == true)
             {
-                // Android KEYCODE_PASTE follows clipboard setting in the same control stream.
-                phone?.Send(ControlProtocol.Clipboard(text, paste: true));
                 pastedKeys.Add(usage);
                 return 1;
             }

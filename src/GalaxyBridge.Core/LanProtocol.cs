@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace GalaxyBridge.Core;
 
-// Independent of ADB/scrcpy. Every frame travels inside certificate-pinned TLS.
+// Every frame travels inside certificate-pinned TLS.
 public static class LanProtocol
 {
     public const int Version = 1, Port = 38271, DiscoveryPort = 38272, MaxFrame = 65536, ChunkSize = 32768;

@@ -78,10 +78,9 @@ def balanced_csharp(path: Path) -> None:
 
 def main() -> None:
     for required in ('README.md', 'README.ru.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
-                     'licenses/scrcpy-APACHE-2.0.txt', 'docs/ARCHITECTURE.md',
+                     'docs/ARCHITECTURE.md',
                      'docs/TESTING.md', 'docs/VALIDATION.md', '.gitignore',
-                     '.gitattributes', 'backend/README.md', 'scripts/Fetch-Backend.ps1',
-                     'scripts/Build-EdgeHelper.ps1', 'android/edge-return/AndroidManifest.xml'):
+                     '.gitattributes', 'src/GalaxyBridge.Windows/BleHidSession.cs'):
         read(required)
     sdk = json.loads(read('global.json'))['sdk']
     require(str(sdk['version']).startswith('8.0.'), 'SDK must stay on .NET 8')
@@ -106,43 +105,31 @@ def main() -> None:
     drawing_package = windows.find('.//PackageReference[@Include="System.Drawing.Common"]')
     require(drawing_package is not None and drawing_package.get('Version') == '8.0.30', 'Drawing dependency stays on .NET 8')
     read('licenses/QRCoder-LICENSE.txt')
-    read('src/GalaxyBridge.Core/ConnectionRecovery.cs')
-    read('src/GalaxyBridge.Windows/DeviceDiscovery.cs')
-    read('src/GalaxyBridge.Windows/QrPairingForm.cs')
     manifest = ET.fromstring(read('src/GalaxyBridge.Windows/app.manifest'))
     level = next(element for element in manifest.iter() if element.tag.endswith('requestedExecutionLevel'))
     require(level.attrib['level'] == 'asInvoker', 'Application should run as current user')
-
-    lock = json.loads(read('scripts/backend.lock.json'))
-    version = lock['version']
-    require(re.fullmatch(r'\d+\.\d+\.\d+', version) is not None, 'Backend version must be pinned')
-    require(lock['zip_url'] == f'https://github.com/Genymobile/scrcpy/releases/download/v{version}/scrcpy-win64-v{version}.zip',
-            'Download must point to the exact official scrcpy release')
-    for field in ('zip_sha256', 'server_sha256'):
-        require(re.fullmatch(r'[0-9a-f]{64}', lock[field]) is not None, f"Invalid {field}")
-    protocol = read('src/GalaxyBridge.Core/ControlProtocol.cs')
-    client = read('src/GalaxyBridge.Windows/AdbClient.cs')
-    fetch = read('scripts/Fetch-Backend.ps1')
-    require(f'ServerVersion = "{version}"' in protocol, 'Client protocol/backend version mismatch')
-    require(f'ServerSha256 = "{lock["server_sha256"]}"' in client, 'Runtime hash/backend lock mismatch')
-    require('manifest.zip_sha256' in fetch and 'manifest.server_sha256' in fetch,
-            'Download script must verify both digests')
-    require('UseShellExecute = false' in client and 'ArgumentList.Add' in client,
-            'ADB arguments must be passed without shell interpolation')
-    session = read('src/GalaxyBridge.Windows/PhoneSession.cs')
-    require('localabstract:scrcpy_' in session and 'IPAddress.Loopback' in session,
-            'Control socket must use session-specific ADB forwarding to loopback')
-    require('kill-server' not in session, 'Do not terminate other applications\' ADB server')
 
     workflow = read('.github/workflows/build-windows.yml')
     trigger = re.search(r'^on:\s*\n((?:[ \t]+[^\n]*\n|\n)+)', workflow, re.MULTILINE)
     require(trigger is not None and trigger.group(1).strip() == 'workflow_dispatch:',
             'Workflow must be manual only; no push/PR/release trigger')
     actions = re.findall(r'uses:\s*([^\s]+)', workflow)
-    require(len(actions) == 6 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
+    require(len(actions) == 5 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
             'Actions must use pinned commit IDs')
     require('contents: read' in workflow and 'contents: write' not in workflow,
             'Build workflow requires read-only repository permissions')
+    program = read('src/GalaxyBridge.Windows/Program.cs')
+    require('Application.Run(new LanForm(Settings.Load()))' in program, 'Start directly in the application without debugging')
+    for removed in ('android/edge-return', 'backend', 'scripts/Fetch-Backend.ps1',
+                    'scripts/Build-EdgeHelper.ps1', 'scripts/backend.lock.json',
+                    'src/GalaxyBridge.Windows/MainForm.cs', 'src/GalaxyBridge.Windows/AdbClient.cs',
+                    'src/GalaxyBridge.Windows/PhoneSession.cs', 'src/GalaxyBridge.Core/ControlProtocol.cs'):
+        require(not (ROOT / removed).exists(), f'Legacy debug component must be absent: {removed}')
+    require(all(word not in workflow for word in ('Fetch-Backend', 'Build-EdgeHelper', 'GalaxyBridgeEdge', 'backend/')),
+            'Portable artifacts must contain only the application without debugging')
+    for path in (ROOT / 'src').rglob('*.cs'):
+        require(not re.search(r'\b(AdbClient|AdbEndpoint|AdbDevice|ControlProtocol|MainForm)\b', path.read_text()),
+                f'No legacy runtime dependency in {path.relative_to(ROOT)}')
     signing_pin = read('android/signing-cert.sha256').strip()
     require(re.fullmatch(r'[0-9a-f]{64}', signing_pin) is not None, 'Android update certificate pin')
     read('scripts/Resolve-AndroidSigning.ps1')
@@ -152,7 +139,7 @@ def main() -> None:
             'Manual workflow validates persistent APK signing before builds')
     require('-VersionCode (100000 + [int]$env:GITHUB_RUN_NUMBER)' in workflow,
             'APK version code must increase with manual workflow runs')
-    for script_name in ('scripts/Build-EdgeHelper.ps1', 'scripts/Build-LanCompanion.ps1'):
+    for script_name in ('scripts/Build-LanCompanion.ps1',):
         signing_script = read(script_name)
         require('Resolve-AndroidSigning.ps1' in signing_script and '-genkeypair' not in signing_script,
                 'APK builds must restore the persistent key instead of replacing it')
@@ -162,20 +149,7 @@ def main() -> None:
             'Workflow must test the production certificate import with Windows TLS')
     require('--self-contained true' in workflow and '-r win-x64' in workflow,
             'Portable Windows x64 publish configuration')
-    require('./scripts/Build-EdgeHelper.ps1 -Destination artifacts/GalaxyBridge' in workflow and 'GalaxyBridgeEdge-android' in workflow,
-            'Workflow must package and separately upload the companion APK')
-    android = ET.fromstring(read('android/edge-return/AndroidManifest.xml'))
     ns = '{http://schemas.android.com/apk/res/android}'
-    service = android.find('.//service')
-    require(service is not None and service.get(ns + 'permission') == 'android.permission.DUMP',
-            'Only authorized privileged callers may start the edge service')
-    require(service.get(ns + 'foregroundServiceType') == 'specialUse', 'Declare foreground service type')
-    permissions = {e.get(ns + 'name') for e in android.findall('uses-permission')}
-    require(permissions == {'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.FOREGROUND_SERVICE',
-                            'android.permission.FOREGROUND_SERVICE_SPECIAL_USE', 'android.permission.POST_NOTIFICATIONS'},
-            'Companion must not request screen, accessibility, storage or network access')
-    legacy_java = list((ROOT / 'android/edge-return/src').rglob('*.java'))
-    require(len(legacy_java) == 3, 'Expected unchanged legacy edge companion')
     lan = ET.fromstring(read('android/lan/AndroidManifest.xml'))
     require(lan.find('uses-sdk').get(ns + 'minSdkVersion') == '33', 'Native input needs Android 13+')
     lan_permissions = {e.get(ns + 'name') for e in lan.findall('uses-permission')}
@@ -199,8 +173,8 @@ def main() -> None:
     require('./scripts/Test-LanProtocol.ps1' in workflow, 'Manual workflow runs actual Android wire/pairing parser tests')
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
-    java = legacy_java + list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java'))
-    require(len(java) == 26, 'Expected legacy, native Android and protocol/input/clipboard test sources')
+    java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java'))
+    require(len(java) == 23, 'Expected LAN Android and protocol/input/clipboard test sources')
     for helper in java:
         balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]

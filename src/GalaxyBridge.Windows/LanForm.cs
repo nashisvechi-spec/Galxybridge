@@ -9,9 +9,7 @@ namespace GalaxyBridge.Windows;
 
 internal sealed class LanForm : Form
 {
-    private readonly TaskCompletionSource shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    public Task Shutdown => shutdown.Task;
-    public bool SystemMouseQrRequested { get; private set; }
+    private readonly NotifyIcon tray = new();
     private readonly Settings settings;
     private readonly LanHost host;
     private readonly CancellationTokenSource lifetime = new();
@@ -51,8 +49,8 @@ internal sealed class LanForm : Form
     {
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
-        Text = "Galaxy Bridge • Wi-Fi без отладки • 0.7.4"; Font = new Font("Segoe UI", 10);
-        StartPosition = FormStartPosition.CenterParent; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
+        Text = "Galaxy Bridge • без отладки • 0.7.5"; Font = new Font("Segoe UI", 10);
+        StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
         page.Controls.Add(state);
@@ -94,10 +92,7 @@ internal sealed class LanForm : Form
             if (bluetoothPeers.SelectedItem is BluetoothPeer peer) nativeMouse?.Select(peer.Id);
             UpdateState();
         };
-        Button systemQr = new() { Text = "Системная мышь по Wi-Fi + QR", AutoSize = true };
-        systemQr.Click += (_, _) => { capture?.Stop();SystemMouseQrRequested = true;Close(); };
-        page.Controls.Add(systemQr);
-        page.Controls.Add(new Label { Text = "Если Bluetooth-адаптер не подходит, системный ввод работает через Wi-Fi + QR с беспроводной отладкой. Для Bluetooth возврат на ПК — Ctrl + Alt + F12; автоматический возврат через край телефона пока недоступен.", AutoSize = true, MaximumSize = new Size(660, 0) });
+        page.Controls.Add(new Label { Text = "Без подходящего Bluetooth-адаптера используйте сенсорное управление через Wi-Fi. Для Bluetooth возврат на ПК — Ctrl + Alt + F12; автоматический возврат через край телефона пока недоступен.", AutoSize = true, MaximumSize = new Size(660, 0) });
         speed.Value = (decimal)settings.Sensitivity;
         FlowLayoutPanel mouse = new() { AutoSize = true };
         mouse.Controls.Add(new Label { Text = "Скорость курсора телефона ×", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
@@ -114,16 +109,14 @@ internal sealed class LanForm : Form
         fileActions.Controls.Add(dropWindow); page.Controls.Add(fileActions); page.Controls.Add(transferState); page.Controls.Add(receiveState);
         Button cancel = new() { Text = "Отменить отправку", AutoSize = true }; cancel.Click += (_, _) => transfer?.Cancel(); page.Controls.Add(cancel);
         Button pause = new() { Text = "Остановить / возобновить подключение", AutoSize = true };
-        pause.Click += (_, _) => { paused = !paused; capture?.Stop(); if (paused) { ClearQr(); host.Pause(); } else host.Resume(); UpdateState(); }; page.Controls.Add(pause);
+        pause.Click += (_, _) => ToggleConnection(); page.Controls.Add(pause);
         Button forget = new() { Text = "Забыть телефон", AutoSize = true }; forget.Click += (_, _) =>
         { try { capture?.Stop(); host.Forget(); ClearQr(); UpdateState(); } catch (IOException) { state.Text = "Не удалось сохранить изменение. Попробуйте ещё раз."; } }; page.Controls.Add(forget);
-        CheckBox startup = new() { Text = "Открывать этот режим при запуске Galaxy Bridge", AutoSize = true, Checked = settings.NativeAtStartup };
-        startup.CheckedChanged += (_, _) => settings.NativeAtStartup = startup.Checked; page.Controls.Add(startup);
         page.Controls.Add(new Label { Text = "Ctrl + Alt + F12 — переключение. Сенсорный режим: левая кнопка — касание; правая — Назад; колесо — свайп; движение передаётся при удержании. Для него нужна служба Galaxy Bridge в специальных возможностях. Системная мышь: кнопки, наведение и прокрутка обрабатываются Android; раскладка физической клавиатуры выбирается на телефоне. Файлы: Download/GalaxyBridge; до 2 ГБ на файл.", AutoSize = true, MaximumSize = new Size(660, 0) });
         Controls.Add(page);
         renew.Click += (_, _) => { host.ClosePairing(); RefreshAddresses(); ShowQr(); }; addresses.SelectedIndexChanged += (_, _) => { if (host.PairingOpen) ShowQr(); };
-        side.SelectedIndexChanged += (_, _) => { capture?.Stop(); settings.PhoneSide = (PhoneSide)side.SelectedIndex; armed = false; };
-        edgeEntry.CheckedChanged += (_, _) => settings.EdgeEntryEnabled = edgeEntry.Checked;
+        side.SelectedIndexChanged += (_, _) => { capture?.Stop(); settings.PhoneSide = (PhoneSide)side.SelectedIndex; armed = false; SaveSettings(); };
+        edgeEntry.CheckedChanged += (_, _) => { settings.EdgeEntryEnabled = edgeEntry.Checked; SaveSettings(); };
         speed.ValueChanged += (_, _) =>
         {
             capture?.Stop(); armed = false; settings.Sensitivity = (double)speed.Value;
@@ -137,7 +130,30 @@ internal sealed class LanForm : Form
         clipboardRetry.Tick += (_, _) => ReadLocalClipboard();
         SystemEvents.SessionSwitch += SessionChanged; SystemEvents.PowerModeChanged += PowerChanged;
         Shown += (_, _) => Start(); FormClosing += CloseAsync;
+        ContextMenuStrip menu = new();
+        menu.Items.Add("Открыть", null, (_, _) => OpenWindow());
+        menu.Items.Add("Управлять телефоном / вернуться на ПК", null, (_, _) => Toggle());
+        menu.Items.Add("Остановить / возобновить подключение", null, (_, _) => ToggleConnection());
+        menu.Items.Add("Выход", null, (_, _) => Close());
+        tray.Icon = AppIcon.Value; tray.Text = "Galaxy Bridge"; tray.ContextMenuStrip = menu; tray.Visible = true;
+        tray.DoubleClick += (_, _) => OpenWindow();
+        Resize += (_, _) => { if (WindowState == FormWindowState.Minimized) Hide(); };
         RegisterDrop(this);
+    }
+    private void OpenWindow()
+    { if (closing) return; Show(); WindowState = FormWindowState.Normal; Activate(); }
+    private void ToggleConnection()
+    {
+        if (closing) return;
+        paused = !paused; capture?.Stop(); armed = false;
+        if (paused) { ClearQr(); host.Pause(); } else if (!suspended) host.Resume();
+        UpdateState();
+    }
+    private void SaveSettings()
+    {
+        try { settings.Save(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { connectionDetail.Text = "Настройки применены, но не удалось сохранить их на диск."; }
     }
     private void Ui(Action action)
     { if (!IsHandleCreated || closing || IsDisposed) return; try { BeginInvoke(new Action(() => { if (!closing) action(); })); } catch (InvalidOperationException) { } }
@@ -470,6 +486,7 @@ internal sealed class LanForm : Form
         if (bluetoothOperation is not null) await bluetoothOperation;
         if (nativeMouse is not null) { await nativeMouse.DisposeAsync();nativeMouse = null; }
         await host.DisposeAsync(); capture?.Dispose(); ClearQr(); timer.Dispose(); clipboardRetry.Dispose(); lifetime.Dispose();
-        finished = true; shutdown.TrySetResult(); Close();
+        SaveSettings(); tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose();
+        finished = true; Close();
     }
 }
