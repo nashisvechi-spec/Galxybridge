@@ -1,8 +1,15 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.13** / Android **0.7.16**. The application starts directly in its LAN
+Windows **0.7.17** / Android **0.7.16**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Windows **0.7.17** preserves a working connection until a replacement phone
+session acknowledges its saved pairing. Aborted parallel attempts cannot
+overwrite the connected status. Interrupted TLS attempts explain automatic
+reconnection; successful reconnects clear the old diagnostic. Android 0.7.16
+remains compatible. The user has confirmed the My Files receiver transfer works;
+the intermittent TLS I/O failure's device-specific cause remains unconfirmed.
 
 Android **0.7.16** fixes the observed Samsung drop of a video content URI plus
 a launcher PinItemRequest companion. The launcher-only item is skipped while

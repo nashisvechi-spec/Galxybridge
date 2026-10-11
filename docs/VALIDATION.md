@@ -1,4 +1,39 @@
-# Validation — Windows 0.7.13 / Android 0.7.16
+# Validation — Windows 0.7.17 / Android 0.7.16
+
+## Interrupted TLS attempts and replacement sessions (Windows 0.7.17)
+
+Based on 3d1d4f4f74b9d70963ad031340c56cd231bd8168. The user confirmed the
+My Files receiver transfer works, but reported intermittent Windows status
+`TLS; IOException, 0x80131620`. This is the general IOException HRESULT,
+not proof of a certificate, VPN, firewall or particular network failure.
+Reference: https://learn.microsoft.com/en-us/dotnet/api/system.io.ioexception
+
+Source inspection found two independently reproducible defects: the host closed
+its current session before a replacement acknowledged `saved`, and pending
+attempts could overwrite the status of a working session. Activation now occurs
+only after valid acknowledgement and a fresh authorization/Pause check. Pending
+states are suppressed while a current session is alive; the UI also checks the
+current connection when executing queued callbacks and restores success status
+on reconnect. I/O/timeout diagnostics explain automatic reconnect and preserve
+stage/type/code without exposing provider messages. Authentication failures
+remain distinct. Certificate validation, pinning, mouse cadence, and Android
+code are unchanged. Interrupted file transfers are not automatically replayed.
+
+- Production Windows sources compile with Roslyn/.NET 8 reference assemblies.
+- 2,339 portable core assertions pass, including 18 host/diagnostic checks.
+  New integration cases use the production LanHost and LanSession over real
+  certificate-pinned loopback TLS: aborted handshake, missing acknowledgement,
+  preservation of the old socket/heartbeat/status, successful replacement,
+  and Pause/Forget during the acknowledgement wait.
+- The host integration suite substitutes only in-memory identity storage and
+  receive settings; production certificate import/DPAPI tests remain separate.
+- Local .NET CLI/MSBuild cannot access process metadata in this environment.
+  Compilation used the installed Roslyn compiler directly, followed by direct
+  execution of the test assembly on .NET 8. Linux TLS uses OpenSSL, not Schannel.
+- Full portable EXE packaging and Windows/phone checks remain in the manual
+  workflow. The specific cause of the user's intermittent TLS failure has not
+  been reproduced or established; the lifecycle/status fixes do not claim to
+  prevent all network failures.
 
 ## File URI plus launcher pin-request companion (0.7.16)
 

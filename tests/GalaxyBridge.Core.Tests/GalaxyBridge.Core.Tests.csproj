@@ -3,6 +3,8 @@
   <ItemGroup><ProjectReference Include="../../src/GalaxyBridge.Core/GalaxyBridge.Core.csproj" /></ItemGroup>
   <ItemGroup>
     <Compile Include="../../src/GalaxyBridge.Windows/LanSession.cs" Link="LanSession.cs" />
+    <Compile Include="../../src/GalaxyBridge.Windows/LanHost.cs" Link="LanHost.cs" />
+    <Compile Include="../../src/GalaxyBridge.Windows/LanConnectionFailure.cs" Link="LanConnectionFailure.cs" />
     <Compile Include="../../src/GalaxyBridge.Windows/LanTextInput.cs" Link="LanTextInput.cs" />
     <Compile Include="../../src/GalaxyBridge.Windows/IPhoneControl.cs" Link="IPhoneControl.cs" />
     <Compile Include="../../src/GalaxyBridge.Windows/PhoneControlRoute.cs" Link="PhoneControlRoute.cs" />

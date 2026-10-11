@@ -52,7 +52,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.13"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.17"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -126,7 +126,10 @@ internal sealed class LanForm : Form
             { connectionDetail.Text = "Скорость применена, но не удалось сохранить настройку. При следующем запуске задайте её повторно."; }
         };
         toggle.Click += (_, _) => Toggle(); files.Click += async (_, _) => await ChooseFilesAsync();
-        host.Connected += candidate => Ui(() => Attach(candidate)); host.State += text => Ui(() => connectionDetail.Text = text);
+        host.Connected += candidate => Ui(() => Attach(candidate));
+        host.State += text => Ui(() => {
+            if (!paused && !suspended && session?.IsAlive != true) connectionDetail.Text = text;
+        });
         timer.Tick += (_, _) => { if (!host.PairingOpen) ClearQr(); UpdateState(); CheckEdge(); };
         clipboardRetry.Tick += (_, _) => ReadLocalClipboard();
         SystemEvents.SessionSwitch += SessionChanged; SystemEvents.PowerModeChanged += PowerChanged;
@@ -311,6 +314,8 @@ internal sealed class LanForm : Form
     private void ClearQr() { Image? image = qr.Image; qr.Image = null; qr.Visible = false; image?.Dispose(); }
     private void Attach(LanSession candidate)
     {
+        if (!host.IsCurrent(candidate) || paused || suspended) return;
+        connectionDetail.Text = "Связь с телефоном установлена. Файлы и управление доступны.";
         candidate.WheelZoomEnabled = settings.WheelZoomEnabled;
         capture?.Stop(); session = candidate; armed = false; edgeSince = null; ClearQr(); host.ClosePairing();
         candidate.ClipboardWriter = (text, ct) => SetPhoneClipboardAsync(candidate, text, ct);
@@ -323,8 +328,16 @@ internal sealed class LanForm : Form
         lastPushedSequence = Native.GetClipboardSequenceNumber(); clipboardRetry.Stop();
         candidate.ConfigureClipboard(share.Checked);
         if (!candidate.AutomaticClipboard) clipboardState.Text = "Для автоматического общего буфера обновите Galaxy Bridge Wi-Fi на телефоне до 0.7.13.";
-        candidate.Lost += () => Ui(() => { if (session == candidate) { received = candidate.ReceiveState; capture?.Stop(); session = null; armed = false; UpdateState(); } });
-        if (!candidate.IsAlive) { session = null; UpdateState(); }
+        candidate.Lost += () => Ui(() => { if (session == candidate) {
+            received = candidate.ReceiveState; capture?.Stop(); session = null; armed = false;
+            if (!paused && !suspended) connectionDetail.Text = "Связь прервалась. Ожидаем автоматическое переподключение телефона. Незавершённую передачу файлов нужно повторить.";
+            UpdateState();
+        } });
+        if (!candidate.IsAlive) {
+            session = null;
+            connectionDetail.Text = "Связь прервалась. Ожидаем автоматическое переподключение телефона.";
+            UpdateState();
+        }
     }
     private void UpdateState()
     {

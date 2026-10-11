@@ -150,6 +150,7 @@ using (var missingClipboard = JsonDocument.Parse("{}"))
     Check(rejectedClipboard, "reject missing LAN clipboard text");
 }
 await LanClipboardTests.RunAsync(Check);
+await LanHostTests.RunAsync(Check);
 Console.WriteLine($"PASS: {checks} core assertions");
 
 sealed class FragmentedStream(Stream inner) : Stream

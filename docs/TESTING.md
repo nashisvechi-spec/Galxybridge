@@ -15,6 +15,10 @@ Core tests exercise HID report sizes and button/wheel splitting, ordered transpo
 release/cancellation and failures, automatic route selection and release-before-switch,
 desktop/phone edge geometry, LAN framing,
 clipboard TLS delivery and stale-result rejection, and file receipt validation.
+The portable suite also runs production LAN host/session code over pinned
+loopback TLS with in-memory storage fixtures. It checks aborted reconnects,
+preservation of a working session until `saved`, successful replacement, and
+Pause/Forget while waiting for that acknowledgement.
 LAN TLS tests use the production certificate import on Windows. JVM tests cover
 pairing/wire parsing, file upload, pointer gestures, click targets, clipboard and
 physical edge geometry with navigation/cutout insets. Real TLS tests exercise native

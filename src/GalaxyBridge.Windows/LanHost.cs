@@ -28,6 +28,12 @@ internal sealed class LanHost : IAsyncDisposable
     public string Pin => identity.Pin;
     public string HostId => identity.HostId;
     public bool HasPhone => identity.HasPhone;
+    public bool IsCurrent(LanSession session) { lock (gate) return current == session && session.IsAlive; }
+    private void PendingState(string text)
+    {
+        lock (gate)
+            if (!paused && !lifetime.IsCancellationRequested && current?.IsAlive != true) State?.Invoke(text);
+    }
     public void Start()
     {
         listener.Start(8); accept = AcceptAsync();
@@ -76,11 +82,11 @@ internal sealed class LanHost : IAsyncDisposable
                 client.NoDelay = true;
                 using CancellationTokenSource hello = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                 hello.CancelAfter(TimeSpan.FromSeconds(8));
-                State?.Invoke("Телефон открыл соединение. Проверяем TLS…");
+                PendingState("Телефон открыл соединение. Проверяем TLS…");
                 await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
                 { ServerCertificate = identity.Certificate, EnabledSslProtocols = SslProtocols.Tls12 }, hello.Token);
                 stage = "запрос сопряжения";
-                State?.Invoke("TLS установлен. Ожидаем запрос телефона…");
+                PendingState("TLS установлен. Ожидаем запрос телефона…");
                 using var message = await LanProtocol.ReadAsync(stream, hello.Token);
                 var root = message.RootElement;
                 string kind = root.GetProperty("type").GetString() ?? "";
@@ -91,17 +97,17 @@ internal sealed class LanHost : IAsyncDisposable
                 string? token = null;
                 lock (gate)
                 {
-                    if (paused) { State?.Invoke("Соединение отклонено: подключение остановлено."); return; }
+                    if (paused) return;
                     if (kind == "pair")
                     {
                         string supplied = root.GetProperty("ticket").GetString() ?? "";
                         if (ticket is null || Environment.TickCount64 >= expires || !LanProtocol.HexSecret(supplied) ||
                             !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(supplied), Convert.FromHexString(ticket)))
-                        { State?.Invoke("QR истёк или заменён. Покажите новый QR и подтвердите ноутбук на телефоне."); return; }
+                        { PendingState("QR истёк или заменён. Покажите новый QR и подтвердите ноутбук на телефоне."); return; }
                         ticket = null; token = identity.Remember(phone);
                     }
                     else if (kind != "hello" || !identity.Authorize(phone, root.GetProperty("token").GetString() ?? ""))
-                    { State?.Invoke("Сохранённое сопряжение не принято. Повторите сопряжение новым QR."); return; }
+                    { PendingState("Сохранённое сопряжение не принято. Повторите сопряжение новым QR."); return; }
                     bool autoClipboard = root.TryGetProperty("clipboardSync", out var capability) && capability.ValueKind == System.Text.Json.JsonValueKind.Number && capability.TryGetInt32(out int syncVersion) && syncVersion == 1;
                     bool nativeEdge = root.TryGetProperty("nativeEdge", out var edgeCapability) && edgeCapability.ValueKind == System.Text.Json.JsonValueKind.Number && edgeCapability.TryGetInt32(out int edgeVersion) && edgeVersion == 1;
                     bool wheelZoom = root.TryGetProperty("wheelZoom", out var zoomCapability) && zoomCapability.ValueKind == System.Text.Json.JsonValueKind.Number && zoomCapability.TryGetInt32(out int zoomVersion) && zoomVersion == 1;
@@ -109,29 +115,31 @@ internal sealed class LanHost : IAsyncDisposable
                     wheelZoom |= root.TryGetProperty("touchInput", out var oldTouch) && oldTouch.ValueKind == System.Text.Json.JsonValueKind.Number && oldTouch.TryGetInt32(out int oldVersion) && oldVersion == 1;
                     session = new LanSession(client, stream, name, autoClipboard, nativeEdge, wheelZoom);
                     session.ConfigureReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder);
-                    current?.Close(); current = session;
                 }
                 await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, fileDrag = 1, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0, wheelZoom = session.WheelZoomSupported ? 1 : 0 }), hello.Token);
                 // Explicit acknowledgement proves the phone saved its new token before any control session is accepted.
                 stage = "подтверждение телефона";
-                State?.Invoke("Ожидаем подтверждение сохранения сопряжения…");
+                PendingState("Ожидаем подтверждение сохранения сопряжения…");
                 using var saved = await LanProtocol.ReadAsync(stream, hello.Token);
                 if (saved.RootElement.GetProperty("type").GetString() != "saved") return;
-                stage = "связь";
-                session.Start(); State?.Invoke("Сопряжение подтверждено телефоном."); Connected?.Invoke(session);
+                lock (gate)
+                {
+                    // A half-open reconnect must not destroy a working session.
+                    // Recheck authorization after awaiting the phone: Pause/Forget
+                    // or a newer pairing may have invalidated this attempt.
+                    string savedToken = token ?? root.GetProperty("token").GetString() ?? "";
+                    if (paused || !identity.Authorize(phone, savedToken)) return;
+                    current?.Close(); current = session;
+                    stage = "связь";
+                    session.Start(); State?.Invoke("Сопряжение подтверждено телефоном."); Connected?.Invoke(session);
+                }
                 await session.Completion;
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or SocketException or AuthenticationException or OperationCanceledException or
             System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException or FormatException or CryptographicException or UnauthorizedAccessException)
         {
-            if (!lifetime.IsCancellationRequested)
-            {
-                Exception detail = ex.GetBaseException();
-                int code = detail is System.ComponentModel.Win32Exception native ? native.NativeErrorCode : detail.HResult;
-                // Only local stage/type/code: never show a QR, token, packet or file content.
-                State?.Invoke($"Ошибка: {stage}; {detail.GetType().Name}, 0x{code:X8}. Повторите подключение. Если ошибка остаётся, пришлите эту строку.");
-            }
+            PendingState(LanConnectionFailure.Describe(stage, ex));
         }
         finally
         {
