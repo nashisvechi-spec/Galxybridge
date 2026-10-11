@@ -97,6 +97,15 @@ public final class PointerStrokeTest {
         check(!nearTimeout.click(500) && nearTimeout.take(550,500)==null,"a hold released just after classification cannot become an accidental tap");
         check(nearTimeout.waitForIntent(550,500)==550,"Android receives enough actual down time to recognize a long press");
         check(!nearTimeout.take(1100,500).continues,"deferred long press ends exactly once");
+        PointerStroke fileDrop=new PointerStroke(8,50,100,0);
+        check(!fileDrop.releaseHere(10),"file up cannot invent an unstarted touch");
+        fileDrop.move(100,100);fileDrop.take(20,500);
+        fileDrop.move(500,100);fileDrop.move(800,100);
+        check(fileDrop.releaseHere(30),"completed injected continuation can end at its endpoint");
+        PointerStroke.Segment fileUp=fileDrop.take(30,500);
+        check(!fileUp.continues && fileUp.points.length==1,"queued overshoot discarded only for file handoff");
+        point(fileUp.points[0],100,100,"file touch up stays at last dispatched endpoint");
+        check(!fileDrop.releaseHere(40) && fileDrop.take(40,500)==null,"file up happens once");
         System.out.println("PASS: "+checks+" live pointer stroke assertions");
     }
 }

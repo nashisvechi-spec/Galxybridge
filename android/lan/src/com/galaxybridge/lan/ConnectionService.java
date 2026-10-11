@@ -166,7 +166,7 @@ public final class ConnectionService extends Service {
                     pending.compareAndSet(pair,null);
                 } else prefs.edit().putString("host",host).apply();
                 Wire.write(out,Wire.message("saved"));
-                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); active.fileDrag=welcome.optInt("fileDrag",0)==1;active.fileEdge=active.fileDrag && welcome.optInt("fileEdge",0)==1;link=active; connecting=null;
+                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); active.fileDrag=welcome.optInt("fileDrag",0)==1;active.fileEdge=active.fileDrag && welcome.optInt("fileEdge",0)==1;active.fileDropZone=active.fileEdge && welcome.optInt("fileDropZone",0)==1;link=active; connecting=null;
                 main.post(() -> { if(link==active) { clipboardBridge.configure(false);clipboardStatus=active.automaticClipboard?"Общий буфер готов после включения на ПК.":"Для автоматического буфера обновите Windows до 0.7.3."; } });
                 status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();
                 try(Downloads downloads=new Downloads(this)) {
@@ -281,7 +281,7 @@ public final class ConnectionService extends Service {
     static boolean uploading() { ConnectionService current=instance; return current!=null && current.uploadBusy.get(); }
     static boolean edgeFilesReady() {
         ConnectionService current=instance;Link target=current==null?null:current.link;
-        return target!=null && !target.closed.get() && target.fileEdge;
+        return target!=null && !target.closed.get() && target.fileDropZone;
     }
     static boolean prepareEdgeFiles(ArrayList<Uri> files,String batch) {
         ConnectionService current=instance;
@@ -399,7 +399,7 @@ public final class ConnectionService extends Service {
         final AtomicBoolean closed=new AtomicBoolean(); final ArrayBlockingQueue<JSONObject> queue=new ArrayBlockingQueue<>(256);
         final Semaphore commands=new Semaphore(128); final Thread writer;
         final boolean upload,clipboard,automaticClipboard,nativeEdge;
-        boolean fileDrag,fileEdge;
+        boolean fileDrag,fileEdge,fileDropZone;
         volatile boolean clipboardEnabled;
         volatile String clipboardRequest;
         final ConcurrentHashMap<String,CompletableFuture<JSONObject>> replies=new ConcurrentHashMap<>();

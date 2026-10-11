@@ -43,7 +43,12 @@ internal static class LanHostTests
         using Peer first = await Peer.OpenAsync(host.Pin, ct);
         await first.SendAsync(new { type = "pair", v = 1, device, name = "Test phone", ticket }, ct);
         string token;
-        using (JsonDocument welcome = await first.ReadAsync(ct)) token = welcome.RootElement.GetProperty("token").GetString()!;
+        using (JsonDocument welcome = await first.ReadAsync(ct))
+        {
+            token = welcome.RootElement.GetProperty("token").GetString()!;
+            check(welcome.RootElement.GetProperty("fileDropZone").GetInt32() == 1 &&
+                welcome.RootElement.GetProperty("fileEdge").GetInt32() == 1, "welcome advertises inset zone and legacy file edge capabilities");
+        }
         await first.SendAsync(new { type = "saved" }, ct);
         LanSession original = await connected.Reader.ReadAsync(ct);
         check(host.IsCurrent(original), "first acknowledged connection is current");

@@ -1,4 +1,54 @@
-# Validation — Windows 0.7.19 / Android 0.7.18
+# Validation — Windows / Android 0.7.20
+
+## Visible inset file drop target (0.7.20)
+
+Based on 208978c2fbd5edec5a0280315171d88330db0f50. The user's Samsung My Files
+video showed native app-opening UI and Gallery launch during an attempted
+edge transfer; the earlier toast appeared before a payload was received.
+This experiment replaces the permanently blue one-pixel receiver with a
+visible “На ПК” target during an actual global drag. Its nominal thickness is
+64dp, with a 16dp gap from the usable edge; both shrink to fit the PC-facing
+outer quarter. System bars and cutouts are excluded. The same already-attached
+window is resized at STARTED so it retains its drag subscription. Idle mode
+keeps only the transparent one-pixel monitoring window.
+
+ENTERED does not end the gesture. Measured LOCATION inside the target and a
+200ms dwell with a fresh contact, same capture, display, side, and physical left
+hold are required. Ordinary mouse motion continues during this dwell. The
+control service additionally waits for an in-flight accessibility continuation
+to complete with its actual endpoint inside the target. File-only touch-up
+clears queued overshoot and remains at that exact endpoint; ordinary pointer
+release behavior is unchanged. The real PC button remains held. After touch-up,
+DROP/ENDED or the existing three-second deadline decides delivery; EXIT alone
+does not hide a pending target. Preparation still requires an actual in-bounds
+DROP, Activity-owned URI permission attempt and a successful read probe.
+The preparation toast now appears only after that probe and staging start.
+
+Windows advertises the additional fileDropZone=1 capability; the new APK
+requires it for this mode. Legacy fileEdge=1 remains advertised for 0.7.18.
+Handoff accepts an entirely outer-quarter target with an in-bounds sample,
+while retaining physical-button, epoch, freshness, modifier and outward-motion
+checks. Existing card/receiver flows and the 0.7.19 receive progress dialog
+remain supported. Status and diagnostic-copy controls are above the large
+manual receiver so they are easier to reach in split-screen.
+
+- All production Android sources compile as Java 8 against API 35 and ZXing.
+- 1,062 JVM assertions pass, including 146 new target/contact tests and five
+  additional file-only endpoint/up assertions. Real Android grants and drag
+  delivery are not exercised by these JVM fixtures.
+- 2,428 portable Core assertions pass, including real pinned TLS welcome
+  capability checks and valid/invalid broad targets on all four sides.
+- All Windows production sources compile using direct Roslyn/.NET 8 references.
+- APK/EXE packaging and on-device Samsung overlay delivery, window resizing,
+  touch-up and final Explorer handoff require a new manual Windows workflow
+  build and a real phone/PC test. This does not establish that an application
+  overlay can override Samsung's system app-opening receiver. If Samsung still
+  consumes the drop, use the already confirmed real Activity receiver in
+  split-screen/pop-up; automatic Samsung freeform launch is not implemented.
+
+Android API references:
+https://developer.android.com/reference/android/view/DragEvent
+https://developer.android.com/reference/android/view/WindowManager.LayoutParams#TYPE_APPLICATION_OVERLAY
 
 ## Native receive progress dialog (Windows 0.7.19)
 

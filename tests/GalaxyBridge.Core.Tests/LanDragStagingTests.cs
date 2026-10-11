@@ -92,6 +92,28 @@ static class LanDragStagingTests
             Check(!Can(inset with { Zone = new(0, 0, 1000, 2000) }), "full screen cannot be a file edge");
             Check(!Can(inset with { X = 500, Y = 1000, Zone = zone.Width == 1 ? new(500, 0, 1, 2000) : new(0, 1000, 1000, 1) }), "a middle-of-screen thin strip cannot hand off");
             Check(!FileDragHandoff.CanReturn(inset, 7, side, 1, false, -dx, -dy, 1001), "inset drag still requires outward motion");
+            DesktopBounds target = side switch
+            {
+                PhoneSide.Right => new(48, 24, 192, 1930),
+                PhoneSide.Left => new(760, 24, 192, 1930),
+                PhoneSide.Top => new(18, 1750, 964, 192),
+                _ => new(18, 48, 964, 192)
+            };
+            var visible = sample with { X = target.X+target.Width/2.0, Y = target.Y+target.Height/2.0, Zone = target };
+            Check(Can(visible), "visible inset drop target can hand off on each side");
+            Check(!Can(visible, epoch: 6) && !Can(visible, buttons: 0) && !Can(visible, key: true), "broad target preserves capture/hold/modifier checks");
+            Check(!Can(visible, now: 1501) && !Can(visible, now: 999), "broad target preserves freshness checks");
+            Check(!Can(visible with { X = target.X+target.Width }), "point outside broad target cannot hand off");
+            Check(!FileDragHandoff.CanReturn(visible, 7, side, 1, false, -dx, -dy, 1001), "broad target still requires outward direction");
+            Check(!Can(visible with { Zone = new(0, 0, 1000, 2000) }), "broad target cannot cover the whole display");
+            DesktopBounds oversized = side switch
+            {
+                PhoneSide.Right => new(48, 24, 240, 1930),
+                PhoneSide.Left => new(712, 24, 240, 1930),
+                PhoneSide.Top => new(18, 1490, 964, 460),
+                _ => new(18, 48, 964, 460)
+            };
+            Check(!Can(visible with { Zone = oversized }), "entire target must remain in the PC-facing quarter");
         }
         return checks;
     }

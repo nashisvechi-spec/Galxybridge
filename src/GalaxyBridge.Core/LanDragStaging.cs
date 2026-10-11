@@ -98,10 +98,10 @@ public static class FileDragHandoff
                 sample.X < zone.X || sample.Y < zone.Y || sample.X >= zone.X+zone.Width || sample.Y >= zone.Y+zone.Height) return false;
             return side switch
             {
-                PhoneSide.Right => zone.Width <= 4 && zone.Height > 4 && zone.X < sample.Width / 4 && dx < 0,
-                PhoneSide.Left => zone.Width <= 4 && zone.Height > 4 && zone.X >= sample.Width * 3 / 4 && dx > 0,
-                PhoneSide.Top => zone.Height <= 4 && zone.Width > 4 && zone.Y >= sample.Height * 3 / 4 && dy > 0,
-                PhoneSide.Bottom => zone.Height <= 4 && zone.Width > 4 && zone.Y < sample.Height / 4 && dy < 0,
+                PhoneSide.Right => zone.Height > 4 && zone.X+zone.Width <= sample.Width / 4 && dx < 0,
+                PhoneSide.Left => zone.Height > 4 && zone.X >= sample.Width-sample.Width / 4 && dx > 0,
+                PhoneSide.Top => zone.Width > 4 && zone.Y >= sample.Height-sample.Height / 4 && dy > 0,
+                PhoneSide.Bottom => zone.Width > 4 && zone.Y+zone.Height <= sample.Height / 4 && dy < 0,
                 _ => false
             };
         }

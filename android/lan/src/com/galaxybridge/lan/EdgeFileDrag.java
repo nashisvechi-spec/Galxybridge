@@ -23,10 +23,10 @@ final class EdgeFileDrag {
             pointer.x<0 || pointer.y<0 || pointer.x>=pointer.width || pointer.y>=pointer.height) return null;
         float x=pointer.x,y=pointer.y;
         switch(pointer.side) {
-            case 0:if(x>zone.x || y<zone.y || y>=zone.y+zone.height) return null;x=zone.x;break;
-            case 1:if(x<zone.x || y<zone.y || y>=zone.y+zone.height) return null;x=zone.x;break;
-            case 2:if(y<zone.y || x<zone.x || x>=zone.x+zone.width) return null;y=zone.y;break;
-            case 3:if(y>zone.y || x<zone.x || x>=zone.x+zone.width) return null;y=zone.y;break;
+            case 0:if(x>=zone.x+zone.width || y<zone.y || y>=zone.y+zone.height) return null;x=Math.max(x,zone.x);break;
+            case 1:if(x<zone.x || y<zone.y || y>=zone.y+zone.height) return null;x=Math.min(x,zone.x+zone.width-1);break;
+            case 2:if(y<zone.y || x<zone.x || x>=zone.x+zone.width) return null;y=Math.min(y,zone.y+zone.height-1);break;
+            case 3:if(y>=zone.y+zone.height || x<zone.x || x>=zone.x+zone.width) return null;y=Math.max(y,zone.y);break;
             default:return null;
         }
         if(!zone.contains(x,y)) return null;

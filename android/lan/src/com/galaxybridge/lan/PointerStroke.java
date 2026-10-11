@@ -31,6 +31,13 @@ final class PointerStroke {
         if(!down) return;
         move(x,y);down=false;releasedAt=now;
     }
+    // Called only after the last dispatched continuation has completed inside
+    // the file target. Discard pending motion; up stays at that exact endpoint.
+    boolean releaseHere(long now) {
+        if(!down || !started || finished) return false;
+        Point endpoint=points.get(0);points.clear();points.add(endpoint);
+        down=false;releasedAt=now;return true;
+    }
     boolean click(int timeout) { return !started && !down && !press.isDrag() && releasedAt-pressedAt<timeout; }
     long waitForIntent(long now,int timeout) {
         // Until release, movement or the long-press deadline, this could still

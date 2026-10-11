@@ -32,10 +32,13 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class DropActivity extends Activity {
     private static DropActivity edgeOwner;
     private final EdgeFileDrag edgeDrag=new EdgeFileDrag();
+    private final FileDropContact edgeContact=new FileDropContact();
     private FileEdgeReceiver edgeReceiver;
     private boolean edgeEnabled,edgeDropSeen;
     private String edgeBatch="";
     private long edgeDropDeadline;
+    private String edgeTrace="";
+    private boolean locationLogged,rejectedLocationLogged;
     private final Runnable edgeTick=new Runnable() { public void run() {
         if(destroyed || !edgeEnabled) return;
         EdgeFileDrag.Pointer pointer=ControlService.filePointer();
@@ -47,7 +50,7 @@ public final class DropActivity extends Activity {
                 cancelEdge("Перенос отменён: кнопка отпущена, курсор ушёл с края или связь прервалась.");
             } else if(!edgeBatch.isEmpty() && edgeBatch.equals(ConnectionService.dragReadyBatch)) {
                 String batch=edgeBatch,line=edgeDrag.consume(pointer,SystemClock.elapsedRealtime());
-                edgeBatch="";edgeReceiver.highlight(false);
+                edgeBatch="";edgeContact.clear();edgeReceiver.showTarget(false);
                 if(line==null || !ConnectionService.startFileDrag(batch,line)) {
                     ConnectionService.discardEdgeFiles(batch);report.setText("Не удалось начать перенос. Перетащите файл к краю ещё раз.");
                 } else report.setText("Файл подготовлен. Перенесите курсор в папку Windows и отпустите кнопку.");
@@ -56,7 +59,17 @@ public final class DropActivity extends Activity {
                 cancelEdge(ConnectionService.fileStatus);
             }
         } else if(pointer!=null && !edgeReceiver.matches(pointer)) {
-            edgeReceiver.close();edgeReceiver.install(pointer.side);
+            edgeContact.clear();edgeReceiver.close();
+            if(!edgeReceiver.install(pointer.side)) { stopEdge("Не удалось перестроить зону. Включите её снова после изменения экрана.");return; }
+        } else if(ConnectionService.edgeFilesReady() && edgeContact.ready(pointer,edgeReceiver.bounds(),SystemClock.elapsedRealtime())) {
+            EdgeStrip zone=edgeReceiver.bounds();
+            // A LOCATION dwell alone is insufficient: wait for the completed
+            // accessibility continuation to end inside the measured target.
+            if(ControlService.dropFileTouch(pointer,zone) && edgeDrag.begin(pointer,zone,SystemClock.elapsedRealtime())) {
+                edgeContact.clear();edgeDropDeadline=SystemClock.elapsedRealtime()+3000;
+                edgeLog("Touch up: внутри зоны после подтверждённого LOCATION");
+                edgeReceiver.status("Сброс…");report.setText("Ожидаем файл от Android. Держите кнопку мыши.");
+            }
         }
         if(!edgeBatch.isEmpty()) report.setText(ConnectionService.fileStatus+"\n\nДержите кнопку мыши зажатой у края до перехода на ПК.");
         main.postDelayed(this,100);
@@ -84,19 +97,20 @@ public final class DropActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(16*getResources().getDisplayMetrics().density);page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom);return i; });
-        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.18");title.setTextSize(22);page.addView(title);
-        Button edgeOn=new Button(this);edgeOn.setText("Включить перенос через край (тест)");edgeOn.setOnClickListener(v -> enableEdge());page.addView(edgeOn);
-        Button edgeOff=new Button(this);edgeOff.setText("Отключить полосу переноса");edgeOff.setOnClickListener(v -> stopEdge("Перенос через край выключен."));page.addView(edgeOff);
-        Button minimize=new Button(this);minimize.setText("Свернуть окно и оставить полосу");minimize.setOnClickListener(v -> { if(edgeEnabled) moveTaskToBack(true); });page.addView(minimize);
+        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.20");title.setTextSize(22);page.addView(title);
+        report=new TextView(this);report.setTextSize(16);report.setMaxLines(5);page.addView(report);
+        report.setText(saved==null?"Ожидаем перетаскивание из файлового приложения.":"Окно было пересоздано. Перетащите файлы ещё раз: временное разрешение на чтение не сохраняется.");
+        copy=new Button(this);copy.setText("Скопировать диагностику сброса");copy.setEnabled(false);
+        copy.setOnClickListener(v -> { getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Galaxy Bridge drop",dropDiagnostic));Toast.makeText(this,"Диагностика скопирована",Toast.LENGTH_SHORT).show(); });page.addView(copy);
+        Button edgeOn=new Button(this);edgeOn.setText("Включить зону «На ПК» (тест)");edgeOn.setOnClickListener(v -> enableEdge());page.addView(edgeOn);
+        LinearLayout actions=new LinearLayout(this);page.addView(actions);
+        Button edgeOff=new Button(this);edgeOff.setText("Выключить зону");edgeOff.setOnClickListener(v -> stopEdge("Зона «На ПК» выключена."));actions.addView(edgeOff,new LinearLayout.LayoutParams(0,-2,1));
+        Button minimize=new Button(this);minimize.setText("Свернуть окно");minimize.setOnClickListener(v -> { if(edgeEnabled) moveTaskToBack(true); });actions.addView(minimize,new LinearLayout.LayoutParams(0,-2,1));
         target=new TextView(this);target.setText("Перетащите файл сюда\nи отпустите кнопку");target.setTextSize(21);target.setGravity(Gravity.CENTER);
         target.setMinHeight(p*9);target.setPadding(p,p,p,p);target.setBackgroundColor(0xffdcecff);page.addView(target);
         target.setOnDragListener((v,event) -> drag(event));
-        report=new TextView(this);report.setTextSize(16);page.addView(report);
-        report.setText(saved==null?"Ожидаем перетаскивание из файлового приложения.":"Окно было пересоздано. Перетащите файлы ещё раз: временное разрешение на чтение не сохраняется.");
         prepare=new Button(this);prepare.setText("Подготовить для переноса на ПК");prepare.setEnabled(false);prepare.setOnClickListener(v -> forward());page.addView(prepare);
         cancel=new Button(this);cancel.setText("Отменить проверку");cancel.setEnabled(false);cancel.setOnClickListener(v -> { cancellationText="Проверка отменена. Перетащите файлы ещё раз.";cancelProbe(); });page.addView(cancel);
-        copy=new Button(this);copy.setText("Скопировать диагностику сброса");copy.setEnabled(false);
-        copy.setOnClickListener(v -> { getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Galaxy Bridge drop",dropDiagnostic));Toast.makeText(this,"Диагностика скопирована",Toast.LENGTH_SHORT).show(); });page.addView(copy);
         format=new TextView(this);format.setTextSize(14);page.addView(format);
         TextView help=new TextView(this);help.setText("Откройте Galaxy Bridge и «Мои файлы» рядом: через меню значка приложения в «Недавних» выберите разделение экрана или всплывающее окно. Зажмите файл, дождитесь начала перетаскивания и перенесите его в синюю область. Сначала проверьте пальцем, затем мышью по Wi-Fi.\n\nЕсли область не реагирует, файловое приложение могло не начать межприложное перетаскивание. Используйте «Поделиться → Galaxy Bridge Wi-Fi».\n\nПосле проверки нажмите кнопку подготовки. Пока идёт подготовка, держите окно отправки открытым. Затем перетащите его синюю карточку в папку Windows. Оригиналы сохраняются.");page.addView(help);
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
@@ -108,44 +122,68 @@ public final class DropActivity extends Activity {
             report.setText("Разрешите «Поверх других приложений», затем нажмите включение переноса снова.");
             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));return;
         }
-        if(!ConnectionService.edgeFilesReady()) { report.setText("Подключите ноутбук и обновите Windows Galaxy Bridge до 0.7.18.");return; }
+        if(!ConnectionService.edgeFilesReady()) { report.setText("Подключите ноутбук и обновите Windows Galaxy Bridge до 0.7.20.");return; }
         if(edgeOwner!=null && edgeOwner!=this) edgeOwner.stopEdge("Полоса переноса включена в другом окне.");
         EdgeFileDrag.Pointer pointer=ControlService.filePointer();
         int side=pointer==null?0:pointer.side;
         if(!edgeReceiver.install(side)) { report.setText("Не удалось открыть полосу переноса. Проверьте разрешение поверх приложений.");return; }
         edgeEnabled=true;edgeOwner=this;main.removeCallbacks(edgeTick);main.post(edgeTick);
-        report.setText("Полоса включена. Нажмите «Свернуть окно и оставить полосу», затем откройте «Мои файлы» на весь экран. Мышью по Wi-Fi зажмите файл и дождитесь начала перетаскивания. Тяните к краю со стороны ПК и держите кнопку до перехода курсора в Windows. Затем отпустите в нужной папке. Для большого файла подготовка занимает время. Для выключения вернитесь в это окно. Кнопка «Назад» закрывает приёмник и выключает полосу.");
-        Toast.makeText(this,"Полоса переноса включена. Откройте «Мои файлы».",Toast.LENGTH_LONG).show();
+        report.setText("Зона включена. Сверните окно и откройте «Мои файлы» на весь экран. При перетаскивании появится «На ПК» внутри края со стороны ноутбука. Наведите туда файл и задержитесь, держа кнопку до перехода в Windows. Затем отпустите в папке.");
+        Toast.makeText(this,"Зона «На ПК» включена. Сверните окно и откройте «Мои файлы».",Toast.LENGTH_LONG).show();
     }
     private boolean edgeEvent(DragEvent event,EdgeStrip zone) {
         if(!edgeEnabled) return false;
         switch(event.getAction()) {
             case DragEvent.ACTION_DRAG_STARTED:
                 if(busy || edgeDrag.waiting() || ConnectionService.uploading() || !ConnectionService.edgeFilesReady()) return false;
-                edgeDropSeen=false;showDiagnostic("Режим: перенос через край\nDrag started: получено\n");
-                report.setText("Android начал перетаскивание. Ожидаем вход в полосу у края.");return true;
+                edgeDropSeen=false;edgeContact.clear();locationLogged=rejectedLocationLogged=false;edgeTrace="Режим: зона «На ПК»\n";
+                edgeLog("Drag started: получено");
+                if(!edgeReceiver.showTarget(true)) { stopEdge("Не удалось показать зону «На ПК».");return false; }
+                report.setText("Тяните файл в «На ПК» и задержитесь внутри зоны, удерживая кнопку мыши.");return true;
             case DragEvent.ACTION_DRAG_ENTERED:
+                edgeLog("Target entered: ожидаем LOCATION и задержку");return true;
+            case DragEvent.ACTION_DRAG_LOCATION:
+                if(edgeDrag.waiting()) return true;
                 EdgeFileDrag.Pointer pointer=ControlService.filePointer();
-                if(!edgeReceiver.matches(pointer)) return true;
-                pointer=EdgeFileDrag.project(pointer,zone);
-                if(!edgeDrag.begin(pointer,zone,SystemClock.elapsedRealtime())) return true;
-                edgeDropDeadline=SystemClock.elapsedRealtime()+3000;
-                showDiagnostic(dropDiagnostic+"Edge entered: физическая кнопка удерживается; Android touch завершается\n");
-                edgeReceiver.highlight(true);
-                if(!ControlService.dropFileTouch(pointer)) cancelEdge("Не удалось завершить Android-жест. Повторите перетаскивание.");
-                else Toast.makeText(this,"Держите кнопку: готовим перенос на ПК…",Toast.LENGTH_LONG).show();
+                boolean contact=edgeReceiver.matches(pointer) && edgeContact.location(pointer,edgeReceiver.bounds(),event.getX(),event.getY(),SystemClock.elapsedRealtime());
+                edgeReceiver.highlight(contact);
+                if(contact && !locationLogged) {
+                    locationLogged=true;EdgeStrip measured=edgeReceiver.bounds();
+                    edgeLog("Location: внутри зоны "+measured.x+","+measured.y+","+measured.width+","+measured.height+"; capture="+pointer.epoch+"; side="+pointer.side);
+                } else if(!contact && !rejectedLocationLogged) {
+                    rejectedLocationLogged=true;edgeLog("Location: контакт не подтверждён; bounds="+(edgeReceiver.bounds()!=null)+
+                        "; pointer="+(pointer!=null)+"; stroke="+(pointer!=null && pointer.stroke)+"; buttons="+(pointer==null?-1:pointer.buttons));
+                }
+                return true;
+            case DragEvent.ACTION_DRAG_EXITED:
+                edgeContact.clear();edgeReceiver.highlight(false);locationLogged=rejectedLocationLogged=false;
+                edgeLog("Target exited: задержка сброшена");
+                // After touch-up was dispatched, DROP/ENDED decides delivery.
+                // An EXIT notification alone must not hide that pending target.
                 return true;
             case DragEvent.ACTION_DROP:
-                if(!edgeDrag.valid(ControlService.filePointer(),SystemClock.elapsedRealtime())) return false;
+                if(zone==null || !zone.contains(zone.x+event.getX(),zone.y+event.getY()) ||
+                    !edgeDrag.valid(ControlService.filePointer(),SystemClock.elapsedRealtime())) return false;
                 edgeDropSeen=true;
+                edgeLog("Drop: получено внутри зоны");edgeReceiver.status("Проверка");
                 boolean accepted=accept(event);
                 if(!accepted) cancelEdge(report.getText().toString());
                 return accepted;
             case DragEvent.ACTION_DRAG_ENDED:
+                edgeContact.clear();
+                edgeLog("Drag ended: результат Android "+event.getResult());
                 if(edgeDrag.waiting() && !edgeDropSeen) cancelEdge("Файловое приложение не передало файл полосе. Используйте приёмник в разделении экрана.");
+                if(!edgeDrag.waiting()) {
+                    edgeReceiver.showTarget(false);
+                    if(!edgeDropSeen) report.setText("Файл не получен зоной «На ПК». Повторите, задержав файл внутри неё, или используйте приёмник в разделении экрана. Диагностику можно скопировать выше.");
+                }
                 return true;
             default:return true;
         }
+    }
+    private void edgeLog(String line) {
+        if(edgeTrace.length()<4096) edgeTrace+=line+"\n";
+        showDiagnostic(edgeDropSeen?dropDiagnostic+line+"\n":edgeTrace);
     }
     static EdgeFileDrag.Pointer edgePointer(EdgeFileDrag.Pointer pointer) {
         DropActivity owner=edgeOwner;
@@ -157,14 +195,15 @@ public final class DropActivity extends Activity {
         return clamped; // Hold at the measured boundary while the PC stages bytes.
     }
     private void cancelEdge(String reason) {
-        boolean pending=edgeDrag.waiting();edgeDrag.cancel();
-        if(edgeReceiver!=null) edgeReceiver.highlight(false);
+        boolean pending=edgeDrag.waiting();edgeDrag.cancel();edgeContact.clear();
+        if(edgeReceiver!=null) edgeReceiver.showTarget(false);
         if(!edgeBatch.isEmpty()) {
             ConnectionService.cancelFiles();ConnectionService.discardEdgeFiles(edgeBatch);edgeBatch="";
         }
         if(pending && busy) { cancellationText=reason;cancelProbe(); }
         if(!busy) releasePermissions();files.clear();prepare.setEnabled(false);
         report.setText(reason);
+        if(!edgeTrace.isEmpty()) showDiagnostic(dropDiagnostic+"Завершение: "+reason+"\n");
     }
     private void stopEdge(String reason) {
         edgeEnabled=false;if(edgeOwner==this) edgeOwner=null;main.removeCallbacks(edgeTick);
@@ -195,9 +234,9 @@ public final class DropActivity extends Activity {
         ClipData clip=event.getClipData(); // Actual URIs are valid only at ACTION_DROP.
         DropPayload payload=new DropPayload();ArrayList<Uri> incoming;
         try { incoming=payload.extract(clip); }
-        catch(IOException e) { showDiagnostic(payload.diagnostic());report.setText(e.getMessage());return false; }
-        catch(RuntimeException e) { showDiagnostic(payload.diagnostic()+"\nОшибка разбора: "+e.getClass().getSimpleName());report.setText("Файловое приложение передало неподдерживаемые данные. Скопируйте диагностику ниже.");return false; }
-        showDiagnostic(payload.diagnostic());
+        catch(IOException e) { showDiagnostic((edgeDropSeen && edgeDrag.waiting()?edgeTrace:"")+payload.diagnostic());report.setText(e.getMessage());return false; }
+        catch(RuntimeException e) { showDiagnostic((edgeDropSeen && edgeDrag.waiting()?edgeTrace:"")+payload.diagnostic()+"\nОшибка разбора: "+e.getClass().getSimpleName());report.setText("Файловое приложение передало неподдерживаемые данные. Скопируйте диагностику ниже.");return false; }
+        showDiagnostic((edgeDropSeen && edgeDrag.waiting()?edgeTrace:"")+payload.diagnostic());
         try { permissions=requestDragAndDropPermissions(event); }
         catch(RuntimeException e) { report.setText("Не удалось получить временное разрешение на чтение. Повторите сброс.");return false; }
         // A null grant is not proof of denial: an existing grant or a public
@@ -220,7 +259,7 @@ public final class DropActivity extends Activity {
         return true; // Edge mode prepares after validation; the normal receiver waits for its button.
     }
     private void showDiagnostic(String text) {
-        dropDiagnostic="Galaxy Bridge Android 0.7.18\n"+text.replace("Galaxy Bridge Android 0.7.18\n","");
+        dropDiagnostic="Galaxy Bridge Android 0.7.20\n"+text.replace("Galaxy Bridge Android 0.7.20\n","");
         format.setText("Формат сброса:\n"+dropDiagnostic);copy.setEnabled(true);
     }
     private DropProbe.Source open(Uri uri) throws IOException {
@@ -261,6 +300,7 @@ public final class DropActivity extends Activity {
             if(!edgeDrag.valid(ControlService.filePointer(),SystemClock.elapsedRealtime())) { cancelEdge("Кнопка отпущена до завершения проверки. Перетащите файл ещё раз.");return; }
             edgeBatch=UUID.randomUUID().toString().replace("-","");prepare.setEnabled(false);
             if(!ConnectionService.prepareEdgeFiles(files,edgeBatch)) cancelEdge("Не удалось начать подготовку. Проверьте связь и повторите перетаскивание.");
+            else { edgeReceiver.status("Приём…");Toast.makeText(this,"Файл получен. Держите кнопку: готовим перенос на ПК…",Toast.LENGTH_LONG).show(); }
         }
     }
     private void forward() {

@@ -130,15 +130,19 @@ public final class ControlService extends AccessibilityService {
         if(current==null || !current.active || !ready(current)) return null;
         return new EdgeFileDrag.Pointer(current.epoch,current.side,current.width,current.height,current.x,current.y,current.buttons,current.mouseStroke!=null);
     }
-    static boolean dropFileTouch(EdgeFileDrag.Pointer pointer) {
+    static boolean dropFileTouch(EdgeFileDrag.Pointer pointer,EdgeStrip zone) {
         ControlService current=instance;
         if(pointer==null || current==null || !current.active || current.epoch!=pointer.epoch || current.buttons!=1 ||
             current.side!=pointer.side || current.width!=pointer.width || current.height!=pointer.height ||
             pointer.x<0 || pointer.y<0 || pointer.x>=current.width || pointer.y>=current.height ||
-            current.mouseStroke==null || current.currentGesture==null || current.currentGesture.press!=current.mouseStroke) return false;
+            current.mouseStroke==null || current.currentGesture==null || current.currentGesture.press!=current.mouseStroke ||
+            current.touchDispatching || current.touchStroke==null || current.touchEnd==null || zone==null ||
+            !zone.contains(pointer.x,pointer.y) || !zone.contains(current.touchEnd.x,current.touchEnd.y)) return false;
         // End only the injected Android finger. The real PC mouse is still held.
-        current.x=pointer.x;current.y=pointer.y;current.mouseStroke.move(current.x,current.y);
-        current.mouseStroke.release(current.x,current.y,SystemClock.uptimeMillis());
+        // In-flight motion must complete first; queued overshoot must not move up
+        // into Samsung's native app-opening region after contact was confirmed.
+        if(!current.mouseStroke.releaseHere(SystemClock.uptimeMillis())) return false;
+        current.x=current.touchEnd.x;current.y=current.touchEnd.y;
         current.mouseStroke=null;current.advanceTouch();return true;
     }
     private void nextGesture() {
