@@ -1,4 +1,34 @@
-# Validation — Windows 0.7.13 / Android 0.7.15
+# Validation — Windows 0.7.13 / Android 0.7.16
+
+## File URI plus launcher pin-request companion (0.7.16)
+
+Based on 9a92cd053576e8dfd0e80da1b4b95a504ccad442. The user's diagnostic
+identified the exact failing shape: video/mp4 with a direct content URI item
+followed by a URI-less Intent containing only EXTRA_PIN_ITEM_REQUEST of type
+PinItemRequest. 0.7.15 rejected that companion before requesting drag permission
+or reading the actual video.
+
+The parser now skips only the recognized launcher-only companion, requiring
+the actual LauncherApps.PinItemRequest type and no file/text/HTML/data/nested
+clip/other-extra fields. It never accepts the pin request or launches an Intent.
+At least one real content reference is required. File-bearing and unknown
+entries remain checked, and a partly unsupported selection is still rejected.
+The raw clip allowance is 101 items so 100 files plus a companion remain valid;
+the actual reference cap stays at 100. Nested clips use the same rule.
+
+- Companion sources compile for Java 8 against Android API 35/ZXing.
+- 58 payload parser assertions pass on JVM-only data fixtures, including 16 new
+  checks for the observed Samsung shape, companion ordering, companion-only
+  rejection, incorrect request types, additional unknown/file fields, nested
+  clips, and 100-file / 101-actual-file boundaries.
+- Structural source checks pass. The fixture PinItemRequest has no launcher
+  operations and is outside the APK source tree.
+- No Windows, mouse, URI access, LAN upload, signing, or permission changes.
+
+Actual Android permission acquisition, video reading and end-to-end transfer
+still require the repeat device test; the diagnostic alone proves the payload
+shape, not byte access. Full signed APK packaging remains in the manual workflow.
+API reference: https://developer.android.com/reference/android/content/pm/LauncherApps#EXTRA_PIN_ITEM_REQUEST
 
 ## Drop payload parsing and format diagnostics (0.7.15)
 

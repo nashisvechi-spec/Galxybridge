@@ -52,7 +52,7 @@ public final class DropActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(16*getResources().getDisplayMetrics().density);page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom);return i; });
-        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.15");title.setTextSize(22);page.addView(title);
+        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.16");title.setTextSize(22);page.addView(title);
         target=new TextView(this);target.setText("Перетащите файл сюда\nи отпустите кнопку");target.setTextSize(21);target.setGravity(Gravity.CENTER);
         target.setMinHeight(p*9);target.setPadding(p,p,p,p);target.setBackgroundColor(0xffdcecff);page.addView(target);
         target.setOnDragListener((v,event) -> drag(event));
@@ -116,7 +116,7 @@ public final class DropActivity extends Activity {
         return true; // Accepted for asynchronous validation; no upload until the button is pressed.
     }
     private void showDiagnostic(String text) {
-        dropDiagnostic="Galaxy Bridge Android 0.7.15\n"+text.replace("Galaxy Bridge Android 0.7.15\n","");
+        dropDiagnostic="Galaxy Bridge Android 0.7.16\n"+text.replace("Galaxy Bridge Android 0.7.16\n","");
         format.setText("Формат сброса:\n"+dropDiagnostic);copy.setEnabled(true);
     }
     private DropProbe.Source open(Uri uri) throws IOException {

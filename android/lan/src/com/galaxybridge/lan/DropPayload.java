@@ -3,6 +3,7 @@ package com.galaxybridge.lan;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Intent;
+import android.content.pm.LauncherApps;
 import android.net.Uri;
 import android.os.Bundle;
 import java.io.IOException;
@@ -18,15 +19,18 @@ final class DropPayload {
         if(depth>4 || ++visited>512) throw new IOException("Данные сброса слишком сложные. Используйте «Поделиться».");
     }
     ArrayList<Uri> extract(ClipData clip) throws IOException {
-        if(clip==null || clip.getItemCount()<1 || clip.getItemCount()>DropProbe.MAX_FILES) throw new IOException("Файловое приложение должно передать от 1 до 100 элементов.");
+        if(clip==null || clip.getItemCount()<1 || clip.getItemCount()>DropProbe.MAX_FILES+1) throw new IOException("Подборка должна содержать до 100 файлов и служебный элемент.");
         note("Элементов: "+clip.getItemCount());
         ClipDescription description=clip.getDescription();
         if(description!=null) for(int i=0;i<description.getMimeTypeCount() && i<8;i++) note("MIME: "+clean(description.getMimeType(i)));
         for(int i=0;i<clip.getItemCount();i++) {
             note("Элемент "+(i+1)+":");
-            if(!item(clip.getItemAt(i),0)) throw new IOException("В элементе "+(i+1)+" не найдена поддерживаемая ссылка на файл. Ниже показан формат данных.");
+            ClipData.Item entry=clip.getItemAt(i);
+            if(!item(entry,0) && !pinMetadata(entry)) throw new IOException("В элементе "+(i+1)+" не найдена поддерживаемая ссылка на файл. Ниже показан формат данных.");
         }
-        ArrayList<Uri> result=new ArrayList<>();for(String link:links.values()) result.add(Uri.parse(link));return result;
+        ArrayList<Uri> result=new ArrayList<>();for(String link:links.values()) result.add(Uri.parse(link));
+        if(result.isEmpty()) throw new IOException("В сбросе нет файлов: служебный запрос ярлыка не содержит ссылки для чтения.");
+        note("Файлов: "+result.size());return result;
     }
     private boolean item(ClipData.Item item,int depth) throws IOException {
         visit(depth);if(item==null) return false;
@@ -63,10 +67,26 @@ final class DropPayload {
         return matched;
     }
     private boolean clip(ClipData clip,int depth) throws IOException {
-        visit(depth);if(clip.getItemCount()<1 || clip.getItemCount()>DropProbe.MAX_FILES) throw new IOException("Вложенная подборка должна содержать от 1 до 100 элементов.");
+        visit(depth);if(clip.getItemCount()<1 || clip.getItemCount()>DropProbe.MAX_FILES+1) throw new IOException("Вложенная подборка должна содержать до 100 файлов и служебный элемент.");
         note("intent.clipData="+clip.getItemCount());
-        for(int i=0;i<clip.getItemCount();i++) if(!item(clip.getItemAt(i),depth+1)) throw new IOException("Вложенная подборка содержит элемент без доступной ссылки.");
-        return true;
+        boolean matched=false;
+        for(int i=0;i<clip.getItemCount();i++) {
+            ClipData.Item entry=clip.getItemAt(i);
+            if(item(entry,depth+1)) matched=true;
+            else if(!pinMetadata(entry)) throw new IOException("Вложенная подборка содержит элемент без доступной ссылки.");
+        }
+        return matched;
+    }
+    @SuppressWarnings("deprecation")
+    private boolean pinMetadata(ClipData.Item item) {
+        if(item==null || item.getUri()!=null || item.getText()!=null || item.getHtmlText()!=null) return false;
+        Intent intent=item.getIntent();
+        if(intent==null || intent.getData()!=null || intent.getClipData()!=null) return false;
+        Bundle extras=intent.getExtras();
+        if(extras==null || extras.keySet().size()!=1 || !(extras.get(LauncherApps.EXTRA_PIN_ITEM_REQUEST) instanceof LauncherApps.PinItemRequest)) return false;
+        // A launcher-only companion is not a second file. Never call accept()
+        // or launch its Intent; real file references still go through the probe.
+        note("Служебный PIN_ITEM_REQUEST пропущен (запрос ярлыка).");return true;
     }
     private boolean stream(Object value,int depth) throws IOException {
         visit(depth);

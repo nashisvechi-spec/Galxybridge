@@ -2,6 +2,7 @@ package com.galaxybridge.lan;
 
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.pm.LauncherApps;
 import android.net.Uri;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -13,6 +14,7 @@ public final class DropPayloadTest {
     private static final String A="content://files/photo.jpg",B="content://files/movie.mp4";
     private static void check(boolean value,String reason) { if(!value) throw new AssertionError(reason);checks++; }
     private static ClipData clip(ClipData.Item item) { return new ClipData("files",new String[]{"application/octet-stream"},item); }
+    private static ClipData.Item pin() { return new ClipData.Item(new Intent().putExtra(LauncherApps.EXTRA_PIN_ITEM_REQUEST,new LauncherApps.PinItemRequest())); }
     private static void accepts(ClipData data,int count,String reason) throws Exception {
         ArrayList<Uri> files=new DropPayload().extract(data);check(files.size()==count,reason);
         check(files.get(0).toString().equals(A),"original reference preserved");
@@ -34,6 +36,24 @@ public final class DropPayloadTest {
         accepts(clip(new ClipData.Item(new Intent().setData(Uri.parse("content://files/collection")).putExtra(Intent.EXTRA_STREAM,Uri.parse(A)))),1,"stream preferred over ancillary Intent data");
         ClipData duplicate=clip(new ClipData.Item(Uri.parse(A)));duplicate.addItem(new ClipData.Item(Uri.parse(A)));
         accepts(duplicate,1,"duplicate source items remain valid and deduplicate");
+        ClipData video=new ClipData("video",new String[]{"video/mp4"},new ClipData.Item(Uri.parse(B)));video.addItem(pin());
+        DropPayload samsung=new DropPayload();ArrayList<Uri> videoFiles=samsung.extract(video);
+        check(videoFiles.size()==1 && videoFiles.get(0).toString().equals(B),"observed Samsung video plus PinItemRequest yields the video");
+        check(samsung.diagnostic().contains("PIN_ITEM_REQUEST пропущен") && samsung.diagnostic().contains("Файлов: 1"),"diagnostic explains the ignored launcher companion");
+        ClipData pinFirst=clip(pin());pinFirst.addItem(new ClipData.Item(Uri.parse(A)));
+        accepts(pinFirst,1,"launcher companion before file is also ignored");
+        rejects(clip(pin()),"pin request alone is not a file");
+        ClipData malformedPin=clip(new ClipData.Item(Uri.parse(A)));malformedPin.addItem(new ClipData.Item(new Intent().putExtra(LauncherApps.EXTRA_PIN_ITEM_REQUEST,"not a request")));
+        rejects(malformedPin,"key name without genuine PinItemRequest is not ignored");
+        ClipData ambiguousPin=clip(new ClipData.Item(Uri.parse(A)));ambiguousPin.addItem(new ClipData.Item(new Intent().putExtra(LauncherApps.EXTRA_PIN_ITEM_REQUEST,new LauncherApps.PinItemRequest()).putExtra("vendor.files",new String[]{"/storage/a"})));
+        rejects(ambiguousPin,"unknown additional fields are not silently discarded");
+        ClipData pinFilePath=clip(new ClipData.Item(Uri.parse(A)));pinFilePath.addItem(new ClipData.Item(new Intent().putExtra(LauncherApps.EXTRA_PIN_ITEM_REQUEST,new LauncherApps.PinItemRequest()).setData(Uri.parse("file:///storage/a"))));
+        rejects(pinFilePath,"file-bearing intent is not classified as launcher-only");
+        ClipData pinPlainText=clip(new ClipData.Item(Uri.parse(A)));pinPlainText.addItem(new ClipData.Item("not a reference",new Intent().putExtra(LauncherApps.EXTRA_PIN_ITEM_REQUEST,new LauncherApps.PinItemRequest()),null));
+        rejects(pinPlainText,"unsupported text beside a pin request remains an error");
+        ClipData pinAndFile=clip(new ClipData.Item(Uri.parse(A)));pinAndFile.addItem(new ClipData.Item(null,new Intent().putExtra(LauncherApps.EXTRA_PIN_ITEM_REQUEST,new LauncherApps.PinItemRequest()),Uri.parse(B)));
+        accepts(pinAndFile,2,"a real file URI beside launcher metadata is retained");
+        accepts(clip(new ClipData.Item(new Intent().setClipData(pinFirst))),1,"nested file and launcher companion accepted");
         rejects(clip(new ClipData.Item("photo.jpg")),"filename is not a reference");
         rejects(clip(new ClipData.Item("/storage/emulated/0/private/photo.jpg")),"path is not converted into access");
         rejects(clip(new ClipData.Item(Uri.parse("file:///storage/emulated/0/photo.jpg"))),"file scheme not bypassed");
@@ -49,7 +69,10 @@ public final class DropPayloadTest {
         Intent cyclic=new Intent();cyclic.putExtra(Intent.EXTRA_INTENT,cyclic);
         rejects(clip(new ClipData.Item(cyclic)),"cyclic input bounded");
         ClipData many=clip(new ClipData.Item(Uri.parse(A)));for(int i=1;i<100;i++) many.addItem(new ClipData.Item(Uri.parse("content://files/"+i)));
-        accepts(many,100,"100 item boundary");many.addItem(new ClipData.Item(Uri.parse(B)));rejects(many,"raw count boundary");
+        accepts(many,100,"100 item boundary");many.addItem(pin());accepts(many,100,"100 files plus launcher companion allowed");
+        many.addItem(new ClipData.Item(Uri.parse(B)));rejects(many,"raw count still bounded");
+        ClipData tooMany=clip(new ClipData.Item(Uri.parse(A)));for(int i=1;i<=100;i++) tooMany.addItem(new ClipData.Item(Uri.parse("content://files/"+i)));
+        rejects(tooMany,"allowing a companion does not permit 101 actual files");
         DropLinks links=new DropLinks();for(int i=0;i<100;i++) links.add("content://files/"+i);
         try { links.add(A);throw new AssertionError("aggregate count"); } catch(IOException expected) { checks++; }
         check(links.add("content://files/0"),"duplicate at limit allowed");

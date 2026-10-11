@@ -1,8 +1,13 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.13** / Android **0.7.15**. The application starts directly in its LAN
+Windows **0.7.13** / Android **0.7.16**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Android **0.7.16** fixes the observed Samsung drop of a video content URI plus
+a launcher PinItemRequest companion. The launcher-only item is skipped while
+file reading still must pass the existing probe. Unknown file entries remain
+errors; the 100-file limit excludes the companion. Windows 0.7.13 is compatible.
 
 Version **0.7.13** adds a staged phone-to-Windows file drag from the companion’s blue card into Explorer or the desktop. Wi-Fi mouse mode only; originals are preserved. See [setup and device checks](docs/FILE_DRAG.ru.md). The restored 0.7.8 ordinary movement path remains unchanged.
 
