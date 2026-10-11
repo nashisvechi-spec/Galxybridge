@@ -60,6 +60,63 @@ static class LanClipboardTests
         await AutomaticAsync(check);
         await NativeEdgeAsync(check);
         await LegacyMouseAsync(check);
+        await FileDragAsync(check);
+    }
+    private static async Task FileDragAsync(Action<bool, string> check)
+    {
+        Console.WriteLine("LAN files: checking staged drag delivery over actual TLS");
+        await using var peer = await Peer.CreateAsync();
+        string folder = Path.Combine(Path.GetTempPath(), "GalaxyBridge-Drag-Test-" + Guid.NewGuid().ToString("N"));
+        string batch = Guid.NewGuid().ToString("N"), transfer = Guid.NewGuid().ToString("N");
+        async Task<bool> Request(object message)
+        {
+            await peer.Stream.WriteAsync(LanProtocol.Encode(message));
+            using var reply = await peer.NextAsync();
+            check(reply.RootElement.GetProperty("type").GetString() == "uploadAck", "drag request acknowledged over TLS");
+            return reply.RootElement.GetProperty("ok").GetBoolean();
+        }
+        string Id() => Guid.NewGuid().ToString("N");
+        string[] paths = [];
+        try
+        {
+            check(!await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "disabled receiving rejects drag preparation");
+            peer.Session.ConfigureReceive(true, folder);
+            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "enabled receiver prepares drag batch");
+            check(!await Request(new { type = "dragReady", id = Id(), batch }), "partial batch rejected without disconnect");
+            check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "тест.txt", size = 3 }), "tagged file begin accepted");
+            check(await Request(new { type = "uploadChunk", id = Id(), dragBatch = batch, transfer, seq = 0, data = "AQID" }), "tagged chunk accepted");
+            check(await Request(new { type = "uploadEnd", id = Id(), dragBatch = batch, transfer, size = 3,
+                sha256 = Convert.ToHexString(SHA256.HashData(new byte[] { 1, 2, 3 })).ToLowerInvariant() }), "tagged checksum verified");
+            check(await Request(new { type = "dragReady", id = Id(), batch }), "completed drag ready");
+            check(!Directory.Exists(folder), "preparing a drag does not copy into configured receive folder");
+            // No capture: a paired peer still cannot start a desktop drag.
+            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = "GB_EDGE 1 1 1000 2000 0 1000 1" }));
+            using (var rejected = await peer.NextAsync()) check(rejected.RootElement.GetProperty("type").GetString() == "dragResult" &&
+                !rejected.RootElement.GetProperty("ok").GetBoolean(), "desktop drag requires active phone capture");
+            int epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);
+            using var capture = await peer.NextAsync();
+            TaskCompletionSource<PhoneEdgeSample> handed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            peer.Session.FileDragRequested += (id, sample) => { if (id == batch) handed.TrySetResult(sample); };
+            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE {epoch} 1 1000 2000 0 1000 1" }));
+            var sample = await handed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            check(sample.CaptureId == epoch && sample.Buttons == 1, "capture-bound drag event delivered without blocking TLS reader");
+            paths = peer.Session.TakeDragFiles(batch);
+            check(paths.Length == 1 && File.ReadAllBytes(paths[0]).SequenceEqual(new byte[] { 1, 2, 3 }), "staged drag has verified actual file bytes");
+            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE {epoch} 1 1000 2000 0 1000 1" }));
+            using (var replay = await peer.NextAsync()) check(!replay.RootElement.GetProperty("ok").GetBoolean(), "same batch cannot start another drag");
+            // Ordinary, untagged uploads remain compatible with earlier APKs.
+            check(await Request(new { type = "uploadBegin", id = Id(), transfer, name = "normal.txt", size = 0 }), "legacy upload begin still accepted");
+            check(await Request(new { type = "uploadEnd", id = Id(), transfer, size = 0,
+                sha256 = Convert.ToHexString(SHA256.HashData(Array.Empty<byte>())).ToLowerInvariant() }), "legacy upload end still accepted");
+            check(File.Exists(Path.Combine(folder, "normal.txt")), "legacy upload still uses configured folder");
+            peer.Session.Close(); await peer.Session.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+            check(paths.All(File.Exists), "TLS close does not remove files handed to Explorer");
+        }
+        finally
+        {
+            if (paths.Length > 0) LanDragStaging.DeleteOwnedFolder(Path.GetDirectoryName(paths[0])!);
+            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        }
     }
     private static async Task LegacyMouseAsync(Action<bool, string> check)
     {

@@ -130,6 +130,7 @@ catch (InvalidDataException) { arrayRejected = true; }
 Check(arrayRejected, "LAN reject non-object frame");
 
 checks += LanFileReceiverTests.Run();
+checks += LanDragStagingTests.Run();
 foreach (string clipboardValue in new[] { "Текст с телефона 🌍\n", "https://example.com/?q=икона&n=2", "  text\n", new string('Я', 8000) })
 {
     using var clipboardMessage = JsonDocument.Parse(JsonSerializer.Serialize(new { text = clipboardValue }));

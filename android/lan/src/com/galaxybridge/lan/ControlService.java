@@ -97,6 +97,7 @@ public final class ControlService extends AccessibilityService {
         int dx=command.getInt("dx"),dy=command.getInt("dy"),next=command.getInt("buttons"),wheel=command.getInt("wheel");
         if(Math.abs((long)dx)>8192 || Math.abs((long)dy)>8192 || Math.abs((long)wheel)>32 || next<0 || next>7) throw new IllegalArgumentException();
         dimensions(); x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
+        if(SendActivity.remotePointer(x,y,next,buttons,side,epoch,width,height)) { buttons=next;poll();return; }
         if((next&1)!=0 && (buttons&1)==0) {
             mouseStroke=new PointerStroke(ViewConfiguration.get(this).getScaledTouchSlop(),x,y,SystemClock.uptimeMillis());
             enqueue(new PendingGesture(mouseStroke));
@@ -260,6 +261,7 @@ public final class ControlService extends AccessibilityService {
         ConnectionService.send(Wire.message("edge","line",line));
     }
     void reset() {
+        SendActivity.cancelRemoteDrag();
         // Finish even an in-flight continuation on disconnect/lock/re-entry. Android
         // schedules it after the current segment; stale callbacks cannot revive it.
         if(touchStroke!=null && touchStroke.willContinue() && touchEnd!=null) {

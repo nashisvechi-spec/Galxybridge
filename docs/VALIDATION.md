@@ -1,4 +1,32 @@
-# Validation — Windows 0.7.12 / Android 0.7.12
+# Validation — Windows 0.7.13 / Android 0.7.13
+
+## Staged phone-to-Windows file drag (0.7.13)
+
+Based on main 71bae15bc06505fd020c1d583a8655fe58325745 (0.7.12), retaining
+the latest Android file-picker click fix. Adds optional
+`fileDrag=1` capability, private SHA-256-verified staging and Windows OLE FileDrop.
+The companion's own prepared-files card hands off only during Wi-Fi capture.
+No desktop click is injected: QueryContinueDrag follows the physical mouse hook's
+release after the original DOWN was consumed by phone capture. Ordinary 16ms
+mouse batching, movement packets, pointer rendering and edge-return policy remain
+unchanged; only an active prepared file card gets the new drag interception.
+
+- Core/staging/real-TLS tests include checksum verification, duplicate names,
+  batch size/count caps, partial preparation, stale batches/captures, cancellation,
+  released buttons, all four sides, replay rejection, and legacy upload compatibility.
+- All Core/Windows sources compile with Roslyn/C# 12 and .NET 8 reference assemblies
+  (warnings as errors, standard assembly-version unification warning 1701 excluded).
+- All companion sources compile for Java 8 against Android API 35/ZXing using ECJ;
+  only existing deprecation/unused-field/import warnings are reported.
+- 2321 Core assertions and 726 JVM protocol/input assertions pass.
+  Structural source checks pass.
+
+The environment cannot run MSBuild because its process-info APIs are unavailable;
+direct Roslyn compilation and execution of the portable Core suite were used.
+Full signed APK/EXE packaging remains in the existing manual Windows workflow.
+Explorer OLE, physical mouse handoff and Samsung S25 behavior have not been tested
+on devices. See [the device test procedure](FILE_DRAG.ru.md). Originals are preserved;
+this initial version does not drag directly from Samsung My Files or use native HID.
 
 ## File picker click path (0.7.12)
 

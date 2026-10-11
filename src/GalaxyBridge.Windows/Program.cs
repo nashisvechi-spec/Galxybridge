@@ -10,6 +10,7 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        GalaxyBridge.Core.LanDragStaging.PruneCache();
         try { Application.Run(new LanForm(Settings.Load())); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
         { MessageBox.Show("Не удалось запустить Galaxy Bridge: " + ex.Message, "Galaxy Bridge", MessageBoxButtons.OK, MessageBoxIcon.Error); }

@@ -25,7 +25,7 @@ public final class SetupActivity extends Activity {
         LinearLayout page = new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p = (int)(20 * getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b = i.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.12"); title.setTextSize(24); page.addView(title);
+        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.13"); title.setTextSize(24); page.addView(title);
         TextView help = new TextView(this); help.setText("Подключение к ноутбуку без отладки.\n\nНа Windows откройте «Wi-Fi без отладки» и покажите QR. Оба устройства подключите к одной локальной сети.\n\nФайлы сохраняются в Download/GalaxyBridge. Для мыши через Wi-Fi включите специальные возможности. Для системной мыши подключите телефон к ПК в настройках Bluetooth, а для возврата через край разрешите «Поверх других приложений». Приложение получает команды только от сопряжённого ноутбука."); help.setTextSize(16); page.addView(help);
         status = new TextView(this); status.setTextSize(16); page.addView(status);
         button(page,"Сканировать QR", () -> startActivityForResult(new Intent(this, ScanActivity.class), 7));

@@ -45,14 +45,14 @@ internal sealed class LanForm : Form
     private LanSession? session;
     private CancellationTokenSource? transfer;
     private Task? sending;
-    private bool closing, finished, paused, suspended, armed;
+    private bool closing, finished, paused, suspended, armed, fileDragging;
     private long? edgeSince;
     public LanForm(Settings settings)
     {
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.12"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.13"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -94,7 +94,7 @@ internal sealed class LanForm : Form
         mouse.Controls.Add(normalSpeed); page.Controls.Add(mouse);
         page.Controls.Add(new Label { Text = "0,25× — медленнее; 1× — обычная; 4× — быстрее. Настройка сохраняется.", AutoSize = true });
         wheelZoom.Checked = settings.WheelZoomEnabled; page.Controls.Add(wheelZoom);
-        page.Controls.Add(new Label { Text = "PDF и изображения: Ctrl + колёсико — масштабирование вокруг курсора. Включите настройку выше для масштабирования одним колёсиком. Нужен APK 0.7.11; просмотрщик должен поддерживать жест двумя пальцами. Без этой настройки колесо прокручивает страницу.", AutoSize = true, MaximumSize = new Size(660, 0) });
+        page.Controls.Add(new Label { Text = "PDF и изображения: Ctrl + колёсико — масштабирование вокруг курсора. Включите настройку выше для масштабирования одним колёсиком. Нужен APK 0.7.13; просмотрщик должен поддерживать жест двумя пальцами. Без этой настройки колесо прокручивает страницу.", AutoSize = true, MaximumSize = new Size(660, 0) });
         wheelZoom.CheckedChanged += (_, _) =>
         {
             capture?.Stop(); armed = false; settings.WheelZoomEnabled = wheelZoom.Checked;
@@ -319,17 +319,18 @@ internal sealed class LanForm : Form
         candidate.AutomaticClipboardWriter = (text, sequence, ct) => SetPhoneClipboardAsync(candidate, text, ct, sequence);
         candidate.ClipboardStatus += text => Ui(() => { if (session == candidate) clipboardState.Text = text; });
         candidate.NativeEdgeStatus += text => Ui(() => { if (session == candidate) bluetoothState.Text = text; });
+        candidate.FileDragRequested += (batch, sample) => Ui(() => StartPhoneFileDrag(candidate, batch, sample));
         lastPushedSequence = Native.GetClipboardSequenceNumber(); clipboardRetry.Stop();
         candidate.ConfigureClipboard(share.Checked);
-        if (!candidate.AutomaticClipboard) clipboardState.Text = "Для автоматического общего буфера обновите Galaxy Bridge Wi-Fi на телефоне до 0.7.11.";
+        if (!candidate.AutomaticClipboard) clipboardState.Text = "Для автоматического общего буфера обновите Galaxy Bridge Wi-Fi на телефоне до 0.7.13.";
         candidate.Lost += () => Ui(() => { if (session == candidate) { received = candidate.ReceiveState; capture?.Stop(); session = null; armed = false; UpdateState(); } });
         if (!candidate.IsAlive) { session = null; UpdateState(); }
     }
     private void UpdateState()
     {
         route.Update(nativeMouse, session);
-        toggle.Enabled = !closing && !suspended && !paused && sending is null && InputReady && capture is not null;
-        files.Enabled = !closing && !suspended && !paused && sending is null && session?.IsAlive == true;
+        toggle.Enabled = !fileDragging && !closing && !suspended && !paused && sending is null && InputReady && capture is not null;
+        files.Enabled = !fileDragging && !closing && !suspended && !paused && sending is null && session?.IsAlive == true;
         UpdateFiles();
         toggle.Text = capture?.Active == true ? "Вернуть курсор на ПК" : "Управлять телефоном";
         if (qr.Image is not null) return;
@@ -344,6 +345,7 @@ internal sealed class LanForm : Form
     }
     private void Toggle()
     {
+        if (fileDragging) return;
         route.Update(nativeMouse, session);
         if (capture?.Active == true) { capture.Stop(); armed = false; return; }
         if (closing || suspended || paused || sending is not null || !InputReady || capture is null) return;
@@ -384,7 +386,7 @@ internal sealed class LanForm : Form
     }
     private void CheckEdge()
     {
-        if (!edgeEntry.Checked || !toggle.Enabled || capture?.Active == true) { edgeSince = null; return; }
+        if (fileDragging || !edgeEntry.Checked || !toggle.Enabled || capture?.Active == true) { edgeSince = null; return; }
         Point p = Cursor.Position; Screen screen = Screen.FromPoint(p); Rectangle b = screen.Bounds;
         bool at = settings.PhoneSide switch { PhoneSide.Right => p.X >= b.Right - 1, PhoneSide.Left => p.X <= b.Left,
             PhoneSide.Top => p.Y <= b.Top, PhoneSide.Bottom => p.Y >= b.Bottom - 1, _ => false };
@@ -395,6 +397,56 @@ internal sealed class LanForm : Form
         if (Screen.AllScreens.Any(s => s.DeviceName != screen.DeviceName && s.Bounds.Contains(outside))) { edgeSince = null; return; }
         edgeSince ??= Environment.TickCount64;
         if (Environment.TickCount64 - edgeSince.Value >= 350) Toggle();
+    }
+    private void StartPhoneFileDrag(LanSession source, string batch, PhoneEdgeSample sample)
+    {
+        if (fileDragging) return;
+        bool copied = false, ownsDrag = false; string message = "Перетаскивание отменено. Подготовьте файлы заново.";
+        string[] paths = [];
+        QueryContinueDragEventHandler guard = (_, e) =>
+        {
+            if (e.EscapePressed || closing || paused || suspended || session != source || !source.IsAlive || !settings.NativeReceiveEnabled)
+                e.Action = DragAction.Cancel;
+            // Phone capture consumed the original Windows DOWN. Use the real hook's UP,
+            // not Windows' missing button state; never inject a synthetic click on the desktop.
+            else e.Action = capture?.FileDragButtonHeld == true ? DragAction.Continue : DragAction.Drop;
+        };
+        try
+        {
+            if (fileDragging || closing || paused || suspended || session != source || !source.IsAlive || sending is not null ||
+                !settings.NativeReceiveEnabled || capture?.HandoffFileDrag(source, sample) != true)
+            { message = "Зажмите подготовленные файлы мышью и тяните к краю ПК, не отпуская кнопку."; return; }
+            armed = false; edgeSince = null;
+            paths = source.TakeDragFiles(batch);
+            if (capture?.FileDragButtonHeld != true) return;
+            fileDragging = ownsDrag = true; UpdateState();
+            DataObject data = new();
+            data.SetData(DataFormats.FileDrop, paths);
+            // Copy only: originals on the phone are never removed.
+            data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(1)));
+            QueryContinueDrag += guard;
+            receiveState.Text = "Отпустите файлы на рабочем столе или в папке Проводника. Esc — отмена.";
+            copied = DoDragDrop(data, DragDropEffects.Copy) == DragDropEffects.Copy;
+            message = copied ? "Файлы переданы Windows в выбранное место." : "Перетаскивание отменено. Оригиналы на телефоне сохранены.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ExternalException or InvalidOperationException)
+        { message = "Перетаскивание не выполнено. Подготовьте файлы заново."; }
+        finally
+        {
+            QueryContinueDrag -= guard;
+            capture?.EndFileDrag();
+            if (ownsDrag) { fileDragging = false; armed = false; if (!closing) UpdateState(); }
+            if (paths.Length > 0 && !copied) LanDragStaging.DeleteOwnedFolder(Path.GetDirectoryName(paths[0])!);
+            // Explorer can copy asynchronously after OLE returns. Successful sources remain in the
+            // private cache for 24 hours and are removed on a later start, never during shell copying.
+            if (paths.Length > 0 && copied)
+            {
+                try { Directory.SetLastWriteTimeUtc(Path.GetDirectoryName(paths[0])!, DateTime.UtcNow); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+            transferState.Text = message; receiveState.Text = message;
+            source.Post(new { type = "dragResult", batch, ok = copied, error = copied ? "" : message });
+        }
     }
     private async Task ChooseFilesAsync()
     {

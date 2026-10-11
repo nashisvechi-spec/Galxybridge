@@ -27,6 +27,8 @@ internal sealed class InputCapture : IDisposable
     private double pendingX, pendingY, sensitivity = 1;
     public bool Active => phone is not null;
     public bool KeyHeld => physical.Count != 0;
+    public bool FileDragButtonHeld { get; private set; }
+    public void EndFileDrag() => FileDragButtonHeld = false;
     public Func<string?>? PasteText { get; set; }
     public event Action? ToggleRequested;
     public event Action? DesktopChanged;
@@ -99,6 +101,17 @@ internal sealed class InputCapture : IDisposable
 
     public void ResetPhysicalState() => physical.Clear();
 
+    public bool HandoffFileDrag(LanSession source, PhoneEdgeSample sample)
+    {
+        if (phone != source ||
+            !FileDragHandoff.CanReturn(sample, returnEpoch, phoneSide, buttons, KeyHeld, lastDx, lastDy, Environment.TickCount64)) return false;
+        (int x, int y) = EdgeReturnPolicy.LaptopPosition(laptopBounds, phoneSide, sample);
+        returnPoint = new Point(x, y);
+        FileDragButtonHeld = true;
+        Stop(); // Releases Android inputs; the physical left button stays down for Windows OLE.
+        return true;
+    }
+
     private nint KeyboardHook(int code, nint wParam, nint lParam)
     {
         if (code < 0) return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
@@ -149,6 +162,11 @@ internal sealed class InputCapture : IDisposable
 
     private nint MouseHook(int code, nint wParam, nint lParam)
     {
+        if (code >= 0 && FileDragButtonHeld && (int)wParam is 0x202 or 0x204 or 0x207 or 0x20B)
+        {
+            Native.MouseData physicalData = Marshal.PtrToStructure<Native.MouseData>(lParam);
+            if ((physicalData.Flags & 1) == 0) FileDragButtonHeld = false;
+        }
         if (code < 0 || !Active) return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
         try
         {
