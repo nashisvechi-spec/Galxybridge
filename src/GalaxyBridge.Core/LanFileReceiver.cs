@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace GalaxyBridge.Core;
 
-public sealed record LanReceiveState(bool Busy, long Bytes, long Size, string Message, string? SavedPath = null);
+public sealed record LanReceiveState(bool Busy, long Bytes, long Size, string Message, string? SavedPath = null, string? OperationId = null);
 
 // The paired sender supplies a name, never a destination path. Only our own temporary file is removed.
 public sealed class LanFileReceiver : IDisposable
@@ -38,7 +38,7 @@ public sealed class LanFileReceiver : IDisposable
                 output = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None);
                 temporary = pending; transfer = incoming; expected = size; received = 0; sequence = 0;
                 hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256); lastChunk = Environment.TickCount64;
-                state = new(true, 0, size, "Приём: " + name); return "";
+                state = new(true, 0, size, "Приём: " + name, OperationId: Guid.NewGuid().ToString("N")); return "";
             }
             if (incoming != transfer || output is null) throw new IOException("Передача уже отменена или не начата.");
             try
@@ -52,7 +52,7 @@ public sealed class LanFileReceiver : IDisposable
                     if (data.Length is < 1 or > LanProtocol.ChunkSize || received + data.Length > LanProtocol.MaxFile ||
                         (expected >= 0 && received + data.Length > expected)) throw new InvalidDataException("Invalid chunk size.");
                     output.Write(data); hash!.AppendData(data); received += data.Length; sequence++;
-                    state = new(true, received, expected, "Приём: " + name); return "";
+                    state = new(true, received, expected, "Приём: " + name, OperationId: state.OperationId); return "";
                 }
                 if (type != "uploadEnd") throw new InvalidDataException("Unknown upload command.");
                 string checksum = command.GetProperty("sha256").GetString() ?? "";
@@ -63,7 +63,7 @@ public sealed class LanFileReceiver : IDisposable
                 output.Flush(true); output.Dispose(); output = null;
                 string saved = Publish();
                 temporary = null; transfer = null; hash.Dispose(); hash = null;
-                state = new(false, received, received, "Получен: " + Path.GetFileName(saved), saved);
+                state = new(false, received, received, "Получен: " + Path.GetFileName(saved), saved, state.OperationId);
                 return Path.GetFileName(saved);
             }
             catch { CancelCore("Приём остановлен. Незавершённый файл удалён."); throw; }
@@ -98,6 +98,7 @@ public sealed class LanFileReceiver : IDisposable
     { lock (gate) if (temporary is not null) CancelCore(message); }
     private void CancelCore(string message)
     {
+        string? stoppedTransfer = state.OperationId;
         try { output?.Dispose(); } catch (IOException) { }
         output = null; hash?.Dispose(); hash = null; transfer = null;
         string? pending = temporary; temporary = null;
@@ -107,7 +108,7 @@ public sealed class LanFileReceiver : IDisposable
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             { message = "Приём остановлен. Не удалось удалить временный файл: " + Path.GetFileName(pending); }
         }
-        state = new(false, received, expected, message);
+        state = new(false, received, expected, message, OperationId: stoppedTransfer);
     }
     public void Dispose() => Cancel("Связь прервалась. Незавершённая передача не повторяется.");
 }

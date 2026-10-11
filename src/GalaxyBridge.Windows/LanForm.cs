@@ -41,6 +41,7 @@ internal sealed class LanForm : Form
     private LanReceiveState received = new(false, 0, 0, "Файлы с телефона ещё не получены.");
     private readonly NumericUpDown speed = new() { Minimum = .25M, Maximum = 4M, Increment = .05M, DecimalPlaces = 2, Width = 90 };
     private FileDropForm? fileWindow;
+    private readonly ReceiveProgressWindow receiveProgress = new(() => new ShellReceiveProgress());
     private InputCapture? capture;
     private LanSession? session;
     private CancellationTokenSource? transfer;
@@ -52,7 +53,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.18"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.19"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -481,6 +482,10 @@ internal sealed class LanForm : Form
     }
     private void UpdateFiles()
     {
+        LanSession? current = !closing && !paused && !suspended && !fileDragging && session?.IsAlive == true ? session : null;
+        var progressSnapshot = current?.ReceiveProgress;
+        receiveProgress.Update(current, progressSnapshot?.State ?? received, Handle,
+            id => current?.CancelReceive(id, progressSnapshot?.Staging == true));
         if (session is not null) received = session.ReceiveState;
         string progress = received.Busy ? (received.Size > 0 ? $" · {received.Bytes * 100 / received.Size}%" : "") + $" · {received.Bytes / 1048576d:N1} МБ" : "";
         string text = received.Message + progress;
@@ -555,7 +560,7 @@ internal sealed class LanForm : Form
     private async void CloseAsync(object? sender, FormClosingEventArgs e)
     {
         if (finished) return; e.Cancel = true; if (closing) return; closing = true;
-        timer.Stop(); clipboardRetry.Stop(); capture?.Stop(); transfer?.Cancel(); lifetime.Cancel();
+        timer.Stop(); clipboardRetry.Stop(); receiveProgress.Dispose(); capture?.Stop(); transfer?.Cancel(); lifetime.Cancel();
         UpdateState(); fileWindow?.Close(); fileWindow = null;
         SystemEvents.SessionSwitch -= SessionChanged; SystemEvents.PowerModeChanged -= PowerChanged;
         if (sending is not null) await sending;

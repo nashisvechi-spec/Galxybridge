@@ -1,4 +1,40 @@
-# Validation — Windows / Android 0.7.18
+# Validation — Windows 0.7.19 / Android 0.7.18
+
+## Native receive progress dialog (Windows 0.7.19)
+
+Based on 9d2327388323e31036b9ba9290305e05a6743b9c. Windows receipt and drag
+preparation now use the actual Shell IOperationsProgressDialog / CLSID_ProgressDialog.
+The modeless dialog lives on the WinForms STA thread, separately from the TLS
+reader that writes and hashes bytes. UpdateProgress reports received bytes;
+unknown/zero sizes remain indeterminate until verified publish. No extra local
+copy is introduced. A collection is presented per file, not as an invented
+aggregate size. Very short operations can finish between UI polls.
+
+The receiver generates a new local operation ID even when the paired sender
+reuses its wire transfer ID. Progress snapshots retain this ID through publish,
+failure and cancellation. Native Cancel is checked against the current session,
+operation and ordinary/staging channel under the receive lock; stale dialogs
+cannot cancel the next upload. Staging cancellation destroys the unhanded batch.
+Dialogs close on termination, session change, pause/lock, or application exit.
+COM failure suppresses repeated retries for that operation but does not cancel
+the transfer; the existing label remains available. No Pause button is enabled.
+Native source-location text is omitted because Android URIs are not Shell paths.
+Explorer retains ownership of the final OLE copy and its progress after a drop.
+
+- Windows production sources compile with direct Roslyn/.NET 8 references.
+- 2,399 portable Core assertions pass. Tests cover dialog lifecycle through a fake backend, actual byte
+  values, unknown sizes, successful versus failed completion, cancellation,
+  back-to-back files, reconnect, COM failure and disposal. Real TLS integration
+  checks host-owned IDs and scoped cancellation for normal and staged uploads.
+- Android sources, manifest, version and wire messages are unchanged (0.7.18).
+- Rendering, native Cancel and Shell COM activation still require the manual
+  Windows build and a real Windows 10/11 test; a Linux fake is not that test.
+
+Microsoft API references:
+https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ioperationsprogressdialog
+https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ioperationsprogressdialog-startprogressdialog
+GUIDs and vtable verified against Microsoft's win32metadata ShlGuid.h and
+ShObjIdl_core.h SDK headers.
 
 ## Explicit global file-edge transfer (0.7.18)
 

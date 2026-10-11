@@ -23,8 +23,11 @@ internal sealed class LanSession : IPhoneControl
     private readonly object receiveGate = new();
     private readonly LanFileReceiver incoming = new();
     private readonly LanDragStaging dragFiles = new();
+    private bool progressStaging;
     public event Action<string, PhoneEdgeSample>? FileDragRequested;
     public LanReceiveState ReceiveState { get { lock (receiveGate) return dragFiles.State.Busy ? dragFiles.State : incoming.State; } }
+    public (LanReceiveState State, bool Staging) ReceiveProgress
+    { get { lock (receiveGate) return (progressStaging ? dragFiles.State : incoming.State, progressStaging); } }
     public string[] TakeDragFiles(string batch) { lock (receiveGate) { if (!receiving.Enabled) throw new IOException("Приём файлов выключен."); return dragFiles.Take(batch); } }
     public void ConfigureReceive(bool enabled, string folder)
     {
@@ -35,6 +38,16 @@ internal sealed class LanSession : IPhoneControl
         }
     }
     public void CancelReceive() { lock (receiveGate) { incoming.Cancel(); dragFiles.Dispose(); } }
+    public void CancelReceive(string transfer, bool staging)
+    {
+        lock (receiveGate)
+        {
+            LanReceiveState active = staging ? dragFiles.State : incoming.State;
+            // A delayed Cancel from an old dialog must not affect the next file.
+            if (!active.Busy || active.OperationId != transfer) return;
+            if (staging) dragFiles.Dispose(); else incoming.Cancel();
+        }
+    }
     private PhoneEdgeSample? edge;
     private volatile bool touchActive;
     private byte touchModifiers;
@@ -373,6 +386,8 @@ internal sealed class LanSession : IPhoneControl
                                     saved = dragFiles.Accept(root);
                                 }
                                 else saved = incoming.Accept(root, options.Folder, options.Enabled);
+                                if (root.GetProperty("type").GetString() == "uploadBegin")
+                                    progressStaging = root.TryGetProperty("dragBatch", out _);
                             }
                             Post(new { type = "uploadAck", id = request, ok = true, name = saved });
                         }

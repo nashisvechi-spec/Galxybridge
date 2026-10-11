@@ -93,6 +93,19 @@ or the behavior of Android applications. See VALIDATION.md for this revision.
 - Check Ctrl+Alt+F12 and BLE HID behavior still work. An old APK retains legacy
   scrolling/edge return and must not receive enhanced touch commands.
 
+## Native receive progress (Windows 0.7.19)
+
+- Update Windows; APK 0.7.18 remains compatible. Enable receipt and send a large
+  video normally, then prepare it for dragging. A native modeless Shell dialog
+  should show received bytes; unknown-size files must not claim a percentage.
+- Cancel midway in the Shell dialog: no incomplete file may be published;
+  staged batches must not become ready. Repeat receipt immediately afterward.
+- Receive several files, including two identical names. Test unknown and empty
+  files, phone abort, lost connection, lock, pause, disabled receipt and exit.
+- After an Explorer drop, verify Explorer's own final-copy progress and confirm
+  the phone originals remain intact. Quick operations may not show a dialog.
+- Portable fake-backend lifecycle checks do not verify native COM/UI rendering.
+
 ## Experimental direct file edge (0.7.18)
 
 - Update Windows and APK together. Enable file receipt on Windows and explicitly

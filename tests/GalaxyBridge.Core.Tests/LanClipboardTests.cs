@@ -84,6 +84,11 @@ static class LanClipboardTests
             check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "enabled receiver prepares drag batch");
             check(!await Request(new { type = "dragReady", id = Id(), batch }), "partial batch rejected without disconnect");
             check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "тест.txt", size = 3 }), "tagged file begin accepted");
+            var stagedProgress = peer.Session.ReceiveProgress;
+            check(stagedProgress.Staging && stagedProgress.State.Busy && LanProtocol.Identifier(stagedProgress.State.OperationId ?? ""), "staging exposes a host-owned operation identity for native progress");
+            peer.Session.CancelReceive(stagedProgress.State.OperationId!, false);
+            peer.Session.CancelReceive(Id(), true);
+            check(peer.Session.ReceiveProgress.State.Busy, "wrong channel or stale operation cannot cancel staging");
             check(await Request(new { type = "uploadChunk", id = Id(), dragBatch = batch, transfer, seq = 0, data = "AQID" }), "tagged chunk accepted");
             check(await Request(new { type = "uploadEnd", id = Id(), dragBatch = batch, transfer, size = 3,
                 sha256 = Convert.ToHexString(SHA256.HashData(new byte[] { 1, 2, 3 })).ToLowerInvariant() }), "tagged checksum verified");
@@ -112,9 +117,26 @@ static class LanClipboardTests
             using (var replay = await peer.NextAsync()) check(!replay.RootElement.GetProperty("ok").GetBoolean(), "same batch cannot start another drag");
             // Ordinary, untagged uploads remain compatible with earlier APKs.
             check(await Request(new { type = "uploadBegin", id = Id(), transfer, name = "normal.txt", size = 0 }), "legacy upload begin still accepted");
+            var normalProgress = peer.Session.ReceiveProgress;
+            check(!normalProgress.Staging && normalProgress.State.OperationId != stagedProgress.State.OperationId, "ordinary upload using same wire transfer gets a separate progress operation");
+            peer.Session.CancelReceive(stagedProgress.State.OperationId!, false);
+            check(peer.Session.ReceiveProgress.State.Busy, "old native dialog cannot cancel the next upload");
             check(await Request(new { type = "uploadEnd", id = Id(), transfer, size = 0,
                 sha256 = Convert.ToHexString(SHA256.HashData(Array.Empty<byte>())).ToLowerInvariant() }), "legacy upload end still accepted");
             check(File.Exists(Path.Combine(folder, "normal.txt")), "legacy upload still uses configured folder");
+            check(peer.Session.ReceiveProgress.State is { Busy: false, SavedPath: not null } completed &&
+                completed.OperationId == normalProgress.State.OperationId, "verified publish retains operation identity for native completion");
+            check(await Request(new { type = "uploadBegin", id = Id(), transfer, name = "cancel.txt", size = 3 }), "ordinary cancellable receive started");
+            string cancelledOperation = peer.Session.ReceiveProgress.State.OperationId!;
+            peer.Session.CancelReceive(cancelledOperation, false);
+            check(peer.Session.ReceiveProgress.State is { Busy: false, SavedPath: null } stopped && stopped.OperationId == cancelledOperation,
+                "native cancellation stops exactly the active normal receive");
+            check(!await Request(new { type = "uploadChunk", id = Id(), transfer, seq = 0, data = "AQID" }) &&
+                !File.Exists(Path.Combine(folder, "cancel.txt")), "cancelled receive rejects subsequent chunks and publishes nothing");
+            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }) &&
+                await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "cancel-drag.txt", size = 3 }), "cancellable staging started");
+            peer.Session.CancelReceive(peer.Session.ReceiveProgress.State.OperationId!, true);
+            check(!peer.Session.ReceiveProgress.State.Busy && !await Request(new { type = "dragReady", id = Id(), batch }), "native cancellation discards staging and prevents delayed desktop handoff");
             peer.Session.Close(); await peer.Session.Completion.WaitAsync(TimeSpan.FromSeconds(5));
             check(paths.All(File.Exists), "TLS close does not remove files handed to Explorer");
         }

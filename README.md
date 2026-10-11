@@ -1,8 +1,17 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.18** / Android **0.7.18**. The application starts directly in its LAN
+Windows **0.7.19** / Android **0.7.18**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Windows **0.7.19** shows the native Shell operations progress dialog during
+phone-to-PC receipt and drag preparation. Progress follows actual received bytes;
+unknown-size files use an indeterminate bar. Cancel targets only the active
+host-owned operation, so an old dialog cannot cancel the next file. The dialog
+closes on verified completion, cancellation or disconnect. Shell UI failure
+leaves receipt running with the existing in-app status. Android 0.7.18 remains
+compatible; the wire format is unchanged. Native dialog rendering still needs
+a Windows device check. After an Explorer drop, Explorer owns the final copy.
 
 Version **0.7.18** adds an explicitly enabled experimental My Files-to-Explorer
 edge transfer. The phone exposes a thin overlay drop target; when an actual
