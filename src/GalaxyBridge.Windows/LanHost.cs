@@ -103,11 +103,12 @@ internal sealed class LanHost : IAsyncDisposable
                     else if (kind != "hello" || !identity.Authorize(phone, root.GetProperty("token").GetString() ?? ""))
                     { State?.Invoke("Сохранённое сопряжение не принято. Повторите сопряжение новым QR."); return; }
                     bool autoClipboard = root.TryGetProperty("clipboardSync", out var capability) && capability.ValueKind == System.Text.Json.JsonValueKind.Number && capability.TryGetInt32(out int syncVersion) && syncVersion == 1;
-                    session = new LanSession(client, stream, name, autoClipboard);
+                    bool nativeEdge = root.TryGetProperty("nativeEdge", out var edgeCapability) && edgeCapability.ValueKind == System.Text.Json.JsonValueKind.Number && edgeCapability.TryGetInt32(out int edgeVersion) && edgeVersion == 1;
+                    session = new LanSession(client, stream, name, autoClipboard, nativeEdge);
                     session.ConfigureReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder);
                     current?.Close(); current = session;
                 }
-                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0 }), hello.Token);
+                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0 }), hello.Token);
                 // Explicit acknowledgement proves the phone saved its new token before any control session is accepted.
                 stage = "подтверждение телефона";
                 State?.Invoke("Ожидаем подтверждение сохранения сопряжения…");

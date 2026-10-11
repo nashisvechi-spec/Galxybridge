@@ -35,6 +35,7 @@ public final class ConnectionService extends Service {
     private final AtomicBoolean uploadBusy=new AtomicBoolean();
     private final AtomicBoolean clipboardBusy=new AtomicBoolean();
     private ClipboardBridge clipboardBridge;
+    private NativeEdgeBridge nativeEdge;
     private volatile AtomicBoolean uploadCancel=new AtomicBoolean();
     private final AtomicReference<InputStream> uploadInput=new AtomicReference<>();
     private ConnectivityManager manager;
@@ -43,7 +44,7 @@ public final class ConnectionService extends Service {
         @Override public void onAvailable(Network network) { synchronized(ConnectionService.this) { ConnectionService.this.notifyAll(); } }
     };
     private SharedPreferences prefs() { return getSharedPreferences("lan",MODE_PRIVATE); }
-    @Override public void onCreate() { super.onCreate(); instance=this; manager=getSystemService(ConnectivityManager.class);clipboardBridge=new ClipboardBridge(this,main); }
+    @Override public void onCreate() { super.onCreate(); instance=this; manager=getSystemService(ConnectivityManager.class);clipboardBridge=new ClipboardBridge(this,main);nativeEdge=new NativeEdgeBridge(this,main); }
     @Override public int onStartCommand(Intent intent,int flags,int startId) {
         if(intent!=null && "stop".equals(intent.getAction())) { prefs().edit().putBoolean("enabled",false).commit(); stopSelf(); return START_NOT_STICKY; }
         if(intent==null && !prefs().getBoolean("enabled",false)) { stopSelf(); return START_NOT_STICKY; }
@@ -154,7 +155,7 @@ public final class ConnectionService extends Service {
                 SharedPreferences prefs=prefs(); String device=prefs.getString("device","");
                 if(!Wire.hex(device,32)) { device=UUID.randomUUID().toString().replace("-",""); if(!prefs.edit().putString("device",device).commit()) throw new IOException("Cannot save identity"); }
                 DataInputStream in=new DataInputStream(socket.getInputStream()); DataOutputStream out=new DataOutputStream(socket.getOutputStream());
-                JSONObject hello=Wire.message(pair!=null?"pair":"hello","v",1,"device",device,"name",Build.MODEL,"clipboardSync",1);
+                JSONObject hello=Wire.message(pair!=null?"pair":"hello","v",1,"device",device,"name",Build.MODEL,"clipboardSync",1,"nativeEdge",1);
                 if(pair!=null) hello.put("ticket",pair.ticket); else hello.put("token",prefs.getString("token",""));
                 Wire.write(out,hello); JSONObject welcome=Wire.read(in);
                 if(!"welcome".equals(welcome.getString("type")) || welcome.getInt("v")!=1 || !hostId.equals(welcome.getString("host"))) throw new IOException("Invalid welcome");
@@ -164,7 +165,7 @@ public final class ConnectionService extends Service {
                     pending.compareAndSet(pair,null);
                 } else prefs.edit().putString("host",host).apply();
                 Wire.write(out,Wire.message("saved"));
-                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1); link=active; connecting=null;
+                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); link=active; connecting=null;
                 main.post(() -> { if(link==active) { clipboardBridge.configure(false);clipboardStatus=active.automaticClipboard?"Общий буфер готов после включения на ПК.":"Для автоматического буфера обновите Windows до 0.7.3."; } });
                 status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();
                 try(Downloads downloads=new Downloads(this)) {
@@ -172,7 +173,7 @@ public final class ConnectionService extends Service {
                         JSONObject command=Wire.read(in); String type=command.getString("type");
                         if("ping".equals(type)) {
                             active.send(Wire.message("pong","ready",ControlService.ready(this)));
-                            main.post(() -> { if(link==active && ControlService.instance!=null) ControlService.instance.poll(); });
+                            main.post(() -> { if(link==active) { nativeEdge.heartbeat();if(ControlService.instance!=null) ControlService.instance.poll(); } });
                         } else if("uploadAck".equals(type) || "clipboardAck".equals(type)) {
                             active.ack(command);
                         } else if(Arrays.asList("clipboardConfig","clipboardGet","clipboardSet").contains(type)) {
@@ -180,6 +181,19 @@ public final class ConnectionService extends Service {
                             main.post(() -> {
                                 try { if(link==active && !active.closed.get()) acceptClipboard(active,command); }
                                 finally { active.commands.release(); }
+                            });
+                        } else if("nativeCapture".equals(type)) {
+                            if(!active.nativeEdge || !active.commands.tryAcquire()) throw new IOException("Invalid native mouse command");
+                            main.post(() -> {
+                                try {
+                                    if(link==active && !active.closed.get()) {
+                                        if(command.optBoolean("active",false)) {
+                                            active.clipboardRequest=null;clipboardBridge.cancel();
+                                            if(ControlService.instance!=null) ControlService.instance.reset();
+                                        }
+                                        nativeEdge.accept(command,message -> { if(link==active && !active.closed.get()) active.send(message); });
+                                    }
+                                } finally { active.commands.release(); }
                             });
                         } else if(type.startsWith("file")) {
                             String request=command.getString("id"); if(!Wire.hex(request,32)) throw new IOException("Invalid request");
@@ -191,6 +205,7 @@ public final class ConnectionService extends Service {
                             main.post(() -> {
                                 try {
                                     if(link==active && !active.closed.get()) {
+                                        if("release".equals(type) || ("capture".equals(type) && command.optBoolean("active",false))) nativeEdge.stop();
                                         if("capture".equals(type) && command.optBoolean("active",false)) { active.clipboardRequest=null;clipboardBridge.cancel(); }
                                         if(ControlService.instance!=null) ControlService.instance.accept(command);
                                     }
@@ -201,7 +216,7 @@ public final class ConnectionService extends Service {
                     }
                 } finally {
                     if(link==active) link=null; active.close(); active.writer.join(1000);
-                    main.post(() -> { if(ConnectionService.instance==this && link==null) { clipboardBridge.configure(false);if(ControlService.instance!=null) ControlService.instance.reset(); } });
+                    main.post(() -> { if(ConnectionService.instance==this && link==null) { nativeEdge.stop();clipboardBridge.configure(false);if(ControlService.instance!=null) ControlService.instance.reset(); } });
                 }
             }
         } finally { try { raw.close(); } catch(IOException ignored){} if(connecting==raw) connecting=null; }
@@ -335,11 +350,11 @@ public final class ConnectionService extends Service {
         final Socket socket; final DataOutputStream out;
         final AtomicBoolean closed=new AtomicBoolean(); final ArrayBlockingQueue<JSONObject> queue=new ArrayBlockingQueue<>(256);
         final Semaphore commands=new Semaphore(128); final Thread writer;
-        final boolean upload,clipboard,automaticClipboard;
+        final boolean upload,clipboard,automaticClipboard,nativeEdge;
         volatile boolean clipboardEnabled;
         volatile String clipboardRequest;
         final ConcurrentHashMap<String,CompletableFuture<JSONObject>> replies=new ConcurrentHashMap<>();
-        Link(Socket socket,DataOutputStream out,boolean upload,boolean clipboard,boolean automaticClipboard) { this.socket=socket; this.out=out; this.upload=upload;this.clipboard=clipboard;this.automaticClipboard=automaticClipboard; writer=new Thread(() -> {
+        Link(Socket socket,DataOutputStream out,boolean upload,boolean clipboard,boolean automaticClipboard,boolean nativeEdge) { this.socket=socket; this.out=out; this.upload=upload;this.clipboard=clipboard;this.automaticClipboard=automaticClipboard;this.nativeEdge=nativeEdge; writer=new Thread(() -> {
             try { while(!closed.get()) Wire.write(out,queue.take()); } catch(Exception e) { close(); }
         },"GalaxyBridge-send"); }
         void send(JSONObject message) { if(!closed.get() && !queue.offer(message)) close(); }
@@ -374,7 +389,7 @@ public final class ConnectionService extends Service {
     }
     @Override public void onDestroy() {
         running=false; cancelUpload(); pending.set(null); drop(); synchronized(this) { notifyAll(); }
-        clipboardBridge.configure(false);
+        nativeEdge.close();clipboardBridge.configure(false);
         try { manager.unregisterNetworkCallback(changes); } catch(RuntimeException ignored){}
         if(ControlService.instance!=null) ControlService.instance.reset();
         status="Подключение выключено."; if(instance==this) instance=null; stopForeground(STOP_FOREGROUND_REMOVE); super.onDestroy();

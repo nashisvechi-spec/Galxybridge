@@ -33,6 +33,15 @@ internal sealed class LanSession : IPhoneControl
     }
     public void CancelReceive() => incoming.Cancel();
     private PhoneEdgeSample? edge;
+    private readonly object nativeEdgeGate = new();
+    private PhoneEdgeSample? nativeEdge;
+    private int nativeEpoch;
+    private long nativeSequence;
+    private volatile bool nativeEdgeReady;
+    public bool NativeEdgeSupported { get; }
+    public PhoneEdgeSample? LatestNativeEdge { get { lock (nativeEdgeGate) return nativeEdgeReady && IsAlive && nativeEdge is { } sample &&
+        sample.CaptureId == nativeEpoch ? sample : null; } }
+    public event Action<string>? NativeEdgeStatus;
     private int epoch, closed;
     private volatile bool inputReady;
     private volatile bool clipboardEnabled;
@@ -79,8 +88,8 @@ internal sealed class LanSession : IPhoneControl
     public PhoneEdgeSample? LatestEdge => Volatile.Read(ref edge);
     public Task Completion { get; private set; } = Task.CompletedTask;
     public event Action? Lost;
-    public LanSession(TcpClient socket, SslStream stream, string name, bool automaticClipboard = false)
-    { this.socket = socket; this.stream = stream; Name = name; AutomaticClipboard = automaticClipboard; }
+    public LanSession(TcpClient socket, SslStream stream, string name, bool automaticClipboard = false, bool nativeEdgeSupported = false)
+    { this.socket = socket; this.stream = stream; Name = name; AutomaticClipboard = automaticClipboard; NativeEdgeSupported = nativeEdgeSupported; }
     public void Start() => Completion = RunAsync();
     public bool Post(object value)
     {
@@ -100,6 +109,29 @@ internal sealed class LanSession : IPhoneControl
         EndNativeControl();
     }
     private long controlGeneration;
+    public int BeginNativeEdgeReturn(PhoneSide side)
+    {
+        if (!NativeEdgeSupported || !IsAlive)
+        {
+            NativeEdgeStatus?.Invoke("Для возврата Bluetooth-мыши через край подключите Wi-Fi и обновите APK до 0.7.8.");
+            return 0;
+        }
+        lock (nativeEdgeGate)
+        {
+            nativeEdgeReady = false; nativeEdge = null; nativeSequence = 0;
+            int id = checked(++epoch); nativeEpoch = id;
+            return Post(new { type = "nativeCapture", active = true, epoch = id, side = (int)side }) ? id : 0;
+        }
+    }
+    public void EndNativeEdgeReturn(int id)
+    {
+        lock (nativeEdgeGate)
+        {
+            if (id == 0 || nativeEpoch != id) return;
+            nativeEpoch = 0; nativeEdgeReady = false; nativeEdge = null;
+            Post(new { type = "nativeCapture", active = false, epoch = id, side = 0 });
+        }
+    }
     public long BeginNativeControl() { CancelClipboardPull(); controlling = true; return Interlocked.Increment(ref controlGeneration); }
     public void EndNativeControl(long? expectedGeneration = null)
     {
@@ -226,6 +258,39 @@ internal sealed class LanSession : IPhoneControl
                     case "edge":
                         if (PhoneEdgeSample.TryParse(root.GetProperty("line").GetString() ?? "", Environment.TickCount64, out PhoneEdgeSample? sample))
                             Volatile.Write(ref edge, sample);
+                        break;
+                    case "nativeCaptureAck":
+                        if (!NativeEdgeSupported) throw new InvalidDataException("Native edge capability was not negotiated.");
+                        bool ready;
+                        lock (nativeEdgeGate)
+                        {
+                            if (nativeEpoch == 0 || root.GetProperty("epoch").GetInt32() != nativeEpoch) break;
+                            ready = nativeEdgeReady = root.GetProperty("ready").GetBoolean();
+                            if (!ready) nativeEdge = null;
+                        }
+                        NativeEdgeStatus?.Invoke(ready ? "Возврат системной мыши через край телефона включён." :
+                            root.TryGetProperty("reason", out var reason) && reason.GetString() == "permission" ?
+                            "На телефоне разрешите Galaxy Bridge «Поверх других приложений». Возврат: Ctrl + Alt + F12." :
+                            "Край телефона недоступен. Разблокируйте экран и повторите вход. Возврат: Ctrl + Alt + F12.");
+                        break;
+                    case "nativeEdge":
+                        if (!NativeEdgeSupported) throw new InvalidDataException("Native edge capability was not negotiated.");
+                        lock (nativeEdgeGate)
+                        {
+                            if (PhoneEdgeSample.TryParse(root.GetProperty("line").GetString() ?? "", Environment.TickCount64, out var nativeSample) &&
+                                nativeSample!.Zone is not null && nativeSample.CaptureId == nativeEpoch &&
+                                nativeSample.Sequence > nativeSequence)
+                            { nativeSequence = nativeSample.Sequence; nativeEdge = nativeSample; }
+                        }
+                        break;
+                    case "nativeEdgeLeave":
+                        if (!NativeEdgeSupported) throw new InvalidDataException("Native edge capability was not negotiated.");
+                        lock (nativeEdgeGate)
+                        {
+                            long leaveSequence = root.GetProperty("sequence").GetInt64();
+                            if (nativeEpoch > 0 && root.GetProperty("epoch").GetInt32() == nativeEpoch && leaveSequence > nativeSequence)
+                            { nativeSequence = leaveSequence; nativeEdge = null; }
+                        }
                         break;
                     case "ack":
                         string id = root.GetProperty("id").GetString() ?? "";

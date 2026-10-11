@@ -61,7 +61,7 @@ foreach (string bad in new[] {
     "GB_EDGE 1 1 0 2400 0 10 0", "GB_EDGE 1 1 1080 2400 -1 10 0",
     "GB_EDGE 1 1 1080 2400 1080 10 0", "GB_EDGE 1 1 1080 2400 0 2400 0",
     "GB_EDGE 1 1 1080 2400 NaN 10 0", "GB_EDGE 1 1 1080 2400 Infinity 10 0",
-    "GB_EDGE 1 1 1080 2400 0,5 10 0", "GB_EDGE 1 1 1080 2400 0 10 8",
+    "GB_EDGE 1 1 1080 2400 0,5 10 0", "GB_EDGE 1 1 1080 2400 0 10 32",
     "GB_EDGE 1 1 1080 2400 0 10", "GB_EDGE_READY 1" })
     Check(!PhoneEdgeSample.TryParse(bad, 1000, out _), "reject malformed edge sample " + bad);
 

@@ -19,7 +19,7 @@ public sealed record PhoneEdgeSample(int CaptureId, long Sequence, int Width, in
             !int.TryParse(p[4], out int height) || height is < 16 or > 20000 ||
             !double.TryParse(p[5], NumberStyles.Float, CultureInfo.InvariantCulture, out double x) || !double.IsFinite(x) ||
             !double.TryParse(p[6], NumberStyles.Float, CultureInfo.InvariantCulture, out double y) || !double.IsFinite(y) ||
-            !byte.TryParse(p[7], out byte buttons) || buttons > 7 || x < 0 || y < 0 || x >= width || y >= height)
+            !byte.TryParse(p[7], out byte buttons) || buttons > 31 || x < 0 || y < 0 || x >= width || y >= height)
             return false;
         DesktopBounds? zone = null;
         if (withZone)

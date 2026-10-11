@@ -58,6 +58,61 @@ static class LanClipboardTests
         await peer.Session.Completion.WaitAsync(TimeSpan.FromSeconds(5));
         check(!peer.Session.IsAlive, "malformed clipboard request closes protocol session");
         await AutomaticAsync(check);
+        await NativeEdgeAsync(check);
+    }
+    private static async Task NativeEdgeAsync(Action<bool, string> check)
+    {
+        await using (var old = await Peer.CreateAsync())
+        {
+            check(old.Session.BeginNativeEdgeReturn(PhoneSide.Right) == 0, "old APK never receives unsupported native mouse commands");
+            old.Session.Paste("compatibility marker");
+            using var marker = await old.NextAsync();
+            check(marker.RootElement.GetProperty("type").GetString() == "text", "native edge capability preserves the old LAN protocol");
+        }
+        await using var peer = await Peer.CreateAsync(nativeEdge: true);
+        int epoch = peer.Session.BeginNativeEdgeReturn(PhoneSide.Right);
+        using (var start = await peer.NextAsync())
+            check(start.RootElement.GetProperty("type").GetString() == "nativeCapture" &&
+                start.RootElement.GetProperty("epoch").GetInt32() == epoch && start.RootElement.GetProperty("side").GetInt32() == 0,
+                "Bluetooth mouse capture arms the phone edge independently of touch accessibility");
+        async Task Deliver(object message)
+        {
+            await peer.Stream.WriteAsync(LanProtocol.Encode(message));
+            // An acknowledged request is a barrier in the same ordered TLS stream.
+            using var barrier = await peer.RequestAsync(Guid.NewGuid().ToString("N"), "barrier");
+        }
+        await Deliver(new { type = "nativeEdge", line = $"GB_EDGE2 {epoch} 1 1080 2400 20.5 1200 0 20 80 1 2220" });
+        check(peer.Session.LatestNativeEdge is null, "hover cannot return the cursor before the phone confirms its overlay");
+        await Deliver(new { type = "nativeCaptureAck", epoch, ready = true });
+        check(peer.Session.LatestNativeEdge?.Sequence == 1, "real hover coordinates become available after the overlay acknowledgement");
+        await Deliver(new { type = "nativeEdge", line = $"GB_EDGE2 {epoch} 3 1080 2400 20.5 1200 16 20 80 1 2220" });
+        check(peer.Session.LatestNativeEdge?.Buttons == 16, "fifth system mouse button is preserved in edge feedback");
+        check(!EdgeReturnPolicy.CanReturn(peer.Session.LatestNativeEdge!, epoch, PhoneSide.Right, -1, 0, 0, false,
+            Environment.TickCount64 - 1000, Environment.TickCount64, Environment.TickCount64), "held fifth button prevents edge return");
+        await Deliver(new { type = "nativeEdge", line = $"GB_EDGE2 {epoch} 2 1080 2400 20.5 1200 0 20 80 1 2220" });
+        await Deliver(new { type = "nativeEdge", line = $"GB_EDGE2 {epoch + 1} 100 1080 2400 20.5 1200 0 20 80 1 2220" });
+        await Deliver(new { type = "nativeEdge", line = $"GB_EDGE2 {epoch} 4 1080 2400 20.5 1200 0 20 80 1080 2220" });
+        check(peer.Session.LatestNativeEdge?.Sequence == 3, "out-of-order, different capture and invalid geometry do not replace hover feedback");
+        await Deliver(new { type = "nativeEdgeLeave", epoch, sequence = 5 });
+        check(peer.Session.LatestNativeEdge is null, "leaving the edge immediately invalidates its hover position");
+        await Deliver(new { type = "nativeEdge", line = $"GB_EDGE2 {epoch} 4 1080 2400 20.5 1200 0 20 80 1 2220" });
+        check(peer.Session.LatestNativeEdge is null, "old hover cannot reappear after a newer edge exit");
+        await Deliver(new { type = "nativeEdge", line = $"GB_EDGE2 {epoch} 6 1080 2400 20.5 1200 0 20 80 1 2220" });
+        check(peer.Session.LatestNativeEdge?.Sequence == 6, "a new real hover can rearm edge return");
+        peer.Session.EndNativeEdgeReturn(epoch);
+        using (var stop = await peer.NextAsync())
+            check(stop.RootElement.GetProperty("type").GetString() == "nativeCapture" && !stop.RootElement.GetProperty("active").GetBoolean(), "return removes the phone mouse edge");
+        await Deliver(new { type = "nativeCaptureAck", epoch, ready = true });
+        await Deliver(new { type = "nativeEdge", line = $"GB_EDGE2 {epoch} 10 1080 2400 20.5 1200 0 20 80 1 2220" });
+        check(peer.Session.LatestNativeEdge is null, "late phone feedback cannot revive an ended capture");
+        int next = peer.Session.BeginNativeEdgeReturn(PhoneSide.Bottom);
+        using var restart = await peer.NextAsync();
+        peer.Session.EndNativeEdgeReturn(epoch);
+        await Deliver(new { type = "nativeCaptureAck", epoch = next, ready = true });
+        await Deliver(new { type = "nativeEdge", line = $"GB_EDGE2 {next} 1 1080 2400 500 80.5 0 20 80 1030 1" });
+        check(peer.Session.LatestNativeEdge?.CaptureId == next, "late stop cannot end the next native capture");
+        await Deliver(new { type = "nativeCaptureAck", epoch = next, ready = false, reason = "permission" });
+        check(peer.Session.LatestNativeEdge is null && peer.Session.IsAlive, "revoked overlay permission disables return without disconnecting Bluetooth or LAN");
     }
     private static async Task AutomaticAsync(Action<bool, string> check)
     {
@@ -208,7 +263,7 @@ static class LanClipboardTests
         public LanSession Session { get; }
         private Peer(TcpClient client, SslStream stream, LanSession session, X509Certificate2 certificate, SslStream server)
         { this.client = client; Stream = stream; Session = session; this.certificate = certificate; this.server = server; }
-        public static async Task<Peer> CreateAsync(bool automatic = false)
+        public static async Task<Peer> CreateAsync(bool automatic = false, bool nativeEdge = false)
         {
             using RSA rsa = RSA.Create(2048);
             CertificateRequest request = new("CN=Galaxy Bridge clipboard test", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -237,7 +292,7 @@ static class LanClipboardTests
                     ct => server.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate, EnabledSslProtocols = SslProtocols.Tls12 }, ct),
                     ct => stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost", EnabledSslProtocols = SslProtocols.Tls12 }, ct),
                     deadline.Token, () => { accepted.Dispose(); client.Dispose(); });
-                LanSession session = new(accepted, server, "clipboard test", automatic); session.Start();
+                LanSession session = new(accepted, server, "clipboard test", automatic, nativeEdge); session.Start();
                 return new(client, stream, session, certificate, server);
             }
             catch (Exception ex)

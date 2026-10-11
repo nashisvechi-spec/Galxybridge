@@ -51,7 +51,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.6"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.7"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -84,7 +84,7 @@ internal sealed class LanForm : Form
             if (bluetoothPeers.SelectedItem is BluetoothPeer peer) nativeMouse?.Select(peer.Id);
             UpdateState();
         };
-        page.Controls.Add(new Label { Text = "Без подходящего Bluetooth-адаптера используйте сенсорное управление через Wi-Fi. Для Bluetooth возврат на ПК — Ctrl + Alt + F12; автоматический возврат через край телефона пока недоступен.", AutoSize = true, MaximumSize = new Size(660, 0) });
+        page.Controls.Add(new Label { Text = "Без подходящего Bluetooth-адаптера используйте сенсорное управление через Wi-Fi. Для возврата Bluetooth-мыши через край подключите тот же телефон по QR и разрешите «Поверх других приложений». Быстрый возврат — Ctrl + Alt + F12.", AutoSize = true, MaximumSize = new Size(660, 0) });
         speed.Value = (decimal)settings.Sensitivity;
         FlowLayoutPanel mouse = new() { AutoSize = true };
         mouse.Controls.Add(new Label { Text = "Скорость курсора телефона ×", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
@@ -308,9 +308,10 @@ internal sealed class LanForm : Form
         candidate.ClipboardReadAllowed = () => !closing && !paused && !suspended && candidate == session;
         candidate.AutomaticClipboardWriter = (text, sequence, ct) => SetPhoneClipboardAsync(candidate, text, ct, sequence);
         candidate.ClipboardStatus += text => Ui(() => { if (session == candidate) clipboardState.Text = text; });
+        candidate.NativeEdgeStatus += text => Ui(() => { if (session == candidate) bluetoothState.Text = text; });
         lastPushedSequence = Native.GetClipboardSequenceNumber(); clipboardRetry.Stop();
         candidate.ConfigureClipboard(share.Checked);
-        if (!candidate.AutomaticClipboard) clipboardState.Text = "Для автоматического общего буфера обновите Galaxy Bridge Wi-Fi на телефоне до 0.7.6.";
+        if (!candidate.AutomaticClipboard) clipboardState.Text = "Для автоматического общего буфера обновите Galaxy Bridge Wi-Fi на телефоне до 0.7.8.";
         candidate.Lost += () => Ui(() => { if (session == candidate) { received = candidate.ReceiveState; capture?.Stop(); session = null; armed = false; UpdateState(); } });
         if (!candidate.IsAlive) { session = null; UpdateState(); }
     }

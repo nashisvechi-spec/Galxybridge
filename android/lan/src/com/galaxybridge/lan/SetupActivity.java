@@ -25,13 +25,13 @@ public final class SetupActivity extends Activity {
         LinearLayout page = new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p = (int)(20 * getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b = i.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.7"); title.setTextSize(24); page.addView(title);
-        TextView help = new TextView(this); help.setText("Подключение к ноутбуку без отладки.\n\nНа Windows откройте «Wi-Fi без отладки» и покажите QR. Оба устройства подключите к одной локальной сети.\n\nФайлы сохраняются в Download/GalaxyBridge. Для мыши и ввода текста включите службу в специальных возможностях. Приложение получает команды только от сопряжённого ноутбука."); help.setTextSize(16); page.addView(help);
+        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.8"); title.setTextSize(24); page.addView(title);
+        TextView help = new TextView(this); help.setText("Подключение к ноутбуку без отладки.\n\nНа Windows откройте «Wi-Fi без отладки» и покажите QR. Оба устройства подключите к одной локальной сети.\n\nФайлы сохраняются в Download/GalaxyBridge. Для мыши через Wi-Fi включите специальные возможности. Для системной мыши подключите телефон к ПК в настройках Bluetooth, а для возврата через край разрешите «Поверх других приложений». Приложение получает команды только от сопряжённого ноутбука."); help.setTextSize(16); page.addView(help);
         status = new TextView(this); status.setTextSize(16); page.addView(status);
         button(page,"Сканировать QR", () -> startActivityForResult(new Intent(this, ScanActivity.class), 7));
         button(page,"Отправить на ПК", () -> startActivity(new Intent(this,SendActivity.class)));
         TextView clipboardHelp=new TextView(this);clipboardHelp.setText("Общий буфер: включите его на ПК и один раз разрешите «Поверх других приложений». Копируйте на ПК — текст появится в буфере телефона. Скопировав на телефоне, верните курсор на ПК и вставляйте. Отдельная отправка не нужна.");page.addView(clipboardHelp);
-        button(page,"Разрешить общий буфер", () -> startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()))));
+        button(page,"Разрешить переходы мыши и общий буфер", () -> startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()))));
         button(page,"Включить специальные возможности", () -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         button(page,"Разрешить уведомления", () -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 8));
         button(page,"Подключиться к сохранённому ноутбуку", () -> startForegroundService(new Intent(this, ConnectionService.class)));

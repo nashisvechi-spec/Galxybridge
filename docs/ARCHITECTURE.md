@@ -36,8 +36,19 @@ BleHidSession publishes encrypted HID GATT services through Windows WinRT. It
 requires Bluetooth LE Peripheral support. Hid defines standard keyboard and
 five-button mouse reports including vertical and horizontal wheels. HidReportPump
 orders keyboard and mouse input and releases the old destination when cancelled.
-Only the selected subscribed phone receives reports. BLE has no implemented
-phone-edge return; Ctrl+Alt+F12 remains the return mechanism.
+Only the selected subscribed phone receives reports. NativeEdgeBridge observes
+SOURCE_MOUSE hover on a one-physical-pixel TYPE_APPLICATION_OVERLAY strip facing
+the desktop. It does not inject input or display an app cursor. Both peers negotiate
+nativeEdge:1; old companions retain HID with hotkey return. nativeCapture carries
+an epoch and side; nativeCaptureAck confirms overlay readiness. GB_EDGE2 feedback
+contains actual window bounds and mouse coordinates; nativeEdgeLeave clears hover.
+Windows rejects stale epochs/sequences and blocks return during buttons/modifiers,
+inward motion, warm-up, stale feedback or missing outward motion. Rotation rebuilds
+the strip and invalidates old geometry. Permission revocation, lock, loss of heartbeats,
+release and disconnect remove it. Ctrl+Alt+F12 remains available without LAN.
+BLE stops the edge immediately at return, then waits for neutral HID reports before
+requesting clipboard text. A generation guard prevents a delayed read from ending
+a later capture.
 
 LAN carries files and clipboard when BLE supplies mouse/keyboard input. Bluetooth
 pairing and LAN authorization are independent; users must connect the same phone

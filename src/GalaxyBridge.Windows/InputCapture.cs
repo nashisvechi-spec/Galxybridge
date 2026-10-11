@@ -20,6 +20,7 @@ internal sealed class InputCapture : IDisposable
     private byte buttons => mouse.Buttons;
     private bool cursorHidden;
     private int returnEpoch, lastDx, lastDy;
+    private long inwardEdgeSequence;
     private long enteredAt, motionAt;
     private PhoneSide phoneSide;
     private DesktopBounds laptopBounds;
@@ -57,7 +58,7 @@ internal sealed class InputCapture : IDisposable
         returnPoint = Cursor.Position; returnWindow = Native.GetForegroundWindow();
         Rectangle bounds = Screen.FromPoint(returnPoint).Bounds;
         laptopBounds = new(bounds.X, bounds.Y, bounds.Width, bounds.Height); phoneSide = side;
-        enteredAt = Environment.TickCount64; motionAt = 0; lastDx = lastDy = 0;
+        enteredAt = Environment.TickCount64; motionAt = 0; lastDx = lastDy = 0; inwardEdgeSequence = 0;
         anchor = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
         sensitivity = Math.Clamp(speed, .25, 4);
         pendingX = pendingY = 0; mouse.Clear(); keyboard.Clear(); pastedKeys.Clear();
@@ -178,12 +179,22 @@ internal sealed class InputCapture : IDisposable
         int dx = (int)Math.Truncate(pendingX), dy = (int)Math.Truncate(pendingY);
         pendingX -= dx; pendingY -= dy;
         if (dx != 0 || dy != 0)
-        { lastDx = dx; lastDy = dy; motionAt = Environment.TickCount64; phone?.Mouse(buttons, dx, dy); }
+        {
+            // Moving back into the phone invalidates the old boundary sample.
+            // A rapid direction reversal must wait for a new phone observation.
+            bool inward = phoneSide switch
+            {
+                PhoneSide.Right => dx > 0, PhoneSide.Left => dx < 0,
+                PhoneSide.Top => dy < 0, PhoneSide.Bottom => dy > 0, _ => false
+            };
+            if (inward && phone?.LatestEdge is { } observed) inwardEdgeSequence = Math.Max(inwardEdgeSequence, observed.Sequence);
+            lastDx = dx; lastDy = dy; motionAt = Environment.TickCount64; phone?.Mouse(buttons, dx, dy);
+        }
     }
     private void CheckReturn()
     {
         PhoneEdgeSample? sample = phone?.LatestEdge;
-        if (sample is null || returnEpoch < 1 || !EdgeReturnPolicy.CanReturn(sample, returnEpoch, phoneSide,
+        if (sample is null || sample.Sequence <= inwardEdgeSequence || returnEpoch < 1 || !EdgeReturnPolicy.CanReturn(sample, returnEpoch, phoneSide,
             lastDx, lastDy, buttons, KeyHeld, enteredAt, motionAt, Environment.TickCount64)) return;
         (int x, int y) = EdgeReturnPolicy.LaptopPosition(laptopBounds, phoneSide, sample);
         returnPoint = new Point(x, y); returnEpoch = 0;

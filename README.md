@@ -1,6 +1,6 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.6** / Android **0.7.7**. The application starts directly in its LAN
+Windows **0.7.7** / Android **0.7.8**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -15,7 +15,9 @@ Only this edition is maintained; the previous debugging edition remains in Git h
   HID readiness. Route changes release the previous capture; enter control again
   to use the new transport. Actual HP/S25 compatibility still requires device testing.
 - Files and text clipboard use the paired LAN TLS connection in either mode.
-  Ctrl+Alt+F12 switches control. BLE return through the phone edge is not implemented.
+  Ctrl+Alt+F12 switches control. BLE return through the phone edge uses actual
+  Android mouse hover over a one-pixel overlay and the authorized LAN connection.
+  It requires APK 0.7.8 and overlay permission; it does not require accessibility.
 
 Builds run **manually only**: Actions → Build Windows portable → Run workflow.
 Two artifacts are published: **GalaxyBridge-win10-x64** and **GalaxyBridgeLan-android**.
@@ -25,7 +27,7 @@ No external connection backend or separate edge companion is bundled.
 Install the APK, put both devices on the same LAN, show a new QR in Windows,
 scan it inside Galaxy Bridge Wi-Fi and confirm the laptop. Permit Windows TCP
 38271 / UDP 38272. Enable Android accessibility for touch control and overlay
-permission for the shared text clipboard. Existing LAN pairing and settings survive
+permission for Bluetooth edge return and the shared text clipboard. Existing LAN pairing and settings survive
 Windows updates; APK updates require the existing persistent signing key.
 
 [Русская инструкция](README.ru.md) · [LAN guide](docs/NATIVE_WIFI.ru.md) ·

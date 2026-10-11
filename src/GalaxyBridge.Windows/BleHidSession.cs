@@ -25,7 +25,8 @@ internal sealed class BleHidSession : IPhoneControl, IAsyncDisposable
     public event Action<string>? Fault;
     public bool IsAlive => !disposed && !suspended && !pump.Failed && selected is { } id && Peers().Contains(id);
     public bool InputReady => IsAlive;
-    public PhoneEdgeSample? LatestEdge => null; // No fake position from LAN touch coordinates.
+    private int nativeEdgeEpoch;
+    public PhoneEdgeSample? LatestEdge => nativeEdgeEpoch > 0 ? captureClipboard?.LatestNativeEdge : null;
     private static Guid Uuid(ushort value) => new($"0000{value:x4}-0000-1000-8000-00805f9b34fb");
     public BleHidSession()
     {
@@ -197,11 +198,13 @@ internal sealed class BleHidSession : IPhoneControl, IAsyncDisposable
     {
         if (!IsAlive || selected is null) throw new InvalidOperationException("Сначала подключите телефон в настройках Bluetooth.");
         captureGeneration++;captureClipboard = ClipboardSession;clipboardGeneration = captureClipboard?.BeginNativeControl() ?? 0;
-        pump.Begin(selected);return 0;
+        pump.Begin(selected);
+        nativeEdgeEpoch = captureClipboard?.BeginNativeEdgeReturn(side) ?? 0;return nativeEdgeEpoch;
     }
     public void EndEdgeReturn()
     {
         long generation = ++captureGeneration;LanSession? source = captureClipboard;
+        source?.EndNativeEdgeReturn(nativeEdgeEpoch);nativeEdgeEpoch = 0;
         pump.Stop();_ = ReadClipboardAfterReleaseAsync(generation, source, clipboardGeneration);
     }
     private async Task ReadClipboardAfterReleaseAsync(long generation, LanSession? source, long clipboardEpoch)
