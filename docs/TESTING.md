@@ -71,3 +71,20 @@ scrcpy-server, backend directory or GalaxyBridgeEdge.apk.
 
 Passing source/transport tests does not establish real Bluetooth compatibility
 or the behavior of Android applications. See VALIDATION.md for this revision.
+
+## Wi-Fi wheel zoom and delayed edge return (0.7.9)
+
+- Update both Windows and the APK; preserve the existing APK signing identity.
+- In a PDF viewer supporting pinch, move the pointer over the page. Plain wheel
+  should scroll; Ctrl+wheel should zoom in/out. Test both Ctrl keys and release
+  Ctrl: the next plain wheel should scroll. Enable the saved wheel zoom option
+  and verify plain wheel zoom, restart persistence, and scroll after disabling it.
+- Turn the wheel rapidly in both directions: the LAN link should stay alive and
+  the pending gestures should remain bounded. Test portrait and landscape, and
+  pointer positions near every screen edge.
+- Test all four phone sides. Move outward toward the PC and stop at the boundary:
+  return should work with delayed Wi-Fi feedback. Immediately reverse direction:
+  old feedback must not return the cursor. Drag, scroll or hold a key at the edge:
+  capture must remain on the phone. Re-enter: old-capture feedback must not return.
+- Check Ctrl+Alt+F12 and BLE HID behavior still work. An old APK retains legacy
+  scrolling/edge return and must not receive enhanced touch commands.

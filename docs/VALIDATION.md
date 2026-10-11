@@ -1,4 +1,32 @@
-# Validation — Windows 0.7.8 / Android 0.7.8
+# Validation — Windows 0.7.9 / Android 0.7.9
+
+## Wi-Fi edge return and PDF zoom (0.7.9)
+
+Touch input capability negotiates sequenced mouse packets, zoom intent and phone
+acknowledgements. Phone-confirmed outward movement survives a short stop at the
+boundary or delayed Wi-Fi feedback. Reversals, wheel input and button presses
+invalidate old feedback before the phone receives them. Captures and feedback
+are monotonic; modern touch feedback without outward intent cannot fall back to
+an old host direction. Native Bluetooth hover continues using its existing policy.
+
+Ctrl+wheel sends a two-finger zoom gesture. The persisted wheel zoom setting
+makes plain wheel zoom; its default remains scrolling. Pending identical wheel
+modes coalesce and opposite pending ticks cancel. Scroll geometry preserves a
+nonzero swipe near the top/bottom boundaries. Viewer pinch support is required.
+
+- 725 portable JVM assertions passed, including 31 outward-intent checks and
+  437 zoom/scroll geometry and accumulation checks.
+- All Android LAN sources compiled against API 35 / ZXing using ECJ Java 8;
+  only existing deprecation/unused warnings remain.
+- 2271 Core assertions passed, including actual TLS delivery of left/right Ctrl
+  zoom, plain-wheel mode, old-APK compatibility, capture/input ordering, immediate
+  reversal/scroll/press invalidation and late-feedback rejection.
+- All Core and Windows C# sources compiled with warnings as errors.
+- 48,336 structural source-package checks passed; workflow remains manual-only.
+- Full Windows/Android packaging and physical PDF/edge interaction remain for
+  the manual Windows workflow and device checklist in TESTING.md.
+
+## Earlier revisions
 
 The previous revision added Bluetooth system-mouse edge return using actual Android hover,
 a one-physical-pixel overlay and the paired LAN TLS connection. It preserves

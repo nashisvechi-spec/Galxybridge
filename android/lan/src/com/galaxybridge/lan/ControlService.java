@@ -21,7 +21,8 @@ public final class ControlService extends AccessibilityService {
     private WindowManager.LayoutParams pointerLayout;
     private boolean active, gestureBusy, pointerAttached;
     private int epoch, width, height, buttons, side;
-    private long sequence, generation;
+    private long sequence, generation, inputSequence;
+    private final PointerEdgeIntent edgeIntent=new PointerEdgeIntent();
     private float x,y;
     private PointerStroke mouseStroke;
     private PendingGesture currentGesture;
@@ -44,6 +45,7 @@ public final class ControlService extends AccessibilityService {
     @Override public void onDestroy() { ConnectionService.cancelClipboardRead();reset(); if(instance==this) instance=null; super.onDestroy(); }
     private void dimensions() {
         DisplayMetrics metrics=new DisplayMetrics(); windows.getDefaultDisplay().getRealMetrics(metrics);
+        if(width!=metrics.widthPixels || height!=metrics.heightPixels) edgeIntent.clear();
         width=metrics.widthPixels; height=metrics.heightPixels;
         x=Math.max(0,Math.min(width-1,x)); y=Math.max(0,Math.min(height-1,y));
     }
@@ -95,7 +97,13 @@ public final class ControlService extends AccessibilityService {
     private void mouse(JSONObject command) throws Exception {
         int dx=command.getInt("dx"),dy=command.getInt("dy"),next=command.getInt("buttons"),wheel=command.getInt("wheel");
         if(Math.abs((long)dx)>8192 || Math.abs((long)dy)>8192 || Math.abs((long)wheel)>32 || next<0 || next>7) throw new IllegalArgumentException();
+        if(command.has("seq")) {
+            long nextSequence=command.getLong("seq");
+            if(nextSequence<=inputSequence) throw new IllegalArgumentException();
+            inputSequence=nextSequence;
+        }
         dimensions(); x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
+        edgeIntent.move(side,width,height,x,y,dx,dy,next,wheel,SystemClock.uptimeMillis());
         if((next&1)!=0 && (buttons&1)==0) {
             mouseStroke=new PointerStroke(ViewConfiguration.get(this).getScaledTouchSlop(),x,y,SystemClock.uptimeMillis());
             enqueue(new PendingGesture(mouseStroke));
@@ -108,14 +116,13 @@ public final class ControlService extends AccessibilityService {
         if((next&2)!=0 && (buttons&2)==0) performGlobalAction(GLOBAL_ACTION_BACK);
         if((next&4)!=0 && (buttons&4)==0) performGlobalAction(GLOBAL_ACTION_RECENTS);
         if(wheel!=0 && next==0) {
-            float top=Math.max(48,height*.2f),bottom=Math.min(height-48,height*.8f),start=Math.max(top,Math.min(bottom,y));
-            float end=Math.max(top,Math.min(bottom,start+(wheel>0?1:-1)*Math.min(height*.35f,Math.abs(wheel)*100)));
-            Path swipe=new Path();swipe.moveTo(Math.max(24,Math.min(width-24,x)),start);swipe.lineTo(Math.max(24,Math.min(width-24,x)),end);gesture(swipe,180);
+            WheelGesture wheelGesture=new WheelGesture(width,height,x,y,wheel,command.optBoolean("zoom",false));
+            PendingGesture tail=gestures.peekLast();
+            if(tail!=null && tail.wheel!=null && tail.wheel.merge(wheelGesture)) {
+                if(tail.wheel.steps==0) gestures.removeLast();
+            } else enqueue(new PendingGesture(wheelGesture));
         }
         buttons=next; poll();
-    }
-    private void gesture(Path path,long duration) {
-        enqueue(new PendingGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path,0,duration)).build()));
     }
     private void enqueue(PendingGesture pending) {
         if(gestures.size()>=8) { reset(); ConnectionService.disconnect(); return; }
@@ -146,9 +153,23 @@ public final class ControlService extends AccessibilityService {
                     else { touchReady=true;advanceTouch(); }
                     return;
                 }
-                if(!dispatchGesture(pending.description,callback,handler)) finishGesture(pending);
+                if(!dispatchGesture(wheelDescription(pending.wheel),callback,handler)) finishGesture(pending);
             } catch(RuntimeException e) { reset(); ConnectionService.disconnect(); }
         },32);
+    }
+    private GestureDescription wheelDescription(WheelGesture wheel) {
+        GestureDescription.Builder builder=new GestureDescription.Builder();
+        if(wheel.zoom) {
+            float[] p=wheel.pinch();
+            for(int sign:new int[] {-1,1}) {
+                Path path=new Path();path.moveTo(p[0]+sign*p[2],p[1]);path.lineTo(p[0]+sign*p[3],p[1]);
+                builder.addStroke(new GestureDescription.StrokeDescription(path,0,180));
+            }
+        } else {
+            float[] p=wheel.swipe();Path path=new Path();path.moveTo(p[0],p[1]);path.lineTo(p[0],p[2]);
+            builder.addStroke(new GestureDescription.StrokeDescription(path,0,180));
+        }
+        return builder.build();
     }
     private void advanceTouch() {
         if(!active || !touchReady || touchDispatching || currentGesture==null || currentGesture.press==null) return;
@@ -192,10 +213,10 @@ public final class ControlService extends AccessibilityService {
         finally { if(root!=null) root.recycle(); }
     }
     private static final class PendingGesture {
-        final GestureDescription description;
         final PointerStroke press;
-        PendingGesture(GestureDescription description) { this.description=description;press=null; }
-        PendingGesture(PointerStroke press) { this.press=press;description=null; }
+        final WheelGesture wheel;
+        PendingGesture(WheelGesture wheel) { this.wheel=wheel;press=null; }
+        PendingGesture(PointerStroke press) { this.press=press;wheel=null; }
     }
     private static final class ClickNode implements ClickTarget.Node {
         private final AccessibilityNodeInfo node;
@@ -234,7 +255,7 @@ public final class ControlService extends AccessibilityService {
         if(!active) return; if(!ready(this)) { reset(); ConnectionService.send(Wire.message("pong","ready",false)); return; }
         dimensions(); showPointer();
         String line=String.format(Locale.ROOT,"GB_EDGE %d %d %d %d %.2f %.2f %d",epoch,++sequence,width,height,x,y,buttons);
-        ConnectionService.send(Wire.message("edge","line",line));
+        ConnectionService.send(Wire.message("edge","line",line,"inputSequence",inputSequence,"outward",inputSequence>0 && edgeIntent.active(SystemClock.uptimeMillis())));
     }
     void reset() {
         // Finish even an in-flight continuation on disconnect/lock/re-entry. Android
@@ -246,6 +267,7 @@ public final class ControlService extends AccessibilityService {
             } catch(RuntimeException ignored) {}
         }
         active=false;generation++;gestures.clear();gestureBusy=false;mouseStroke=null;buttons=0;handler.removeCallbacks(feedback);
+        inputSequence=0;edgeIntent.clear();
         currentGesture=null;touchStroke=null;touchEnd=null;touchReady=false;touchDispatching=false;
         if(pointer!=null) { try { hidePointer(); } catch(RuntimeException ignored){} pointerAttached=false;pointer=null;pointerLayout=null; }
     }

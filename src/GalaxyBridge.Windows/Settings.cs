@@ -9,6 +9,7 @@ internal sealed class Settings
     public double Sensitivity { get; set; } = 1.0;
     public bool ClipboardEnabled { get; set; } = true;
     public bool EdgeEntryEnabled { get; set; } = true;
+    public bool WheelZoomEnabled { get; set; }
     public bool NativeReceiveEnabled { get; set; } = true;
     public string NativeReceiveFolder { get; set; } = DefaultReceiveFolder;
     public static string DefaultReceiveFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "GalaxyBridge");

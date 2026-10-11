@@ -6,6 +6,8 @@ public sealed record PhoneEdgeSample(int CaptureId, long Sequence, int Width, in
     double X, double Y, byte Buttons, long ReceivedAt)
 {
     public DesktopBounds? Zone { get; init; }
+    public bool OutwardIntent { get; init; }
+    public long InputSequence { get; init; }
     public static bool TryParse(string line, long now, out PhoneEdgeSample? sample)
     {
         sample = null;
@@ -40,9 +42,11 @@ public static class EdgeReturnPolicy
     public static bool CanReturn(PhoneEdgeSample sample, int capture, PhoneSide side,
         int dx, int dy, byte hostButtons, bool keyHeld, long enteredAt, long motionAt, long now)
     {
+        bool confirmedTouchExit = sample.Zone is null && sample.OutwardIntent && sample.InputSequence > 0;
+        if (sample.Zone is null && sample.InputSequence > 0 && !sample.OutwardIntent) return false;
         if (sample.CaptureId != capture || capture < 1 || sample.Buttons != 0 || hostButtons != 0 || keyHeld ||
             now - enteredAt < 350 || now < sample.ReceivedAt || now - sample.ReceivedAt > 250 ||
-            now < motionAt || now - motionAt > 200) return false;
+            (!confirmedTouchExit && (now < motionAt || now - motionAt > 200))) return false;
         if (sample.Zone is DesktopBounds zone)
         {
             if (sample.X < zone.X || sample.Y < zone.Y || sample.X >= zone.X + zone.Width || sample.Y >= zone.Y + zone.Height) return false;
@@ -57,10 +61,10 @@ public static class EdgeReturnPolicy
         }
         return side switch
         {
-            PhoneSide.Right => sample.X < 4 && dx < 0,
-            PhoneSide.Left => sample.X >= sample.Width - 4 && dx > 0,
-            PhoneSide.Top => sample.Y >= sample.Height - 4 && dy > 0,
-            PhoneSide.Bottom => sample.Y < 4 && dy < 0,
+            PhoneSide.Right => sample.X < 4 && (confirmedTouchExit || dx < 0),
+            PhoneSide.Left => sample.X >= sample.Width - 4 && (confirmedTouchExit || dx > 0),
+            PhoneSide.Top => sample.Y >= sample.Height - 4 && (confirmedTouchExit || dy > 0),
+            PhoneSide.Bottom => sample.Y < 4 && (confirmedTouchExit || dy < 0),
             _ => false
         };
     }

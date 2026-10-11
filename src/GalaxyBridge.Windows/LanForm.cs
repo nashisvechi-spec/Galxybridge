@@ -25,6 +25,7 @@ internal sealed class LanForm : Form
     private readonly Label connectionDetail = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly Button toggle = new() { Enabled = false, Text = "Управлять телефоном", AutoSize = true }, files = new() { Enabled = false, Text = "Отправить файлы…", AutoSize = true };
     private readonly CheckBox edgeEntry = new() { Text = "Вход через край экрана", AutoSize = true };
+    private readonly CheckBox wheelZoom = new() { Text = "Масштабировать колёсиком по Wi-Fi", AutoSize = true };
     private readonly Label transferState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly Label receiveState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly CheckBox share = new() { Text = "Общий текстовый буфер", AutoSize = true };
@@ -51,7 +52,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.8"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.9"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -92,6 +93,14 @@ internal sealed class LanForm : Form
         Button normalSpeed = new() { Text = "Сбросить на 1×", AutoSize = true }; normalSpeed.Click += (_, _) => speed.Value = 1;
         mouse.Controls.Add(normalSpeed); page.Controls.Add(mouse);
         page.Controls.Add(new Label { Text = "0,25× — медленнее; 1× — обычная; 4× — быстрее. Настройка сохраняется.", AutoSize = true });
+        wheelZoom.Checked = settings.WheelZoomEnabled; page.Controls.Add(wheelZoom);
+        page.Controls.Add(new Label { Text = "PDF и изображения: Ctrl + колёсико — масштабирование вокруг курсора. Включите настройку выше для масштабирования одним колёсиком. Нужен APK 0.7.9; просмотрщик должен поддерживать жест двумя пальцами. Без этой настройки колесо прокручивает страницу.", AutoSize = true, MaximumSize = new Size(660, 0) });
+        wheelZoom.CheckedChanged += (_, _) =>
+        {
+            capture?.Stop(); armed = false; settings.WheelZoomEnabled = wheelZoom.Checked;
+            if (session is not null) session.WheelZoomEnabled = wheelZoom.Checked;
+            SaveSettings();
+        };
         FlowLayoutPanel navigation = new() { AutoSize = true };
         foreach (var (label, action) in new[] { ("Назад", "back"), ("Домой", "home"), ("Недавние", "recents") })
         { Button b = new() { Text = label, AutoSize = true }; b.Click += (_, _) => session?.Post(new { type = "nav", action }); navigation.Controls.Add(b); }
@@ -302,6 +311,7 @@ internal sealed class LanForm : Form
     private void ClearQr() { Image? image = qr.Image; qr.Image = null; qr.Visible = false; image?.Dispose(); }
     private void Attach(LanSession candidate)
     {
+        candidate.WheelZoomEnabled = settings.WheelZoomEnabled;
         capture?.Stop(); session = candidate; armed = false; edgeSince = null; ClearQr(); host.ClosePairing();
         candidate.ClipboardWriter = (text, ct) => SetPhoneClipboardAsync(candidate, text, ct);
         candidate.ClipboardSequenceReader = Native.GetClipboardSequenceNumber;
@@ -311,7 +321,7 @@ internal sealed class LanForm : Form
         candidate.NativeEdgeStatus += text => Ui(() => { if (session == candidate) bluetoothState.Text = text; });
         lastPushedSequence = Native.GetClipboardSequenceNumber(); clipboardRetry.Stop();
         candidate.ConfigureClipboard(share.Checked);
-        if (!candidate.AutomaticClipboard) clipboardState.Text = "Для автоматического общего буфера обновите Galaxy Bridge Wi-Fi на телефоне до 0.7.8.";
+        if (!candidate.AutomaticClipboard) clipboardState.Text = "Для автоматического общего буфера обновите Galaxy Bridge Wi-Fi на телефоне до 0.7.9.";
         candidate.Lost += () => Ui(() => { if (session == candidate) { received = candidate.ReceiveState; capture?.Stop(); session = null; armed = false; UpdateState(); } });
         if (!candidate.IsAlive) { session = null; UpdateState(); }
     }

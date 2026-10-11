@@ -174,7 +174,7 @@ def main() -> None:
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
     java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java'))
-    require(len(java) == 26, 'Expected LAN Android and protocol/input/clipboard test sources')
+    require(len(java) == 30, 'Expected LAN Android and protocol/input/clipboard/wheel/edge test sources')
     for helper in java:
         balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]

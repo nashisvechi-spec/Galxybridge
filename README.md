@@ -1,11 +1,15 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.8** / Android **0.7.8**. The application starts directly in its LAN
+Windows **0.7.9** / Android **0.7.9**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
 - **LAN touch control:** Android AccessibilityService performs taps, long presses,
-  continued touch drags and swipes. No Bluetooth adapter is required.
+  continued touch drags, swipes and two-finger zoom. No Bluetooth adapter is required.
+  With APK 0.7.9, Ctrl+wheel zooms PDFs/images; the saved “Масштабировать колёсиком
+  по Wi-Fi” option enables zoom with the wheel alone. The viewer must support pinch
+  gestures. Wi-Fi edge return uses phone-confirmed outward motion and rejects
+  late input after a direction reversal.
 - **Bluetooth system mouse (experimental):** Windows advertises a BLE HID keyboard
   and mouse. Requires Windows 10 2004+ and a BLE Peripheral-capable adapter.
   Pair from the phone's Bluetooth settings, confirm on both devices, select the

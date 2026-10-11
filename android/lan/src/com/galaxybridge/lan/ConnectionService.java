@@ -155,7 +155,7 @@ public final class ConnectionService extends Service {
                 SharedPreferences prefs=prefs(); String device=prefs.getString("device","");
                 if(!Wire.hex(device,32)) { device=UUID.randomUUID().toString().replace("-",""); if(!prefs.edit().putString("device",device).commit()) throw new IOException("Cannot save identity"); }
                 DataInputStream in=new DataInputStream(socket.getInputStream()); DataOutputStream out=new DataOutputStream(socket.getOutputStream());
-                JSONObject hello=Wire.message(pair!=null?"pair":"hello","v",1,"device",device,"name",Build.MODEL,"clipboardSync",1,"nativeEdge",1);
+                JSONObject hello=Wire.message(pair!=null?"pair":"hello","v",1,"device",device,"name",Build.MODEL,"clipboardSync",1,"nativeEdge",1,"touchInput",1);
                 if(pair!=null) hello.put("ticket",pair.ticket); else hello.put("token",prefs.getString("token",""));
                 Wire.write(out,hello); JSONObject welcome=Wire.read(in);
                 if(!"welcome".equals(welcome.getString("type")) || welcome.getInt("v")!=1 || !hostId.equals(welcome.getString("host"))) throw new IOException("Invalid welcome");
