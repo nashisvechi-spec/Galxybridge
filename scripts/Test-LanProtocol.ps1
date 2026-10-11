@@ -13,6 +13,13 @@ try {
     $source = Join-Path $PSScriptRoot '..\android\lan\src\com\galaxybridge\lan'
     & $javac --release 8 -encoding UTF-8 -classpath $json -d $work (Join-Path $source 'DropProbe.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\DropProbeTest.java') (Join-Path $source 'WheelGesture.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\WheelGestureTest.java') (Join-Path $source 'EdgeStrip.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\EdgeStripTest.java') (Join-Path $source 'Wire.java') (Join-Path $source 'Pairing.java') (Join-Path $source 'Upload.java') (Join-Path $source 'PointerPress.java') (Join-Path $source 'PointerStroke.java') (Join-Path $source 'ClickTarget.java') (Join-Path $source 'ClipText.java') (Join-Path $source 'ClipHistory.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\WireTest.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\UploadTest.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\PointerPressTest.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\PointerStrokeTest.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\ClickTargetTest.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\ClipTextTest.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\ClipHistoryTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'LAN parser test compilation failed.' }
+    # Minimal JVM data fixtures exercise only the payload parser, not Android permissions.
+    $dropWork = Join-Path $work 'drop-parser'
+    $dropFixtures = @(Get-ChildItem (Join-Path $PSScriptRoot '..\tests\android-drop-stubs') -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
+    & $javac --release 8 -encoding UTF-8 -d $dropWork @dropFixtures (Join-Path $source 'DropProbe.java') (Join-Path $source 'DropLinks.java') (Join-Path $source 'DropPayload.java') (Join-Path $PSScriptRoot '..\tests\android-protocol\DropPayloadTest.java')
+    if ($LASTEXITCODE -ne 0) { throw 'Dropped-payload parser test compilation failed.' }
+    & $java -classpath $dropWork com.galaxybridge.lan.DropPayloadTest
+    if ($LASTEXITCODE -ne 0) { throw 'Dropped-payload parser tests failed.' }
     & $java -classpath "$work;$json" com.galaxybridge.lan.DropProbeTest
     if ($LASTEXITCODE -ne 0) { throw 'Dropped-file read-access tests failed.' }
     & $java -classpath "$work;$json" com.galaxybridge.lan.WheelGestureTest

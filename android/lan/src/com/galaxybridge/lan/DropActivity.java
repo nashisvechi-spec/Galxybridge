@@ -3,6 +3,7 @@ package com.galaxybridge.lan;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.ClipboardManager;
 import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.graphics.Insets;
@@ -34,8 +35,9 @@ public final class DropActivity extends Activity {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicReference<InputStream> activeInput=new AtomicReference<>();
     private final ArrayList<Uri> files=new ArrayList<>();
-    private TextView target,report;
-    private Button prepare,cancel;
+    private TextView target,report,format;
+    private Button prepare,cancel,copy;
+    private String dropDiagnostic="";
     private DragAndDropPermissions permissions;
     private AtomicBoolean cancelled=new AtomicBoolean();
     private CancellationSignal signal;
@@ -50,7 +52,7 @@ public final class DropActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(16*getResources().getDisplayMetrics().density);page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom);return i; });
-        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.14");title.setTextSize(22);page.addView(title);
+        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.15");title.setTextSize(22);page.addView(title);
         target=new TextView(this);target.setText("Перетащите файл сюда\nи отпустите кнопку");target.setTextSize(21);target.setGravity(Gravity.CENTER);
         target.setMinHeight(p*9);target.setPadding(p,p,p,p);target.setBackgroundColor(0xffdcecff);page.addView(target);
         target.setOnDragListener((v,event) -> drag(event));
@@ -58,6 +60,9 @@ public final class DropActivity extends Activity {
         report.setText(saved==null?"Ожидаем перетаскивание из файлового приложения.":"Окно было пересоздано. Перетащите файлы ещё раз: временное разрешение на чтение не сохраняется.");
         prepare=new Button(this);prepare.setText("Подготовить для переноса на ПК");prepare.setEnabled(false);prepare.setOnClickListener(v -> forward());page.addView(prepare);
         cancel=new Button(this);cancel.setText("Отменить проверку");cancel.setEnabled(false);cancel.setOnClickListener(v -> { cancellationText="Проверка отменена. Перетащите файлы ещё раз.";cancelProbe(); });page.addView(cancel);
+        copy=new Button(this);copy.setText("Скопировать диагностику сброса");copy.setEnabled(false);
+        copy.setOnClickListener(v -> { getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Galaxy Bridge drop",dropDiagnostic));Toast.makeText(this,"Диагностика скопирована",Toast.LENGTH_SHORT).show(); });page.addView(copy);
+        format=new TextView(this);format.setTextSize(14);page.addView(format);
         TextView help=new TextView(this);help.setText("Откройте Galaxy Bridge и «Мои файлы» рядом: через меню значка приложения в «Недавних» выберите разделение экрана или всплывающее окно. Зажмите файл, дождитесь начала перетаскивания и перенесите его в синюю область. Сначала проверьте пальцем, затем мышью по Wi-Fi.\n\nЕсли область не реагирует, файловое приложение могло не начать межприложное перетаскивание. Используйте «Поделиться → Galaxy Bridge Wi-Fi».\n\nПосле проверки нажмите кнопку подготовки. Пока идёт подготовка, держите окно отправки открытым. Затем перетащите его синюю карточку в папку Windows. Оригиналы сохраняются.");page.addView(help);
         ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
     }
@@ -84,20 +89,16 @@ public final class DropActivity extends Activity {
         if(busy || ConnectionService.uploading()) { report.setText("Дождитесь завершения текущей передачи.");return false; }
         files.clear();prepare.setEnabled(false);releasePermissions();
         ClipData clip=event.getClipData(); // Actual URIs are valid only at ACTION_DROP.
-        if(clip==null || clip.getItemCount()<1 || clip.getItemCount()>DropProbe.MAX_FILES) {
-            report.setText("Файловое приложение должно передать от 1 до 100 файлов.");return false;
-        }
-        ArrayList<Uri> incoming=new ArrayList<>();
-        for(int i=0;i<clip.getItemCount();i++) {
-            Uri uri=clip.getItemAt(i).getUri();
-            if(uri==null || !"content".equals(uri.getScheme())) {
-                report.setText("Получено название, текст или неподдерживаемая ссылка вместо доступного файла. Используйте «Поделиться».");return false;
-            }
-            if(!incoming.contains(uri)) incoming.add(uri);
-        }
+        DropPayload payload=new DropPayload();ArrayList<Uri> incoming;
+        try { incoming=payload.extract(clip); }
+        catch(IOException e) { showDiagnostic(payload.diagnostic());report.setText(e.getMessage());return false; }
+        catch(RuntimeException e) { showDiagnostic(payload.diagnostic()+"\nОшибка разбора: "+e.getClass().getSimpleName());report.setText("Файловое приложение передало неподдерживаемые данные. Скопируйте диагностику ниже.");return false; }
+        showDiagnostic(payload.diagnostic());
         try { permissions=requestDragAndDropPermissions(event); }
         catch(RuntimeException e) { report.setText("Не удалось получить временное разрешение на чтение. Повторите сброс.");return false; }
-        if(permissions==null) { report.setText("Файловое приложение не предоставило разрешение на чтение. Используйте «Поделиться».");return false; }
+        // A null grant is not proof of denial: an existing grant or a public
+        // provider may already permit reading. The real read probe decides.
+        showDiagnostic(dropDiagnostic+"Drag permission: "+(permissions==null?"нет; проверяем фактический доступ":"получено")+"\n");
         busy=true;cancelled=new AtomicBoolean();signal=new CancellationSignal();cancel.setEnabled(true);
         cancellationText="Проверка отменена. Перетащите файлы ещё раз.";
         report.setText("Получено файлов: "+incoming.size()+". Проверяем доступ к содержимому…");
@@ -113,6 +114,10 @@ public final class DropActivity extends Activity {
             main.post(() -> finishProbe(incoming,checked,failure));
         },"GalaxyBridge-drop-probe").start();
         return true; // Accepted for asynchronous validation; no upload until the button is pressed.
+    }
+    private void showDiagnostic(String text) {
+        dropDiagnostic="Galaxy Bridge Android 0.7.15\n"+text.replace("Galaxy Bridge Android 0.7.15\n","");
+        format.setText("Формат сброса:\n"+dropDiagnostic);copy.setEnabled(true);
     }
     private DropProbe.Source open(Uri uri) throws IOException {
         signal.throwIfCanceled();

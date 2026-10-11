@@ -1,6 +1,6 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.13** / Android **0.7.14**. The application starts directly in its LAN
+Windows **0.7.13** / Android **0.7.15**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -12,6 +12,12 @@ read access, then forwards the selected files and temporary permission to the
 existing preparation/card flow. Windows 0.7.13 remains compatible. This is a
 two-step prototype; direct My Files-to-screen-edge handoff is not implemented.
 See [the phone test procedure](docs/FILE_DRAG.ru.md#приём-из-моих-файлов--android-0714).
+
+Android **0.7.15** also reads file references inside a dropped Intent, nested
+ClipData, EXTRA_STREAM, or a whole content URI in text. The receiver now shows
+the payload format and provides a copy-diagnostics button when a source uses
+an unsupported representation. My Files compatibility still requires a repeat
+device test; the recording from 0.7.14 showed a drop rejected before read access.
 
 - **LAN touch control:** Android AccessibilityService performs taps, long presses,
   continued touch drags, swipes and two-finger zoom. No Bluetooth adapter is required.

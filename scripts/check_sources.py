@@ -173,8 +173,8 @@ def main() -> None:
     require('./scripts/Test-LanProtocol.ps1' in workflow, 'Manual workflow runs actual Android wire/pairing parser tests')
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
-    java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java'))
-    require(len(java) == 31, 'Expected LAN Android and protocol/input/clipboard/wheel/drop test sources')
+    java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java')) + list((ROOT / 'tests/android-drop-stubs').rglob('*.java'))
+    require(len(java) == 39, 'Expected LAN Android and protocol/input/clipboard/wheel/drop test sources')
     for helper in java:
         balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]

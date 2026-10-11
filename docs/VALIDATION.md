@@ -1,4 +1,38 @@
-# Validation — Windows 0.7.13 / Android 0.7.14
+# Validation — Windows 0.7.13 / Android 0.7.15
+
+## Drop payload parsing and format diagnostics (0.7.15)
+
+Based on 6f8171f6319b0bc07f102e6c1b60b1bef859f91d. The supplied 30.59-second
+recording 1000161484.mp4 shows drag-start feedback, target highlight, and the
+generic unsupported-reference message after a drop. Source inspection places
+that failure before permission request/probing: Item.getUri() was either null
+or used a non-content scheme. The video does not reveal the actual payload or
+prove that Samsung omits content references altogether.
+
+Adds bounded extraction of direct URIs, Intent.data, nested ClipData,
+EXTRA_STREAM and EXTRA_INTENT, plus whole content URI text. Gives direct file
+representations precedence over alternate text/ancillary Intent data. Does not
+execute received Intents, parse serialized Intents, map filenames to storage
+paths, or accept a partly unsupported selection. Existing/public read access
+is tested even if requestDragAndDropPermissions returns null. Diagnostics show
+MIME, field presence, schemes, extra keys and types without dumping values.
+
+- Companion Java sources compile against Android API 35/ZXing for Java 8.
+- Payload parser tests run on minimal JVM-only data fixtures outside the APK;
+  they exercise the production parser, but do not simulate framework grants.
+- 795 portable JVM assertions pass, including 42 payload-parser checks for
+  alternate containers, precedence, selection completeness, count/depth bounds,
+  unsupported paths/URLs, and diagnostic omission of extra values.
+- Portable stream, input, upload, clipboard and wheel tests remain in the workflow.
+- Windows, mouse processing, pairing, signing and upload protocol are unchanged.
+- Samsung payload details, successful file reads, permission forwarding and
+  eventual transfer still need the next physical-device test. No signed APK
+  packaging or real Android runtime execution occurred in this environment.
+
+Official references:
+- https://developer.android.com/reference/android/content/ClipData.Item
+- https://developer.android.com/reference/android/content/Intent
+- https://developer.android.com/reference/android/app/Activity#requestDragAndDropPermissions(android.view.DragEvent)
 
 ## Android multi-window file-drop receiver (0.7.14)
 
