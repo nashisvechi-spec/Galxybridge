@@ -89,8 +89,22 @@ public static class FileDragHandoff
     public static bool CanReturn(PhoneEdgeSample sample, int epoch, PhoneSide side, byte hostButtons,
         bool keyHeld, int dx, int dy, long now)
     {
-        if (epoch < 1 || sample.CaptureId != epoch || sample.Zone is not null || sample.Buttons != 1 ||
+        if (epoch < 1 || sample.CaptureId != epoch || sample.Buttons != 1 ||
             hostButtons != 1 || keyHeld || now < sample.ReceivedAt || now - sample.ReceivedAt > 500) return false;
+        if (sample.Zone is DesktopBounds zone)
+        {
+            if (zone.X < 0 || zone.Y < 0 || zone.Width < 1 || zone.Height < 1 ||
+                zone.X > sample.Width-zone.Width || zone.Y > sample.Height-zone.Height ||
+                sample.X < zone.X || sample.Y < zone.Y || sample.X >= zone.X+zone.Width || sample.Y >= zone.Y+zone.Height) return false;
+            return side switch
+            {
+                PhoneSide.Right => zone.Width <= 4 && zone.Height > 4 && zone.X < sample.Width / 4 && dx < 0,
+                PhoneSide.Left => zone.Width <= 4 && zone.Height > 4 && zone.X >= sample.Width * 3 / 4 && dx > 0,
+                PhoneSide.Top => zone.Height <= 4 && zone.Width > 4 && zone.Y >= sample.Height * 3 / 4 && dy > 0,
+                PhoneSide.Bottom => zone.Height <= 4 && zone.Width > 4 && zone.Y < sample.Height / 4 && dy < 0,
+                _ => false
+            };
+        }
         return side switch
         {
             PhoneSide.Right => sample.X < 16 && dx < 0,

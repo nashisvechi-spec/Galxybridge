@@ -166,7 +166,7 @@ public final class ConnectionService extends Service {
                     pending.compareAndSet(pair,null);
                 } else prefs.edit().putString("host",host).apply();
                 Wire.write(out,Wire.message("saved"));
-                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); active.fileDrag=welcome.optInt("fileDrag",0)==1;link=active; connecting=null;
+                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); active.fileDrag=welcome.optInt("fileDrag",0)==1;active.fileEdge=active.fileDrag && welcome.optInt("fileEdge",0)==1;link=active; connecting=null;
                 main.post(() -> { if(link==active) { clipboardBridge.configure(false);clipboardStatus=active.automaticClipboard?"Общий буфер готов после включения на ПК.":"Для автоматического буфера обновите Windows до 0.7.3."; } });
                 status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();
                 try(Downloads downloads=new Downloads(this)) {
@@ -279,6 +279,20 @@ public final class ConnectionService extends Service {
     }
     static void send(JSONObject message) { ConnectionService current=instance; if(current!=null) { Link active=current.link; if(active!=null) active.send(message); } }
     static boolean uploading() { ConnectionService current=instance; return current!=null && current.uploadBusy.get(); }
+    static boolean edgeFilesReady() {
+        ConnectionService current=instance;Link target=current==null?null:current.link;
+        return target!=null && !target.closed.get() && target.fileEdge;
+    }
+    static boolean prepareEdgeFiles(ArrayList<Uri> files,String batch) {
+        ConnectionService current=instance;
+        if(current==null || !edgeFilesReady() || uploading()) return false;
+        current.startUpload(new ArrayList<>(files),batch);return current.uploadBusy.get();
+    }
+    static void discardEdgeFiles(String batch) {
+        if(!Wire.hex(batch,32)) return;
+        if(batch.equals(dragReadyBatch)) dragReadyBatch="";
+        send(Wire.message("dragCancel","batch",batch));
+    }
     static boolean sendingClipboard() { ConnectionService current=instance;return current!=null && current.clipboardBusy.get(); }
     static void sendClipboard(String text) {
         // Validate the actual JSON frame before starting a worker or changing a clipboard.
@@ -385,7 +399,7 @@ public final class ConnectionService extends Service {
         final AtomicBoolean closed=new AtomicBoolean(); final ArrayBlockingQueue<JSONObject> queue=new ArrayBlockingQueue<>(256);
         final Semaphore commands=new Semaphore(128); final Thread writer;
         final boolean upload,clipboard,automaticClipboard,nativeEdge;
-        boolean fileDrag;
+        boolean fileDrag,fileEdge;
         volatile boolean clipboardEnabled;
         volatile String clipboardRequest;
         final ConcurrentHashMap<String,CompletableFuture<JSONObject>> replies=new ConcurrentHashMap<>();

@@ -1,8 +1,17 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.17** / Android **0.7.16**. The application starts directly in its LAN
+Windows **0.7.18** / Android **0.7.18**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Version **0.7.18** adds an explicitly enabled experimental My Files-to-Explorer
+edge transfer. The phone exposes a thin overlay drop target; when an actual
+Android file drag enters it, the injected Android touch ends while the physical
+Wi-Fi mouse button stays held. Keep holding at the edge during preparation;
+the existing verified TLS staging and Windows OLE handoff then continue the drag.
+Both applications must be updated. The global overlay drop and temporary URI
+permission still require a Samsung/Windows device test. See
+[instructions and fallback receiver](docs/FILE_DRAG.ru.md).
 
 Windows **0.7.17** preserves a working connection until a replacement phone
 session acknowledges its saved pairing. Aborted parallel attempts cannot
@@ -22,14 +31,14 @@ Android **0.7.14** adds a visible multi-window drop receiver for Samsung My File
 and other applications that provide readable content URIs. It checks actual
 read access, then forwards the selected files and temporary permission to the
 existing preparation/card flow. Windows 0.7.13 remains compatible. This is a
-two-step prototype; direct My Files-to-screen-edge handoff is not implemented.
+two-step flow that remains available alongside the experimental 0.7.18 edge mode.
 See [the phone test procedure](docs/FILE_DRAG.ru.md#приём-из-моих-файлов--android-0714).
 
 Android **0.7.15** also reads file references inside a dropped Intent, nested
 ClipData, EXTRA_STREAM, or a whole content URI in text. The receiver now shows
 the payload format and provides a copy-diagnostics button when a source uses
-an unsupported representation. My Files compatibility still requires a repeat
-device test; the recording from 0.7.14 showed a drop rejected before read access.
+an unsupported representation. The user subsequently confirmed this receiver
+works with the 0.7.16 companion-item fix.
 
 - **LAN touch control:** Android AccessibilityService performs taps, long presses,
   continued touch drags, swipes and two-finger zoom. No Bluetooth adapter is required.

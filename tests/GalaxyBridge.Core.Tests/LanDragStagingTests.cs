@@ -78,6 +78,20 @@ static class LanDragStagingTests
             Check(!Can(sample, now: 1501) && !Can(sample, now: 999), "delayed and future samples rejected");
             Check(!Can(sample with { X = 500, Y = 1000 }), "middle of phone cannot hand off");
             Check(!FileDragHandoff.CanReturn(sample, 7, side, 1, false, -dx, -dy, 1001), "inward direction cannot hand off");
+            DesktopBounds zone = side switch
+            {
+                PhoneSide.Right => new(18, 24, 1, 1930),
+                PhoneSide.Left => new(981, 24, 1, 1930),
+                PhoneSide.Top => new(18, 1954, 964, 1),
+                _ => new(18, 24, 964, 1)
+            };
+            var inset = sample with { X = zone.Width == 1 ? zone.X : 500, Y = zone.Height == 1 ? zone.Y : 1000, Zone = zone };
+            Check(Can(inset), "file edge handoff uses measured navigation/cutout inset");
+            Check(!Can(inset, epoch: 6) && !Can(inset, buttons: 0) && !Can(inset, key: true), "inset edge still requires same capture and physical hold");
+            Check(!Can(inset with { X = 500, Y = 1000 }), "outside the actual inset strip rejected");
+            Check(!Can(inset with { Zone = new(0, 0, 1000, 2000) }), "full screen cannot be a file edge");
+            Check(!Can(inset with { X = 500, Y = 1000, Zone = zone.Width == 1 ? new(500, 0, 1, 2000) : new(0, 1000, 1000, 1) }), "a middle-of-screen thin strip cannot hand off");
+            Check(!FileDragHandoff.CanReturn(inset, 7, side, 1, false, -dx, -dy, 1001), "inset drag still requires outward motion");
         }
         return checks;
     }

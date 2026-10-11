@@ -97,6 +97,8 @@ public final class ControlService extends AccessibilityService {
         int dx=command.getInt("dx"),dy=command.getInt("dy"),next=command.getInt("buttons"),wheel=command.getInt("wheel");
         if(Math.abs((long)dx)>8192 || Math.abs((long)dy)>8192 || Math.abs((long)wheel)>32 || next<0 || next>7) throw new IllegalArgumentException();
         dimensions(); x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
+        EdgeFileDrag.Pointer heldEdge=DropActivity.edgePointer(new EdgeFileDrag.Pointer(epoch,side,width,height,x,y,next,mouseStroke!=null));
+        if(heldEdge!=null) { x=heldEdge.x;y=heldEdge.y;buttons=next;poll();return; }
         if(SendActivity.remotePointer(x,y,next,buttons,side,epoch,width,height)) { buttons=next;poll();return; }
         if((next&1)!=0 && (buttons&1)==0) {
             mouseStroke=new PointerStroke(ViewConfiguration.get(this).getScaledTouchSlop(),x,y,SystemClock.uptimeMillis());
@@ -122,6 +124,22 @@ public final class ControlService extends AccessibilityService {
     private void enqueue(PendingGesture pending) {
         if(gestures.size()>=8) { reset(); ConnectionService.disconnect(); return; }
         gestures.add(pending);nextGesture();
+    }
+    static EdgeFileDrag.Pointer filePointer() {
+        ControlService current=instance;
+        if(current==null || !current.active || !ready(current)) return null;
+        return new EdgeFileDrag.Pointer(current.epoch,current.side,current.width,current.height,current.x,current.y,current.buttons,current.mouseStroke!=null);
+    }
+    static boolean dropFileTouch(EdgeFileDrag.Pointer pointer) {
+        ControlService current=instance;
+        if(pointer==null || current==null || !current.active || current.epoch!=pointer.epoch || current.buttons!=1 ||
+            current.side!=pointer.side || current.width!=pointer.width || current.height!=pointer.height ||
+            pointer.x<0 || pointer.y<0 || pointer.x>=current.width || pointer.y>=current.height ||
+            current.mouseStroke==null || current.currentGesture==null || current.currentGesture.press!=current.mouseStroke) return false;
+        // End only the injected Android finger. The real PC mouse is still held.
+        current.x=pointer.x;current.y=pointer.y;current.mouseStroke.move(current.x,current.y);
+        current.mouseStroke.release(current.x,current.y,SystemClock.uptimeMillis());
+        current.mouseStroke=null;current.advanceTouch();return true;
     }
     private void nextGesture() {
         if(gestureBusy || !active) return;

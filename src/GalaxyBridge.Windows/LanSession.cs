@@ -354,7 +354,7 @@ internal sealed class LanSession : IPhoneControl
                         bool prepared;
                         lock (receiveGate) prepared = receiving.Enabled && dragFiles.IsReady(dragBatch);
                         if (prepared && touchActive && PhoneEdgeSample.TryParse(root.GetProperty("line").GetString() ?? "", Environment.TickCount64, out var dragSample) &&
-                            dragSample!.CaptureId == epoch && dragSample.Zone is null && FileDragRequested is not null)
+                            dragSample!.CaptureId == epoch && FileDragRequested is not null)
                             FileDragRequested.Invoke(dragBatch, dragSample);
                         else Post(new { type = "dragResult", batch = dragBatch, ok = false, error = "Подготовьте файлы и перетащите их мышью в режиме Wi-Fi." });
                         break;

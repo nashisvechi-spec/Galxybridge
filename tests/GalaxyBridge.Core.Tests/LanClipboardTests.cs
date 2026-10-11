@@ -100,6 +100,12 @@ static class LanClipboardTests
             await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE {epoch} 1 1000 2000 0 1000 1" }));
             var sample = await handed.Task.WaitAsync(TimeSpan.FromSeconds(5));
             check(sample.CaptureId == epoch && sample.Buttons == 1, "capture-bound drag event delivered without blocking TLS reader");
+            TaskCompletionSource<PhoneEdgeSample> insetHanded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            peer.Session.FileDragRequested += (id, s) => { if (id == batch && s.Zone is not null) insetHanded.TrySetResult(s); };
+            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE2 {epoch} 1 1000 2000 18 1000 1 18 24 1 1930" }));
+            var inset = await insetHanded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            check(inset.Zone == new DesktopBounds(18, 24, 1, 1930) && inset.CaptureId == epoch, "inset file edge survives real TLS dispatch");
+            check(FileDragHandoff.CanReturn(inset, epoch, PhoneSide.Right, 1, false, -1, 0, Environment.TickCount64), "TLS inset edge passes physical handoff policy");
             paths = peer.Session.TakeDragFiles(batch);
             check(paths.Length == 1 && File.ReadAllBytes(paths[0]).SequenceEqual(new byte[] { 1, 2, 3 }), "staged drag has verified actual file bytes");
             await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE {epoch} 1 1000 2000 0 1000 1" }));

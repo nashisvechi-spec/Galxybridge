@@ -1,4 +1,39 @@
-# Validation — Windows 0.7.17 / Android 0.7.16
+# Validation — Windows / Android 0.7.18
+
+## Explicit global file-edge transfer (0.7.18)
+
+Based on cf71c79345c309b9192a547c83571fd8ffec7a64. The existing My Files
+receiver and prepared-card-to-Explorer flow are user-confirmed. A new explicit
+experimental mode installs a public TYPE_APPLICATION_OVERLAY drop strip owned
+by the private DropActivity; it remains alive when its task is minimized.
+Only an actual global drag entering measured edge bounds while the same Wi-Fi
+capture holds the left button can end the injected Android touch and obtain
+the payload at ACTION_DROP. The existing parser, URI grant, read probe and
+TLS/hash staging are reused. No incoming Intent is executed.
+
+A five-minute hold binds preparation to capture epoch, side, display geometry,
+measured edge and physical left-button state. Drop delivery has a three-second
+deadline. Release, inward movement, rotation, lock, connection loss or owner
+destruction cancels; staged cancellation uses the existing protocol. A prepared
+batch consumes the hold once and emits fresh GB_EDGE2 with the actual strip.
+Windows advertises fileEdge=1 and validates physical buttons, freshness,
+capture epoch, thin outer-quarter bounds and outward movement before OLE.
+The prepared-card path remains supported. Bluetooth/finger-only transfer is
+not implemented. Both applications are versioned 0.7.18.
+
+- All Android sources compile as Java 8 against Android API 35 and ZXing.
+- 911 JVM assertions pass: 753 existing protocol/input/read checks, 100 new
+  hold/projection/cancellation/one-shot checks across all four sides, and 58
+  payload parser checks using data fixtures rather than Android runtime grants.
+- 2,365 portable Core assertions pass. Added tests cover real loopback TLS
+  delivery of GB_EDGE2 dragStart and valid/invalid measured-zone handoffs.
+- Full Windows production sources compile with direct Roslyn/.NET 8 references.
+  Local MSBuild remains unavailable due process-metadata access in this runtime.
+- Device validation and EXE/APK packaging remain in the manual Windows workflow.
+  In particular, Samsung global overlay delivery, the Activity-owned grant from
+  that window, final injected touch-up position, and Explorer OLE must be checked
+  on the actual phone/PC. This is an experimental implementation, not a claim
+  that those device-specific steps have already passed.
 
 ## Interrupted TLS attempts and replacement sessions (Windows 0.7.17)
 

@@ -93,6 +93,22 @@ or the behavior of Android applications. See VALIDATION.md for this revision.
 - Check Ctrl+Alt+F12 and BLE HID behavior still work. An old APK retains legacy
   scrolling/edge return and must not receive enhanced touch commands.
 
+## Experimental direct file edge (0.7.18)
+
+- Update Windows and APK together. Enable file receipt on Windows and explicitly
+  enable the phone overlay mode; minimize using its button rather than Back.
+- Long-press a small file in fullscreen My Files with the Wi-Fi mouse, wait for
+  a real Android drag, enter the phone edge facing the PC, and keep left held
+  throughout preparation. Drop in Explorer only after the cursor returns.
+- Test all four sides, system-bar insets, several files and identical names.
+- Release during probe/upload, move inward, rotate, lock, disconnect or disable
+  receipt; no delayed Windows drag may start. Back must remove the strip.
+- On failure copy receiver diagnostics: drag-start, edge-entry, payload/grant
+  and read-probe status. Check the existing split-screen/card fallback too.
+- EdgeFileDragTest runs 100 pure JVM checks; payload fixtures cannot verify
+  overlay delivery or Android grants. TLS and Core handoff tests also do not
+  replace physical-button/Explorer verification on Windows.
+
 ## Historical checklist: pointer responsiveness (0.7.10)
 
 - Update Windows and APK. In Wi-Fi touch mode, move the pointer slowly, quickly
