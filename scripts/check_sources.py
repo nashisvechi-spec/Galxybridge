@@ -128,7 +128,7 @@ def main() -> None:
     require(all(word not in workflow for word in ('Fetch-Backend', 'Build-EdgeHelper', 'GalaxyBridgeEdge', 'backend/')),
             'Portable artifacts must contain only the application without debugging')
     for path in (ROOT / 'src').rglob('*.cs'):
-        require(not re.search(r'\b(AdbClient|AdbEndpoint|AdbDevice|ControlProtocol|MainForm)\b', path.read_text()),
+        require(not re.search(r'\b(AdbClient|AdbEndpoint|AdbDevice|ControlProtocol|MainForm)\b', path.read_text(encoding='utf-8-sig')),
                 f'No legacy runtime dependency in {path.relative_to(ROOT)}')
     signing_pin = read('android/signing-cert.sha256').strip()
     require(re.fullmatch(r'[0-9a-f]{64}', signing_pin) is not None, 'Android update certificate pin')
