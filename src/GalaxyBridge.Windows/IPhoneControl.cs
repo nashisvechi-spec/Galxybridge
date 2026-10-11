@@ -3,6 +3,7 @@ namespace GalaxyBridge.Windows;
 internal interface IPhoneControl
 {
     bool IsAlive { get; }
+    bool InputReady { get; }
     PhoneEdgeSample? LatestEdge { get; }
     int BeginEdgeReturn(PhoneSide side);
     void EndEdgeReturn();

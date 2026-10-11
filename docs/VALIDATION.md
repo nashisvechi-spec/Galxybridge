@@ -1,15 +1,17 @@
-# Validation — Windows 0.7.5 / Android 0.7.7
+# Validation — Windows 0.7.6 / Android 0.7.7
 
-This revision removes the debugging edition: its launcher, connection backend,
-protocol, edge companion, download/build scripts and packaging steps. Windows
-starts the existing LAN screen directly. Bluetooth HID remains experimental.
+This revision selects mouse input automatically: ready Bluetooth HID has priority;
+otherwise ready Wi-Fi touch uses the app cursor. Bluetooth starts with the window.
+Pending HID no longer blocks Wi-Fi. Transport changes release the previous capture;
+a late BLE clipboard return cannot end a newer LAN capture. Bluetooth HID remains experimental.
 Android LAN source, package identity and signing pin are unchanged.
 
 ## Current verification
 
 - scripts/check_sources.py passed structural validation, including removal checks.
-- **2203 Core assertions passed**, using the real LAN TLS session. Added coverage
-  checks direct Unicode paste, the 16 KB UTF-8 boundary and rejection without disconnect.
+- **2219 Core assertions passed**, using the real LAN TLS session. Added coverage
+  checks route transitions, release ordering and stale BLE clipboard epochs, in addition
+  to direct Unicode paste and its UTF-8 bounds.
 - All remaining Core and Windows C# sources compiled against .NET 8.0.19,
   Windows Forms, Windows SDK 19041 and the pinned packages with warnings as errors.
   Standard reference-unification warnings 1701/1702 are suppressed for QRCoder.

@@ -12,7 +12,8 @@ dotnet run --project tests/GalaxyBridge.LanTls.Tests -c Release
 Source validation checks pinned packages/actions, manual-only builds, persistent
 APK signing, Android permissions and the absence of removed debug components.
 Core tests exercise HID report sizes and button/wheel splitting, ordered transport,
-release/cancellation and failures, desktop/phone edge geometry, LAN framing,
+release/cancellation and failures, automatic route selection and release-before-switch,
+desktop/phone edge geometry, LAN framing,
 clipboard TLS delivery and stale-result rejection, and file receipt validation.
 LAN TLS tests use the production certificate import on Windows. JVM tests cover
 pairing/wire parsing, file upload, pointer gestures, click targets and clipboard.
@@ -34,7 +35,12 @@ scrcpy-server, backend directory or GalaxyBridgeEdge.apk.
    both subscriptions, real cursor/hover, five buttons, double/triple click,
    Shift/Ctrl drag, both wheel axes and keyboard layouts. Disconnect while
    dragging; no buttons or modifiers may remain held. Test reconnect/restart.
-5. Test an unsupported/disabled Bluetooth adapter: show a clear failure and
+5. Keep Wi-Fi working while Bluetooth starts/waits for a phone. Attach ready
+   HID: it must take priority. Disconnect/suspend HID: Wi-Fi must remain usable.
+   Do this while dragging or holding modifiers: stop old capture and release;
+   do not replay held input. Test stored pairing without HID subscriptions and
+   multiple subscribed phones. A late BLE clipboard return must not interrupt
+   a new LAN capture. Test an unsupported/disabled Bluetooth adapter: show a clear failure and
    keep LAN touch available. No debugging setup should be suggested.
 6. Copy Unicode text/links in both directions. Return from LAN and BLE input;
    check no echo, no stale response after new copying, disabled clipboard,

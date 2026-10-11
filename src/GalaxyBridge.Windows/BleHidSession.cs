@@ -17,12 +17,14 @@ internal sealed class BleHidSession : IPhoneControl, IAsyncDisposable
     private volatile string? selected;
     private volatile bool suspended, disposed;
     private long captureGeneration;
+    private long clipboardGeneration;
     private byte[] keyboardValue = new byte[8], mouseValue = new byte[Hid.MouseReportLength];
     private LanSession? captureClipboard;
     public LanSession? ClipboardSession { get; set; }
     public event Action? Changed;
     public event Action<string>? Fault;
     public bool IsAlive => !disposed && !suspended && !pump.Failed && selected is { } id && Peers().Contains(id);
+    public bool InputReady => IsAlive;
     public PhoneEdgeSample? LatestEdge => null; // No fake position from LAN touch coordinates.
     private static Guid Uuid(ushort value) => new($"0000{value:x4}-0000-1000-8000-00805f9b34fb");
     public BleHidSession()
@@ -194,15 +196,15 @@ internal sealed class BleHidSession : IPhoneControl, IAsyncDisposable
     public int BeginEdgeReturn(PhoneSide side)
     {
         if (!IsAlive || selected is null) throw new InvalidOperationException("Сначала подключите телефон в настройках Bluetooth.");
-        captureGeneration++;captureClipboard = ClipboardSession;captureClipboard?.BeginNativeControl();
+        captureGeneration++;captureClipboard = ClipboardSession;clipboardGeneration = captureClipboard?.BeginNativeControl() ?? 0;
         pump.Begin(selected);return 0;
     }
     public void EndEdgeReturn()
     {
         long generation = ++captureGeneration;LanSession? source = captureClipboard;
-        pump.Stop();_ = ReadClipboardAfterReleaseAsync(generation, source);
+        pump.Stop();_ = ReadClipboardAfterReleaseAsync(generation, source, clipboardGeneration);
     }
-    private async Task ReadClipboardAfterReleaseAsync(long generation, LanSession? source)
+    private async Task ReadClipboardAfterReleaseAsync(long generation, LanSession? source, long clipboardEpoch)
     {
         try
         {
@@ -211,7 +213,7 @@ internal sealed class BleHidSession : IPhoneControl, IAsyncDisposable
             await pump.FlushAsync().WaitAsync(TimeSpan.FromSeconds(7));
         }
         catch (TimeoutException) { }
-        if (generation == captureGeneration && !pump.IsActive) source?.EndNativeControl();
+        if (generation == captureGeneration && !pump.IsActive) source?.EndNativeControl(clipboardEpoch);
     }
     public bool Paste(string text) => false; // Clipboard text goes through LAN; Ctrl+V stays a real HID shortcut.
     public void Keyboard(byte[] report) => pump.Post(1, report);

@@ -99,9 +99,11 @@ internal sealed class LanSession : IPhoneControl
         edge = null; Post(new { type = "capture", active = false, epoch, side = 0 });
         EndNativeControl();
     }
-    public void BeginNativeControl() { CancelClipboardPull(); controlling = true; }
-    public void EndNativeControl()
+    private long controlGeneration;
+    public long BeginNativeControl() { CancelClipboardPull(); controlling = true; return Interlocked.Increment(ref controlGeneration); }
+    public void EndNativeControl(long? expectedGeneration = null)
     {
+        if (expectedGeneration is { } expected && expected != Volatile.Read(ref controlGeneration)) return;
         bool wasControlling = controlling; controlling = false;
         if (!wasControlling || !AutomaticClipboard || !clipboardEnabled || !IsAlive || ClipboardSequenceReader is null || ClipboardReadAllowed?.Invoke() == false) return;
         CancelClipboardPull();

@@ -21,7 +21,12 @@ ControlService performs touch gestures, navigation and editing through accessibi
 Android input is guarded by device/session state and release handling.
 
 InputCapture translates Windows low-level keyboard/mouse hooks into the selected
-IPhoneControl transport. LAN Paste passes Unicode text directly, with no legacy
+IPhoneControl transport. PhoneControlRoute gives ready BLE HID priority over
+ready LAN touch, releasing capture before a transport change. Bluetooth starts
+with the window; pending or absent HID does not block LAN. The only subscribed
+phone is selected automatically; multiple phones require selection. Delayed BLE
+clipboard-return completion is guarded by the LAN control generation, so it
+cannot interrupt a newer touch capture. LAN Paste passes Unicode text directly, with no legacy
 binary protocol adapter. Phone edge feedback uses the LAN JSON channel. Geometry,
 button state and keyboard state live in Core.
 

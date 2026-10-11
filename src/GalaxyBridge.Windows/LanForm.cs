@@ -10,6 +10,7 @@ namespace GalaxyBridge.Windows;
 internal sealed class LanForm : Form
 {
     private readonly NotifyIcon tray = new();
+    private readonly PhoneControlRoute route;
     private readonly Settings settings;
     private readonly LanHost host;
     private readonly CancellationTokenSource lifetime = new();
@@ -30,8 +31,8 @@ internal sealed class LanForm : Form
     private readonly Label clipboardState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly Label bluetoothState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly ComboBox bluetoothPeers = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 270, Visible = false };
-    private readonly Button bluetooth = new() { Text = "Системная мышь по Bluetooth (тест)", AutoSize = true };
-    private readonly Button bluetoothStop = new() { Text = "Вернуться к сенсорному управлению", AutoSize = true, Visible = false };
+    private readonly Button bluetooth = new() { Text = "Подключить Bluetooth (тест)", AutoSize = true };
+    private readonly Button bluetoothStop = new() { Text = "Отключить Bluetooth", AutoSize = true, Visible = false };
     private BleHidSession? nativeMouse;
     private Task? bluetoothOperation;
     private bool refreshingBluetooth, refreshBluetoothAgain;
@@ -49,7 +50,8 @@ internal sealed class LanForm : Form
     {
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
-        Text = "Galaxy Bridge • без отладки • 0.7.5"; Font = new Font("Segoe UI", 10);
+        route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
+        Text = "Galaxy Bridge • без отладки • 0.7.6"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -73,19 +75,9 @@ internal sealed class LanForm : Form
         FlowLayoutPanel control = new() { AutoSize = true }; control.Controls.Add(side); control.Controls.Add(toggle); control.Controls.Add(edgeEntry); page.Controls.Add(control);
         FlowLayoutPanel nativeActions = new() { AutoSize = true };nativeActions.Controls.Add(bluetooth);nativeActions.Controls.Add(bluetoothStop);page.Controls.Add(nativeActions);
         page.Controls.Add(bluetoothPeers);page.Controls.Add(bluetoothState);
-        bluetoothState.Text = "Сенсорный режим: касания и свайпы. Системный режим: обычная Bluetooth-мышь и клавиатура; отладка не нужна. Требуется поддержка Bluetooth LE Peripheral на ноутбуке.";
-        bluetooth.Click += async (_, _) =>
-        {
-            if (bluetoothOperation is not null) return;
-            bluetoothOperation = StartBluetoothAsync();
-            try { await bluetoothOperation; } finally { bluetoothOperation = null; }
-        };
-        bluetoothStop.Click += async (_, _) =>
-        {
-            if (bluetoothOperation is not null) return;
-            bluetoothOperation = StopBluetoothAsync();
-            try { await bluetoothOperation; } finally { bluetoothOperation = null; }
-        };
+        bluetoothState.Text = "Выбор мыши автоматический: подключённый Bluetooth HID — системная мышь Android; только Wi-Fi — курсор приложения. Требуется Bluetooth LE Peripheral на ноутбуке.";
+        bluetooth.Click += async (_, _) => await RunBluetoothAsync(true);
+        bluetoothStop.Click += async (_, _) => await RunBluetoothAsync(false);
         bluetoothPeers.SelectedIndexChanged += (_, _) =>
         {
             capture?.Stop();armed = false;
@@ -126,10 +118,10 @@ internal sealed class LanForm : Form
         };
         toggle.Click += (_, _) => Toggle(); files.Click += async (_, _) => await ChooseFilesAsync();
         host.Connected += candidate => Ui(() => Attach(candidate)); host.State += text => Ui(() => connectionDetail.Text = text);
-        timer.Tick += (_, _) => { if (!host.PairingOpen) ClearQr(); if (capture?.Active == true && !InputReady) capture?.Stop(); CheckEdge(); UpdateState(); };
+        timer.Tick += (_, _) => { if (!host.PairingOpen) ClearQr(); UpdateState(); CheckEdge(); };
         clipboardRetry.Tick += (_, _) => ReadLocalClipboard();
         SystemEvents.SessionSwitch += SessionChanged; SystemEvents.PowerModeChanged += PowerChanged;
-        Shown += (_, _) => Start(); FormClosing += CloseAsync;
+        Shown += async (_, _) => { Start(); await RunBluetoothAsync(true); }; FormClosing += CloseAsync;
         ContextMenuStrip menu = new();
         menu.Items.Add("Открыть", null, (_, _) => OpenWindow());
         menu.Items.Add("Управлять телефоном / вернуться на ПК", null, (_, _) => Toggle());
@@ -161,7 +153,7 @@ internal sealed class LanForm : Form
     {
         try
         {
-            capture = new InputCapture { PasteText = () => { try { return nativeMouse is null && share.Checked && Clipboard.ContainsText() ? Clipboard.GetText() : null; } catch (ExternalException) { return null; } } };
+            capture = new InputCapture { PasteText = () => { try { return route.Current is LanSession && share.Checked && Clipboard.ContainsText() ? Clipboard.GetText() : null; } catch (ExternalException) { return null; } } };
             capture.ToggleRequested += Toggle; capture.EdgeReturnRequested += () => capture?.Stop();
             capture.DesktopChanged += () => Ui(() => capture?.Stop()); capture.Error += text => { state.Text = text; };
             host.Start(); RefreshAddresses(); timer.Start();
@@ -170,20 +162,27 @@ internal sealed class LanForm : Form
         catch (Exception ex) when (ex is IOException or SocketException or System.ComponentModel.Win32Exception)
         { connectionDetail.Text = "Не удалось открыть режим Wi-Fi: " + ex.Message; }
     }
-    private bool InputReady => nativeMouse is not null ? nativeMouse.IsAlive : session?.InputReady == true;
+    private bool InputReady => route.Current is not null;
+    private async Task RunBluetoothAsync(bool enable)
+    {
+        if (closing || bluetoothOperation is not null) return;
+        bluetoothOperation = enable ? StartBluetoothAsync() : StopBluetoothAsync();
+        try { await bluetoothOperation; } finally { bluetoothOperation = null; }
+    }
     private async Task StartBluetoothAsync()
     {
-        capture?.Stop();armed = false;bluetooth.Enabled = false;
+        if (nativeMouse is not null) return;
+        bluetooth.Enabled = false;
         BleHidSession server = new();nativeMouse = server;
-        server.Changed += () => Ui(() => _ = RefreshBluetoothAsync());
-        server.Fault += message => Ui(() => { capture?.Stop();bluetoothState.Text = message;UpdateState(); });
+        server.Changed += () => Ui(() => { if (nativeMouse == server) { UpdateState(); _ = RefreshBluetoothAsync(); } });
+        server.Fault += message => Ui(() => { if (nativeMouse == server) { bluetoothState.Text = message;UpdateState(); } });
         try
         {
             using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             deadline.CancelAfter(TimeSpan.FromSeconds(20));
             await server.StartAsync(deadline.Token);
             bluetoothStop.Visible = true;bluetoothPeers.Visible = true;
-            bluetoothState.Text = "На телефоне откройте Bluetooth, найдите этот ноутбук и подтвердите сопряжение на обоих устройствах. Затем выберите телефон здесь и нажмите «Управлять телефоном». Отладка и специальные возможности для мыши не нужны. После перезапуска приложения при необходимости нажмите «Подключить» в Bluetooth телефона.";
+            bluetoothState.Text = "На телефоне откройте Bluetooth, найдите ноутбук и подтвердите сопряжение. Единственный подключённый телефон выбирается автоматически; если их несколько, выберите нужный. При готовой HID-связи используется системная мышь, иначе — мышь приложения по Wi-Fi. После перезапуска при необходимости нажмите «Подключить» в Bluetooth телефона.";
             await RefreshBluetoothAsync();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException or OperationCanceledException or PlatformNotSupportedException)
@@ -200,7 +199,7 @@ internal sealed class LanForm : Form
         BleHidSession? server = nativeMouse;nativeMouse = null;
         if (server is not null) await server.DisposeAsync();
         bluetoothPeers.Items.Clear();bluetoothPeers.Visible = bluetoothStop.Visible = false;bluetooth.Enabled = !closing;
-        bluetoothState.Text = "Сенсорное управление через Wi-Fi. Для настоящей мыши включите системный режим.";
+        bluetoothState.Text = "Bluetooth отключён. При подключении по Wi-Fi используется курсор приложения.";
         UpdateState();
     }
     private async Task RefreshBluetoothAsync()
@@ -317,27 +316,28 @@ internal sealed class LanForm : Form
     }
     private void UpdateState()
     {
+        route.Update(nativeMouse, session);
         toggle.Enabled = !closing && !suspended && !paused && sending is null && InputReady && capture is not null;
         files.Enabled = !closing && !suspended && !paused && sending is null && session?.IsAlive == true;
         UpdateFiles();
         toggle.Text = capture?.Active == true ? "Вернуть курсор на ПК" : "Управлять телефоном";
         if (qr.Image is not null) return;
-        if (nativeMouse is not null)
+        if (route.Current is BleHidSession)
         {
-            state.Text = paused ? "Подключение остановлено." : nativeMouse.IsAlive ? "Системная мышь и клавиатура готовы. " +
-                (session?.IsAlive == true ? "Файлы и общий буфер подключены через Wi-Fi." : "Для файлов и общего буфера подключите приложение телефона по QR.") :
-                "Ожидаем системное Bluetooth-подключение и выбор телефона. После перезапуска при необходимости нажмите «Подключить» в Bluetooth телефона.";
+            state.Text = paused ? "Подключение остановлено." : "Мышь: системная, по Bluetooth. " +
+                (session?.IsAlive == true ? "Файлы и общий буфер подключены через Wi-Fi." : "Для файлов и общего буфера подключите приложение телефона по QR.");
             return;
         }
         state.Text = paused ? "Подключение остановлено." : session?.IsAlive == true ? "Подключён: " + session.Name +
-            (session.InputReady ? ". Управление готово." : ". Для управления разблокируйте экран и включите специальные возможности.") : "Ожидаем телефон. Приложение на S25 восстановит связь автоматически.";
+            (session.InputReady ? ". Мышь: курсор приложения, по Wi-Fi." : ". Для управления разблокируйте экран и включите специальные возможности.") : "Ожидаем телефон по Wi-Fi или Bluetooth.";
     }
     private void Toggle()
     {
+        route.Update(nativeMouse, session);
         if (capture?.Active == true) { capture.Stop(); armed = false; return; }
         if (closing || suspended || paused || sending is not null || !InputReady || capture is null) return;
         if (nativeMouse is not null) nativeMouse.ClipboardSession = session;
-        IPhoneControl? current = nativeMouse is not null ? nativeMouse : session;
+        IPhoneControl? current = route.Current;
         if (current is null) return;
         try { capture.Start(current, settings.Sensitivity, settings.PhoneSide, true); armed = false; }
         catch (InvalidOperationException ex) { state.Text = ex.Message; }

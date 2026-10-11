@@ -1,6 +1,6 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.5** / Android **0.7.7**. The application starts directly in its LAN
+Windows **0.7.6** / Android **0.7.7**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -9,7 +9,11 @@ Only this edition is maintained; the previous debugging edition remains in Git h
 - **Bluetooth system mouse (experimental):** Windows advertises a BLE HID keyboard
   and mouse. Requires Windows 10 2004+ and a BLE Peripheral-capable adapter.
   Pair from the phone's Bluetooth settings, confirm on both devices, select the
-  phone in Galaxy Bridge. Actual HP/S25 compatibility still requires device testing.
+  phone in Galaxy Bridge when multiple phones are connected. Bluetooth starts
+  with the application. Active HID takes priority automatically; while it is
+  unavailable, ready Wi-Fi touch remains usable. A stored pairing alone is not
+  HID readiness. Route changes release the previous capture; enter control again
+  to use the new transport. Actual HP/S25 compatibility still requires device testing.
 - Files and text clipboard use the paired LAN TLS connection in either mode.
   Ctrl+Alt+F12 switches control. BLE return through the phone edge is not implemented.
 

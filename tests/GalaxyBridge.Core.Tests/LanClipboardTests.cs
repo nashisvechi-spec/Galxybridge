@@ -139,6 +139,16 @@ static class LanClipboardTests
             using var ack = await AutoReplyAsync(peer, nativePull.RootElement.GetProperty("request").GetString()!, "Native HID clipboard");
             check(ack.RootElement.GetProperty("ok").GetBoolean() && writes == 2, "Bluetooth HID retains automatic LAN clipboard delivery");
         }
+        long oldBluetoothCapture = peer.Session.BeginNativeControl();
+        peer.Session.BeginEdgeReturn(PhoneSide.Right);
+        peer.Session.EndNativeControl(oldBluetoothCapture); // Late completion of BLE release after LAN starts.
+        peer.Session.EndEdgeReturn();
+        using (var entered = await peer.NextAsync())
+            check(entered.RootElement.GetProperty("type").GetString() == "capture" && entered.RootElement.GetProperty("active").GetBoolean(), "touch entry survives the previous Bluetooth clipboard epoch");
+        using (var returned = await peer.NextAsync())
+            check(returned.RootElement.GetProperty("type").GetString() == "capture" && !returned.RootElement.GetProperty("active").GetBoolean(), "late Bluetooth release does not read clipboard during touch control");
+        using (var freshPull = await peer.NextAsync())
+            check(freshPull.RootElement.GetProperty("type").GetString() == "clipboardGet", "new touch return still requests its own clipboard after stale Bluetooth return");
         await using var legacy = await Peer.CreateAsync();legacy.Session.ConfigureClipboard(true);
         check(!legacy.Session.AutomaticClipboard && !legacy.Session.PushClipboard("legacy"), "no automatic command is sent to an old peer");
     }
