@@ -22,7 +22,15 @@ internal sealed class LanIdentity : IDisposable
     {
         using RSA key = RSA.Create(2048);
         CertificateRequest request = new("CN=Galaxy Bridge host test", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        Certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        using X509Certificate2 generated = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        byte[] pfx = generated.Export(X509ContentType.Pfx);
+        try
+        {
+            // Match the production LanIdentity import: Schannel requires an
+            // accessible private-key container, not the generated transient key.
+            Certificate = new X509Certificate2(pfx, (string?)null, X509KeyStorageFlags.UserKeySet);
+        }
+        finally { CryptographicOperations.ZeroMemory(pfx); }
     }
     public string Remember(string device) { phone = device; token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant(); return token; }
     public bool Authorize(string device, string supplied) => device == phone && supplied == token && token.Length == 64;

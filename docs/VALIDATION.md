@@ -2,6 +2,16 @@
 
 ## Interrupted TLS attempts and replacement sessions (Windows 0.7.17)
 
+Build follow-up: Windows Actions run 38154658334 stopped in the new host test
+at its first TLS client authentication (`LanHostTests.cs:43/106`, unexpected
+transport EOF). Its in-memory identity fixture used the directly generated
+certificate rather than the production PFX/UserKeySet import. The fixture now
+exports/imports the certificate with exactly those key-storage flags and clears
+the temporary PFX bytes. All host/lifecycle assertions remain enabled. This is
+a test-fixture correction; application code and versions are unchanged. Local
+portable assertions pass after the correction; the Windows workflow must be
+rerun to confirm Schannel and full packaging.
+
 Based on 3d1d4f4f74b9d70963ad031340c56cd231bd8168. The user confirmed the
 My Files receiver transfer works, but reported intermittent Windows status
 `TLS; IOException, 0x80131620`. This is the general IOException HRESULT,
