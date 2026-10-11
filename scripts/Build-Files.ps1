@@ -1,0 +1,58 @@
+param(
+    [string]$Destination = (Join-Path $PSScriptRoot '../artifacts/GalaxyBridge'),
+    [ValidateRange(1,2100000000)][int]$VersionCode = 1
+)
+$ErrorActionPreference = 'Stop'
+$sdkRoot = $env:ANDROID_HOME
+if (-not $sdkRoot) { $sdkRoot = $env:ANDROID_SDK_ROOT }
+if (-not $sdkRoot) { throw 'Android SDK is required.' }
+$androidJar = Join-Path $sdkRoot 'platforms/android-35/android.jar'
+$buildTools = Join-Path $sdkRoot 'build-tools/35.0.0'
+$javaRoot = $env:JAVA_HOME_17_X64
+if (-not $javaRoot) { $javaRoot = $env:JAVA_HOME }
+if (-not $javaRoot) { throw 'JDK 17 is required.' }
+$env:JAVA_HOME = $javaRoot
+$javac = Join-Path $javaRoot 'bin/javac.exe'
+$jarTool = Join-Path $javaRoot 'bin/jar.exe'
+foreach ($tool in 'd8.bat', 'aapt2.exe', 'zipalign.exe', 'apksigner.bat') {
+    if (-not (Test-Path -LiteralPath (Join-Path $buildTools $tool))) { throw "Missing Android tool: $tool" }
+}
+if (-not (Test-Path -LiteralPath $androidJar)) { throw 'Install platforms;android-35.' }
+$sourceRoot = Join-Path $PSScriptRoot '../android/files'
+$work = Join-Path ([IO.Path]::GetTempPath()) ('GalaxyFiles-' + [Guid]::NewGuid().ToString('N'))
+try {
+    $classes = Join-Path $work 'classes'
+    $dex = Join-Path $work 'dex'
+    $generated = Join-Path $work 'generated'
+    New-Item -ItemType Directory -Path $classes, $dex, $generated -Force | Out-Null
+    $signing = & (Join-Path $PSScriptRoot 'Resolve-AndroidSigning.ps1') -WorkDirectory $work
+    $resources = Join-Path $work 'resources.zip'
+    & (Join-Path $buildTools 'aapt2.exe') compile --dir (Join-Path $sourceRoot 'res') -o $resources
+    if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files resource compilation failed.' }
+    $unsigned = Join-Path $work 'unsigned.apk'
+    & (Join-Path $buildTools 'aapt2.exe') link -o $unsigned --manifest (Join-Path $sourceRoot 'AndroidManifest.xml') -I $androidJar --min-sdk-version 33 --target-sdk-version 35 --version-code $VersionCode --version-name 0.1.0 --java $generated $resources
+    if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files resource linking failed.' }
+    $sources = @(Get-ChildItem (Join-Path $sourceRoot 'src') -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
+    $sources += @(Get-ChildItem $generated -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
+    & $javac --release 8 -encoding UTF-8 -classpath $androidJar -d $classes @sources
+    if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files Java compilation failed.' }
+    $bytecode = Join-Path $work 'classes.jar'
+    & $jarTool --create --file $bytecode -C $classes .
+    if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files class packaging failed.' }
+    & (Join-Path $buildTools 'd8.bat') --min-api 33 --lib $androidJar --output $dex $bytecode
+    if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files dex compilation failed.' }
+    & $jarTool --update --file $unsigned -C $dex classes.dex
+    if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files dex insertion failed.' }
+    $aligned = Join-Path $work 'aligned.apk'
+    & (Join-Path $buildTools 'zipalign.exe') -f 4 $unsigned $aligned
+    if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files zipalign failed.' }
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    $apk = Join-Path $Destination 'GalaxyFiles.apk'
+    & (Join-Path $buildTools 'apksigner.bat') sign --ks $signing.Keystore --ks-key-alias $signing.Alias --ks-pass env:GALAXYBRIDGE_ANDROID_SIGNING_PASSWORD --key-pass env:GALAXYBRIDGE_ANDROID_SIGNING_PASSWORD --out $apk $aligned
+    if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files signing failed.' }
+    & (Join-Path $buildTools 'apksigner.bat') verify --verbose $apk
+    if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files signature verification failed.' }
+} finally {
+    [Environment]::SetEnvironmentVariable('GALAXYBRIDGE_ANDROID_SIGNING_PASSWORD', $null)
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+}

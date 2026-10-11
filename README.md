@@ -1,6 +1,6 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.19** / Android **0.7.18**. The application starts directly in its LAN
+Windows **0.7.20** / Android **0.7.21**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -85,7 +85,7 @@ does not yet include a Classic HID backend. See [the analysis](docs/GLIDEX_WINDO
 
 Builds run **manually only**: Actions → Build Windows portable → Run workflow.
 Two artifacts are published: **GalaxyBridge-win10-x64** and **GalaxyBridgeLan-android**.
-The ZIP contains GalaxyBridge.exe, GalaxyBridgeLan.apk, instructions and notices.
+The ZIP contains GalaxyBridge.exe, GalaxyBridgeLan.apk, GalaxyFiles.apk, instructions and notices.
 No external connection backend or separate edge companion is bundled.
 
 Install the APK, put both devices on the same LAN, show a new QR in Windows,
@@ -116,3 +116,14 @@ Set GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE to the existing persistent signing bundl
 and choose a VersionCode greater than the installed APK. GitHub Actions restores
 this bundle from ANDROID_SIGNING_BUNDLE and verifies its public certificate pin.
 MIT license; packaged dependencies retain [their notices](THIRD_PARTY_NOTICES.md).
+
+## Standalone Galaxy Files
+
+This repository also contains **Galaxy Files 0.1.0**, an independently installed
+Android 13+ file manager (`android/files`, package `com.galaxybridge.files`).
+The manual Windows workflow builds `GalaxyFiles.apk` as `GalaxyFiles-android`
+and includes it beside the Wi-Fi companion in the portable ZIP.
+Local browsing and file operations work without a PC. Sending and Wi-Fi mouse
+dragging use the separately installed GalaxyBridge companion and its existing
+connection. Both APKs use the persistent project signing key.
+See [installation, features and limitations](docs/GALAXY_FILES.ru.md).

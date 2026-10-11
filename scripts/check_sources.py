@@ -114,7 +114,7 @@ def main() -> None:
     require(trigger is not None and trigger.group(1).strip() == 'workflow_dispatch:',
             'Workflow must be manual only; no push/PR/release trigger')
     actions = re.findall(r'uses:\s*([^\s]+)', workflow)
-    require(len(actions) == 5 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
+    require(len(actions) == 6 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
             'Actions must use pinned commit IDs')
     require('contents: read' in workflow and 'contents: write' not in workflow,
             'Build workflow requires read-only repository permissions')
@@ -174,7 +174,24 @@ def main() -> None:
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
     java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java')) + list((ROOT / 'tests/android-drop-stubs').rglob('*.java'))
-    require(len(java) == 45, 'Expected LAN Android and protocol/input/clipboard/wheel/drop test sources')
+    require(len(java) == 46, 'Expected LAN Android and protocol/input/clipboard/wheel/drop/IPC test sources')
+    files = ET.fromstring(read('android/files/AndroidManifest.xml'))
+    require(files.get('package') == 'com.galaxybridge.files', 'File manager is a separate Android package')
+    provider = files.find('.//provider')
+    require(provider is not None and provider.get(ns + 'exported') == 'false' and provider.get(ns + 'grantUriPermissions') == 'true',
+            'File sharing provider is private with explicit URI grants')
+    ipc = lan.find('.//service[@' + ns + 'name=".FilesBridgeService"]')
+    require(ipc is not None and ipc.get(ns + 'permission') == 'com.galaxybridge.lan.permission.FILES_BRIDGE',
+            'File manager IPC requires the signature permission')
+    permission = lan.find('permission')
+    require(permission is not None and permission.get(ns + 'protectionLevel') == 'signature', 'IPC is restricted to matching signatures')
+    require('./scripts/Build-Files.ps1' in workflow and './scripts/Test-Files.ps1' in workflow and 'GalaxyFiles-android' in workflow,
+            'Manual build tests and packages the standalone file manager')
+    require('Resolve-AndroidSigning.ps1' in read('scripts/Build-Files.ps1'), 'File manager uses the persistent project key')
+    read('docs/GALAXY_FILES.ru.md')
+    for xml in (ROOT / 'android/files/res').rglob('*.xml'):
+        ET.parse(xml)
+    java += list((ROOT / 'android/files/src').rglob('*.java')) + list((ROOT / 'tests/android-files').rglob('*.java'))
     for helper in java:
         balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]

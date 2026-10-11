@@ -93,10 +93,18 @@ public final class ControlService extends AccessibilityService {
         } catch(Exception e) { reset(); ConnectionService.disconnect(); }
     }
     private InputMethod.AccessibilityInputConnection input() { InputMethod method=getInputMethod(); return method==null?null:method.getCurrentInputConnection(); }
+    boolean filesForeground() {
+        if(!active || !ready(this)) return false;
+        AccessibilityNodeInfo root=getRootInActiveWindow();
+        if(root==null) return false;
+        try { return "com.galaxybridge.files".contentEquals(root.getPackageName()==null?"":root.getPackageName()); }
+        finally { root.recycle(); }
+    }
     private void mouse(JSONObject command) throws Exception {
         int dx=command.getInt("dx"),dy=command.getInt("dy"),next=command.getInt("buttons"),wheel=command.getInt("wheel");
         if(Math.abs((long)dx)>8192 || Math.abs((long)dy)>8192 || Math.abs((long)wheel)>32 || next<0 || next>7) throw new IllegalArgumentException();
         dimensions(); x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
+        if(FilesBridgeService.route(x,y,next,buttons,wheel,side,epoch,width,height)) { buttons=next;poll();return; }
         EdgeFileDrag.Pointer heldEdge=DropActivity.edgePointer(new EdgeFileDrag.Pointer(epoch,side,width,height,x,y,next,mouseStroke!=null));
         if(heldEdge!=null) { x=heldEdge.x;y=heldEdge.y;buttons=next;poll();return; }
         if(SendActivity.remotePointer(x,y,next,buttons,side,epoch,width,height)) { buttons=next;poll();return; }
@@ -279,10 +287,12 @@ public final class ControlService extends AccessibilityService {
     void poll() {
         if(!active) return; if(!ready(this)) { reset(); ConnectionService.send(Wire.message("pong","ready",false)); return; }
         dimensions(); showPointer();
+        if(FilesBridgeService.suppressEdge()) return;
         String line=String.format(Locale.ROOT,"GB_EDGE %d %d %d %d %.2f %.2f %d",epoch,++sequence,width,height,x,y,buttons);
         ConnectionService.send(Wire.message("edge","line",line));
     }
     void reset() {
+        FilesBridgeService.resetPointer();
         SendActivity.cancelRemoteDrag();
         // Finish even an in-flight continuation on disconnect/lock/re-entry. Android
         // schedules it after the current segment; stale callbacks cannot revive it.

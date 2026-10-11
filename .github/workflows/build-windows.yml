@@ -47,10 +47,16 @@ jobs:
           packages: platforms;android-35 build-tools;35.0.0
       - name: Test Android LAN wire and pairing parsers on JVM
         run: ./scripts/Test-LanProtocol.ps1
+      - name: Test standalone file manager operations
+        run: ./scripts/Test-Files.ps1
       - name: Build independent Wi-Fi companion APK
         env:
           GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE: ${{ secrets.ANDROID_SIGNING_BUNDLE }}
         run: ./scripts/Build-LanCompanion.ps1 -Destination artifacts/GalaxyBridge -VersionCode (100000 + [int]$env:GITHUB_RUN_NUMBER)
+      - name: Build standalone Galaxy Files APK
+        env:
+          GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE: ${{ secrets.ANDROID_SIGNING_BUNDLE }}
+        run: ./scripts/Build-Files.ps1 -Destination artifacts/GalaxyBridge -VersionCode (100000 + [int]$env:GITHUB_RUN_NUMBER)
       - name: Include instructions and notices
         run: |
           Copy-Item README.ru.md, LICENSE, THIRD_PARTY_NOTICES.md -Destination artifacts/GalaxyBridge
@@ -60,7 +66,8 @@ jobs:
         run: |
           $apks = @(Get-ChildItem artifacts/GalaxyBridge -Recurse -File -Filter '*.apk')
           $executables = @(Get-ChildItem artifacts/GalaxyBridge -Recurse -File -Filter '*.exe')
-          if ($apks.Count -ne 1 -or $apks[0].Name -ne 'GalaxyBridgeLan.apk') { throw 'Expected only the LAN companion APK.' }
+          $names = @($apks.Name | Sort-Object)
+          if ($apks.Count -ne 2 -or ($names -join ',') -ne 'GalaxyBridgeLan.apk,GalaxyFiles.apk') { throw 'Expected the LAN companion and standalone Galaxy Files APKs.' }
           if ($executables.Count -ne 1 -or $executables[0].Name -ne 'GalaxyBridge.exe') { throw 'Expected only the Galaxy Bridge executable.' }
       - name: Package portable application
         run: Compress-Archive -Path artifacts/GalaxyBridge/* -DestinationPath artifacts/GalaxyBridge-win10-x64.zip
@@ -76,5 +83,12 @@ jobs:
         with:
           name: GalaxyBridgeLan-android
           path: artifacts/GalaxyBridge/GalaxyBridgeLan.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload standalone file manager APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: GalaxyFiles-android
+          path: artifacts/GalaxyBridge/GalaxyFiles.apk
           if-no-files-found: error
           retention-days: 14
