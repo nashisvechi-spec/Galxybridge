@@ -1,4 +1,40 @@
-# Validation — Windows 0.7.13 / Android 0.7.13
+# Validation — Windows 0.7.13 / Android 0.7.14
+
+## Android multi-window file-drop receiver (0.7.14)
+
+Based on f310889385bae93693cc79cde8b29495456817cb. Adds a private, resizable
+DropActivity, opened from Setup, using the framework OnDragListener. Content URIs
+are read only at ACTION_DROP and permission is requested before provider access.
+Metadata queries, opening and the first-byte probe run off the UI thread with
+cancellation, a 20-second cancellation request, and deterministic stream cleanup.
+The button forwards ClipData/read permission into SendActivity before the original
+owner closes, then starts the existing staged preparation. No data is uploaded
+by the probe itself; all files must pass before the button becomes available.
+Recreation requires a fresh drop rather than restoring expired drag permissions.
+
+- All companion Java sources compile for Java 8 against Android API 35/ZXing
+  with ECJ; only pre-existing production warnings remain.
+- 753 portable JVM assertions pass, including 27 new stream/read-access checks:
+  valid and empty files, missing metadata, one-byte reads, count and known-size
+  limits, I/O failure, permission rejection, cancellation and stream cleanup.
+- Source-package checks pass; manual workflow includes the new probe tests.
+- Windows, LAN upload protocol and ordinary mouse gesture processing are unchanged.
+  Windows 0.7.13 remains compatible; signing and increasing workflow versionCode
+  retain the existing APK update mechanism.
+
+The user confirmed that the existing card-to-Windows-folder operation works.
+The Samsung My Files global drag, permission forwarding, split/pop-up window,
+and accessibility-injected drag still require device testing. Framework behavior
+cannot be verified by JVM tests. Full signed APK/EXE packaging remains in the
+existing manual Windows workflow. This receiver is a two-gesture prototype,
+not direct My Files-to-Windows screen-edge handoff or virtual-file streaming.
+
+Official API references used for implementation:
+- https://developer.android.com/develop/ui/views/touch-and-input/drag-drop/multi-window
+- https://developer.android.com/reference/android/view/DragEvent#getClipData()
+- https://developer.android.com/reference/android/content/ContentResolver
+
+See the device checklist in [FILE_DRAG.ru.md](FILE_DRAG.ru.md).
 
 ## Staged phone-to-Windows file drag (0.7.13)
 

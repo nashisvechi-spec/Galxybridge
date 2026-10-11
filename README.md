@@ -1,10 +1,17 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.13** / Android **0.7.13**. The application starts directly in its LAN
+Windows **0.7.13** / Android **0.7.14**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
 Version **0.7.13** adds a staged phone-to-Windows file drag from the companion’s blue card into Explorer or the desktop. Wi-Fi mouse mode only; originals are preserved. See [setup and device checks](docs/FILE_DRAG.ru.md). The restored 0.7.8 ordinary movement path remains unchanged.
+
+Android **0.7.14** adds a visible multi-window drop receiver for Samsung My Files
+and other applications that provide readable content URIs. It checks actual
+read access, then forwards the selected files and temporary permission to the
+existing preparation/card flow. Windows 0.7.13 remains compatible. This is a
+two-step prototype; direct My Files-to-screen-edge handoff is not implemented.
+See [the phone test procedure](docs/FILE_DRAG.ru.md#приём-из-моих-файлов--android-0714).
 
 - **LAN touch control:** Android AccessibilityService performs taps, long presses,
   continued touch drags, swipes and two-finger zoom. No Bluetooth adapter is required.

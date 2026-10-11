@@ -18,6 +18,7 @@
         </activity>
         <activity android:name=".ScanActivity" android:exported="false" />
         <activity android:name=".ClipboardActivity" android:exported="false" />
+        <activity android:name=".DropActivity" android:exported="false" android:resizeableActivity="true" />
         <activity android:name=".SendActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
