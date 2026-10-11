@@ -1,4 +1,37 @@
-# Validation — Windows 0.7.10 / Android 0.7.10
+# Validation — Windows 0.7.11 / Android 0.7.11
+
+## Restore 0.7.8 movement (0.7.11)
+
+The user requested the mouse movement behavior from Windows 0.7.8 and its
+Android 0.7.8 companion. Baseline commit: 22177123178b152ef0ed8ece7a392c8f627a6f54.
+InputCapture.cs and the edge policy match the baseline exactly. Android readiness,
+dimension lookup, movement/clamping, showPointer, poll and reset return to their
+original implementation; differences in ControlService concern wheel gestures only.
+The 8ms hook path, Choreographer and per-motion input acknowledgement metadata
+are removed. Ordinary TLS mouse packets have precisely the baseline's five fields.
+
+Wheel zoom remains optional on wheel events and has a separate wheelZoom
+capability. The host also accepts touchInput from 0.7.9/0.7.10 APKs as evidence of
+wheel support while sending baseline motion packets. Old APKs retain ordinary
+scrolling. Touch edge feedback still rejects stale captures/sequences and feedback
+after release without adding locks to the mouse hot path. Native Bluetooth,
+clipboard, files, pairing and the persistent APK signing identity remain unchanged.
+
+- 2249 Core assertions passed, including real TLS delivery of 64 alternating
+  baseline-format movement packets, Ctrl-wheel/setting behavior, old-APK wheel
+  compatibility, and capture/sequence rejection without input metadata.
+- All Core/Windows sources compiled with warnings as errors; all Android LAN
+  sources compiled against API 35/ZXing for Java 8 with existing warnings only.
+- 694 portable JVM assertions and 46,919 structural source-package checks passed.
+- Exact source comparison verified Windows InputCapture/edge policy and Android
+  readiness, dimensions, mouse movement, rendering, poll, reset and continued drag
+  methods against the 0.7.8 baseline (wheel-specific changes excluded).
+
+The restored behavior is source-verified, not hardware-measured. Full MSBuild/APK
+packaging remains in the manual workflow. Release numbers increase to 0.7.11 so
+the APK can be upgraded in place; there is no downgrade of Android VersionCode.
+
+## Historical validation (superseded by 0.7.11)
 
 ## Pointer responsiveness (0.7.10)
 

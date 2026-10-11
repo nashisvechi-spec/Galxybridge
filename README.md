@@ -1,15 +1,14 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.10** / Android **0.7.10**. The application starts directly in its LAN
+Windows **0.7.11** / Android **0.7.11**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
 - **LAN touch control:** Android AccessibilityService performs taps, long presses,
   continued touch drags, swipes and two-finger zoom. No Bluetooth adapter is required.
-  With APK 0.7.10, Ctrl+wheel zooms PDFs/images; the saved “Масштабировать колёсиком
+  With APK 0.7.11, Ctrl+wheel zooms PDFs/images; the saved “Масштабировать колёсиком
   по Wi-Fi” option enables zoom with the wheel alone. The viewer must support pinch
-  gestures. Wi-Fi edge return uses phone-confirmed outward motion and rejects
-  late input after a direction reversal.
+  gestures. Wi-Fi edge return uses the original direction and freshness checks.
 - **Bluetooth system mouse (experimental):** Windows advertises a BLE HID keyboard
   and mouse. Requires Windows 10 2004+ and a BLE Peripheral-capable adapter.
   Pair from the phone's Bluetooth settings, confirm on both devices, select the
@@ -23,9 +22,11 @@ Only this edition is maintained; the previous debugging edition remains in Git h
   Android mouse hover over a one-pixel overlay and the authorized LAN connection.
   It requires APK 0.7.8 and overlay permission; it does not require accessibility.
 
-Version 0.7.10 sends motion directly from the Windows mouse hook at paced 8ms
-intervals and updates the Android pointer once per display frame. Update both
-Windows and APK to use the responsiveness changes.
+Version 0.7.11 restores movement behavior from Windows 0.7.8 and its Android
+0.7.8 companion: 16ms timer batching, the original motion packet and immediate
+Android pointer updates. Update both Windows and APK. Wheel zoom remains an
+optional field on wheel events only. Pairing, signing identity and settings remain
+compatible; the new version number permits an in-place APK update.
 
 The supplied Windows GlideX uses a separate Classic Bluetooth HID driver.
 BLE Peripheral support does not measure Classic HID compatibility; Galaxy Bridge

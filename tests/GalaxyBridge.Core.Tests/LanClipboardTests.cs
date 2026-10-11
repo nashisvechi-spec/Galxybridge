@@ -59,85 +59,73 @@ static class LanClipboardTests
         check(!peer.Session.IsAlive, "malformed clipboard request closes protocol session");
         await AutomaticAsync(check);
         await NativeEdgeAsync(check);
-        await TouchInputAsync(check);
+        await LegacyMouseAsync(check);
     }
-    private static async Task TouchInputAsync(Action<bool, string> check)
+    private static async Task LegacyMouseAsync(Action<bool, string> check)
     {
         await using (var legacy = await Peer.CreateAsync())
         {
             legacy.Session.Mouse(0, 0, 0, 1);
             using var wheel = await legacy.NextAsync();
-            check(wheel.RootElement.GetProperty("wheel").GetInt32() == 1 && !wheel.RootElement.TryGetProperty("zoom", out _), "old APK keeps ordinary wheel scrolling and receives no new fields");
+            check(wheel.RootElement.GetProperty("wheel").GetInt32() == 1 && !wheel.RootElement.TryGetProperty("zoom", out _), "old APK retains ordinary wheel scrolling");
             legacy.Session.Keyboard(new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 });
             legacy.Session.Mouse(0, 0, 0, 1);
             using var unsupportedZoom = await legacy.NextAsync();
-            check(unsupportedZoom.RootElement.GetProperty("wheel").GetInt32() == 0, "unsupported Ctrl-wheel does not scroll an old APK unexpectedly");
+            check(unsupportedZoom.RootElement.GetProperty("wheel").GetInt32() == 0, "unsupported zoom does not accidentally scroll an old APK");
         }
-        await using var peer = await Peer.CreateAsync(touchInput: true);
+        await using var peer = await Peer.CreateAsync(wheelZoom: true);
         int epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);
         using var start = await peer.NextAsync();
-        async Task<long> Mouse(byte buttons = 0, int dx = 0, int wheel = 0, bool zoom = false)
+        bool unchanged = true;
+        for (int i = 0; i < 64; i++)
         {
-            peer.Session.Mouse(buttons, dx, 0, wheel);
+            int dx = i % 2 == 0 ? i + 1 : -i - 1, dy = 17 - i;
+            peer.Session.Mouse(0, dx, dy);
             using var packet = await peer.NextAsync();
-            check(packet.RootElement.GetProperty("zoom").GetBoolean() == zoom && packet.RootElement.GetProperty("wheel").GetInt32() == wheel, "Wi-Fi wheel mode is carried over the real TLS connection");
-            return packet.RootElement.GetProperty("seq").GetInt64();
+            JsonElement root = packet.RootElement;
+            unchanged &= root.EnumerateObject().Select(p => p.Name).Order().SequenceEqual(new[] { "buttons", "dx", "dy", "type", "wheel" }) &&
+                root.GetProperty("type").GetString() == "mouse" && root.GetProperty("buttons").GetInt32() == 0 &&
+                root.GetProperty("dx").GetInt32() == dx && root.GetProperty("dy").GetInt32() == dy && root.GetProperty("wheel").GetInt32() == 0;
         }
-        await Mouse(wheel: 1);
+        check(unchanged, "ordinary movement over actual TLS uses precisely the five-field 0.7.8 format and retains every delta");
+        async Task Wheel(byte buttons = 0, int steps = 1, bool zoom = false)
+        {
+            peer.Session.Mouse(buttons, 0, 0, steps);
+            using var packet = await peer.NextAsync();
+            JsonElement root = packet.RootElement;
+            bool isZoom = root.TryGetProperty("zoom", out var value) && value.GetBoolean();
+            check(root.GetProperty("wheel").GetInt32() == steps && root.GetProperty("buttons").GetInt32() == buttons && isZoom == zoom &&
+                !root.TryGetProperty("seq", out _) && root.EnumerateObject().Count() == (zoom ? 6 : 5),
+                "only a zoom wheel event adds the optional zoom field");
+        }
+        await Wheel();
         foreach (byte ctrl in new byte[] { 1, 16 })
         {
             peer.Session.Keyboard(new byte[] { ctrl, 0, 0, 0, 0, 0, 0, 0 });
-            await Mouse(wheel: -1, zoom: true);
+            await Wheel(steps: -1, zoom: true);
         }
-        peer.Session.Keyboard(new byte[8]);
-        await Mouse(wheel: 1);
-        peer.Session.WheelZoomEnabled = true;
-        await Mouse(wheel: 1, zoom: true);
-        await Mouse(buttons: 1, wheel: 1);
-        await Mouse();
-        long outward = await Mouse(dx: -5);
+        peer.Session.Keyboard(new byte[8]); await Wheel();
+        peer.Session.WheelZoomEnabled = true; await Wheel(zoom: true); await Wheel(buttons: 1);
         async Task Deliver(object message)
         {
             await peer.Stream.WriteAsync(LanProtocol.Encode(message));
             using var barrier = await peer.RequestAsync(Guid.NewGuid().ToString("N"), "barrier");
         }
-        object Edge(int capture, long sequence, long inputSequence, bool intent = true) =>
-            new { type = "edge", line = $"GB_EDGE {capture} {sequence} 1080 2400 0 1200 0", inputSequence, outward = intent };
-        await Deliver(Edge(epoch, 1, outward));
-        check(peer.Session.LatestEdge is { OutwardIntent: true } && peer.Session.LatestEdge.InputSequence == outward, "phone confirms an outward move at the return edge");
-        long inward = await Mouse(dx: 5);
-        check(peer.Session.LatestEdge is null, "host reversal immediately invalidates the old exit confirmation");
-        await Deliver(Edge(epoch, 2, outward));
-        check(peer.Session.LatestEdge is null, "freshly received but old input feedback cannot undo a reversal");
-        await Deliver(Edge(epoch, 3, inward, false));
-        check(peer.Session.LatestEdge?.Sequence == 3 && !peer.Session.LatestEdge.OutwardIntent, "phone acknowledges reversal without an exit intent");
-        await Deliver(Edge(epoch, 2, inward));
-        await Deliver(Edge(epoch + 1, 100, inward));
-        await Deliver(Edge(epoch, 100, inward + 100));
-        await Deliver(new { type = "edge", line = $"GB_EDGE {epoch} 100 1080 2400 0 1200 0", inputSequence = "bad", outward = true });
-        check(peer.Session.LatestEdge?.Sequence == 3 && peer.Session.IsAlive, "stale capture, out-of-order and invalid input acknowledgements cannot replace feedback");
-        long afterScroll = await Mouse(wheel: 1, zoom: true);
-        check(peer.Session.LatestEdge is null, "scroll immediately invalidates edge feedback before its phone acknowledgement");
-        await Deliver(Edge(epoch, 4, afterScroll, false));
-        check(peer.Session.LatestEdge is { OutwardIntent: false }, "phone clears exit confirmation after scrolling");
-        long afterPress = await Mouse(buttons: 1);
-        check(peer.Session.LatestEdge is null, "button press immediately invalidates edge feedback before its phone acknowledgement");
-        await Mouse();
-        peer.Session.EndEdgeReturn();
-        using var stop = await peer.NextAsync();
-        await Deliver(Edge(epoch, 101, inward));
-        check(peer.Session.LatestEdge is null, "late touch feedback cannot revive an ended capture");
-        int next = peer.Session.BeginEdgeReturn(PhoneSide.Right);
-        using var restart = await peer.NextAsync();
-        long newOutward = await Mouse(dx: -5);
-        check(newOutward == 1, "input sequencing resets for a new capture");
-        await Deliver(Edge(epoch, 200, 1));
-        check(peer.Session.LatestEdge is null, "previous capture cannot confirm a new exit");
-        await Deliver(Edge(next, 1, 1));
-        check(peer.Session.LatestEdge?.CaptureId == next, "new capture accepts its own phone confirmation");
-        peer.Session.ReleaseInputs();
-        using var release = await peer.NextAsync();
-        check(peer.Session.LatestEdge is null, "release clears edge and modifier state");
+        object Edge(int capture, long sequence) => new { type = "edge", line = $"GB_EDGE {capture} {sequence} 1080 2400 0 1200 0" };
+        await Deliver(Edge(epoch, 3));
+        check(peer.Session.LatestEdge?.Sequence == 3, "0.7.8 phone edge feedback is accepted without input acknowledgement metadata");
+        await Deliver(Edge(epoch, 2)); await Deliver(Edge(epoch + 1, 100));
+        check(peer.Session.LatestEdge?.Sequence == 3, "older feedback and another capture cannot replace current feedback");
+        peer.Session.EndEdgeReturn(); using var stop = await peer.NextAsync();
+        await Deliver(Edge(epoch, 101));
+        check(peer.Session.LatestEdge is null, "feedback after returning to PC cannot revive a stopped capture");
+        int next = peer.Session.BeginEdgeReturn(PhoneSide.Right); using var restart = await peer.NextAsync();
+        await Deliver(Edge(epoch, 200));
+        check(peer.Session.LatestEdge is null, "old capture feedback cannot return a newly entered cursor");
+        await Deliver(Edge(next, 1));
+        check(peer.Session.LatestEdge?.CaptureId == next, "new capture accepts its own 0.7.8 feedback");
+        peer.Session.ReleaseInputs(); using var release = await peer.NextAsync();
+        check(peer.Session.LatestEdge is null, "release clears touch feedback");
     }
     private static async Task NativeEdgeAsync(Action<bool, string> check)
     {
@@ -342,7 +330,7 @@ static class LanClipboardTests
         public LanSession Session { get; }
         private Peer(TcpClient client, SslStream stream, LanSession session, X509Certificate2 certificate, SslStream server)
         { this.client = client; Stream = stream; Session = session; this.certificate = certificate; this.server = server; }
-        public static async Task<Peer> CreateAsync(bool automatic = false, bool nativeEdge = false, bool touchInput = false)
+        public static async Task<Peer> CreateAsync(bool automatic = false, bool nativeEdge = false, bool wheelZoom = false)
         {
             using RSA rsa = RSA.Create(2048);
             CertificateRequest request = new("CN=Galaxy Bridge clipboard test", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -371,7 +359,7 @@ static class LanClipboardTests
                     ct => server.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate, EnabledSslProtocols = SslProtocols.Tls12 }, ct),
                     ct => stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost", EnabledSslProtocols = SslProtocols.Tls12 }, ct),
                     deadline.Token, () => { accepted.Dispose(); client.Dispose(); });
-                LanSession session = new(accepted, server, "clipboard test", automatic, nativeEdge, touchInput); session.Start();
+                LanSession session = new(accepted, server, "clipboard test", automatic, nativeEdge, wheelZoom); session.Start();
                 return new(client, stream, session, certificate, server);
             }
             catch (Exception ex)

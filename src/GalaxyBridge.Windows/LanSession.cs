@@ -33,12 +33,9 @@ internal sealed class LanSession : IPhoneControl
     }
     public void CancelReceive() => incoming.Cancel();
     private PhoneEdgeSample? edge;
-    private readonly object touchGate = new();
-    private bool touchActive;
-    private PhoneSide touchSide;
-    private long touchInputSequence, lastReturnBlockingInput, touchEdgeSequence;
+    private volatile bool touchActive;
     private byte touchModifiers;
-    public bool TouchInputSupported { get; }
+    public bool WheelZoomSupported { get; }
     public bool WheelZoomEnabled { get; set; }
     private readonly object nativeEdgeGate = new();
     private PhoneEdgeSample? nativeEdge;
@@ -94,13 +91,16 @@ internal sealed class LanSession : IPhoneControl
     public bool IsAlive => Volatile.Read(ref closed) == 0;
     public PhoneEdgeSample? LatestEdge
     {
-        get { lock (touchGate) return touchActive && IsAlive && edge is { } sample &&
-            sample.CaptureId == epoch && (!TouchInputSupported || sample.InputSequence >= lastReturnBlockingInput) ? sample : null; }
+        get
+        {
+            PhoneEdgeSample? sample = Volatile.Read(ref edge);
+            return touchActive && IsAlive && sample?.CaptureId == epoch ? sample : null;
+        }
     }
     public Task Completion { get; private set; } = Task.CompletedTask;
     public event Action? Lost;
-    public LanSession(TcpClient socket, SslStream stream, string name, bool automaticClipboard = false, bool nativeEdgeSupported = false, bool touchInputSupported = false)
-    { this.socket = socket; this.stream = stream; Name = name; AutomaticClipboard = automaticClipboard; NativeEdgeSupported = nativeEdgeSupported; TouchInputSupported = touchInputSupported; }
+    public LanSession(TcpClient socket, SslStream stream, string name, bool automaticClipboard = false, bool nativeEdgeSupported = false, bool wheelZoomSupported = false)
+    { this.socket = socket; this.stream = stream; Name = name; AutomaticClipboard = automaticClipboard; NativeEdgeSupported = nativeEdgeSupported; WheelZoomSupported = wheelZoomSupported; }
     public void Start() => Completion = RunAsync();
     public bool Post(object value)
     {
@@ -111,17 +111,12 @@ internal sealed class LanSession : IPhoneControl
     public int BeginEdgeReturn(PhoneSide side)
     {
         BeginNativeControl();
-        held.Clear();
-        lock (touchGate)
-        {
-            edge = null; touchInputSequence = lastReturnBlockingInput = touchEdgeSequence = 0; touchModifiers = 0;
-            touchSide = side; touchActive = true; int id = checked(++epoch);
-            Post(new { type = "capture", active = true, epoch = id, side = (int)side }); return id;
-        }
+        held.Clear(); touchModifiers = 0; touchActive = false; edge = null; int id = checked(++epoch); touchActive = true;
+        Post(new { type = "capture", active = true, epoch = id, side = (int)side }); return id;
     }
     public void EndEdgeReturn()
     {
-        lock (touchGate) { touchActive = false; edge = null; touchModifiers = 0; Post(new { type = "capture", active = false, epoch, side = 0 }); }
+        touchActive = false; touchModifiers = 0; edge = null; Post(new { type = "capture", active = false, epoch, side = 0 });
         EndNativeControl();
     }
     private long controlGeneration;
@@ -164,27 +159,21 @@ internal sealed class LanSession : IPhoneControl
         }
         Post(new { type = "clipboardGet", request = request.Id });
     }
-    public void ReleaseInputs() { held.Clear(); lock (touchGate) { touchModifiers = 0; touchActive = false; edge = null; } Post(new { type = "release" }); }
-    // New fields are sent only after capability negotiation. Native HID bypasses this path.
+    public void ReleaseInputs() { held.Clear(); touchModifiers = 0; touchActive = false; edge = null; Post(new { type = "release" }); }
+    // Ordinary movement uses the 0.7.8 packet unchanged. Zoom is wheel-only;
+    // native HID bypasses this path.
     public void Mouse(byte buttons, int dx, int dy, int wheel = 0, int horizontalWheel = 0)
     {
-        lock (touchGate)
-        {
-            bool zoom = wheel != 0 && buttons == 0 && ((touchModifiers & 0x11) != 0 || WheelZoomEnabled);
-            if (!TouchInputSupported)
-            { Post(new { type = "mouse", buttons = (byte)(buttons & 7), dx, dy, wheel = zoom ? 0 : wheel }); return; }
-            long seq = checked(++touchInputSequence);
-            bool inward = touchSide switch { PhoneSide.Right => dx > 0, PhoneSide.Left => dx < 0,
-                PhoneSide.Top => dy < 0, PhoneSide.Bottom => dy > 0, _ => false };
-            // Invalidate an exit before the phone receives a reversal, scroll or press.
-            if (inward || wheel != 0 || buttons != 0) lastReturnBlockingInput = seq;
-            Post(new { type = "mouse", buttons = (byte)(buttons & 7), dx, dy, wheel, zoom, seq });
-        }
+        bool zoom = wheel != 0 && buttons == 0 && ((touchModifiers & 0x11) != 0 || WheelZoomEnabled);
+        if (zoom && WheelZoomSupported)
+            Post(new { type = "mouse", buttons = (byte)(buttons & 7), dx, dy, wheel, zoom = true });
+        else
+            Post(new { type = "mouse", buttons = (byte)(buttons & 7), dx, dy, wheel = zoom ? 0 : wheel });
     }
     public void Keyboard(byte[] report)
     {
         if (report.Length != 8) throw new ArgumentException("Keyboard report.");
-        lock (touchGate) touchModifiers = report[0];
+        touchModifiers = report[0];
         HashSet<byte> keys = report.Skip(2).Where(k => k > 1).ToHashSet();
         foreach (byte key in keys.Except(held))
         {
@@ -286,18 +275,12 @@ internal sealed class LanSession : IPhoneControl
                         Post(new { type = "clipboardAck", id = clipboardId, ok = copied, error = copied ? "" : clipboardError });
                         break;
                     case "edge":
-                        lock (touchGate)
+                        if (touchActive && PhoneEdgeSample.TryParse(root.GetProperty("line").GetString() ?? "", Environment.TickCount64, out PhoneEdgeSample? sample) &&
+                            sample!.CaptureId == epoch && sample.Zone is null)
                         {
-                            if (!touchActive || !PhoneEdgeSample.TryParse(root.GetProperty("line").GetString() ?? "", Environment.TickCount64, out PhoneEdgeSample? sample) ||
-                                sample!.CaptureId != epoch || sample.Sequence <= touchEdgeSequence || sample.Zone is not null) break;
-                            if (TouchInputSupported)
-                            {
-                                if (!root.TryGetProperty("inputSequence", out var input) || input.ValueKind != JsonValueKind.Number ||
-                                    !input.TryGetInt64(out long inputSequence) || inputSequence < 0 || inputSequence > touchInputSequence ||
-                                    !root.TryGetProperty("outward", out var outward) || outward.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) break;
-                                sample = sample with { InputSequence = inputSequence, OutwardIntent = inputSequence > 0 && outward.GetBoolean() };
-                            }
-                            touchEdgeSequence = sample.Sequence; edge = sample;
+                            PhoneEdgeSample? previous = Volatile.Read(ref edge);
+                            if (previous is null || previous.CaptureId != epoch || sample.Sequence > previous.Sequence)
+                                Volatile.Write(ref edge, sample);
                         }
                         break;
                     case "nativeCaptureAck":

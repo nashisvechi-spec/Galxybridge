@@ -72,7 +72,7 @@ scrcpy-server, backend directory or GalaxyBridgeEdge.apk.
 Passing source/transport tests does not establish real Bluetooth compatibility
 or the behavior of Android applications. See VALIDATION.md for this revision.
 
-## Wi-Fi wheel zoom and delayed edge return (0.7.9)
+## Historical checklist: Wi-Fi wheel zoom and delayed edge return (0.7.9)
 
 - Update both Windows and the APK; preserve the existing APK signing identity.
 - In a PDF viewer supporting pinch, move the pointer over the page. Plain wheel
@@ -89,7 +89,7 @@ or the behavior of Android applications. See VALIDATION.md for this revision.
 - Check Ctrl+Alt+F12 and BLE HID behavior still work. An old APK retains legacy
   scrolling/edge return and must not receive enhanced touch commands.
 
-## Pointer responsiveness (0.7.10)
+## Historical checklist: pointer responsiveness (0.7.10)
 
 - Update Windows and APK. In Wi-Fi touch mode, move the pointer slowly, quickly
   and diagonally, then stop. It should follow promptly without replaying queued
@@ -105,3 +105,19 @@ or the behavior of Android applications. See VALIDATION.md for this revision.
   or the 100ms readiness heartbeat.
 - Recheck all four edge-return directions, Ctrl-wheel zoom and shared clipboard.
   Compare perceived responsiveness on the same Wi-Fi with VPN disabled.
+
+## Restored 0.7.8 mouse behavior (0.7.11)
+
+- Build and update Windows and APK 0.7.11 together using the existing signing key.
+  Verify installation over the old APK retains pairing and settings.
+- Compare cursor movement with the known Windows/Android 0.7.8 pair: slow/fast
+  horizontal, vertical and diagonal motion, stop/reversal, and 0.25x/1x/4x speed.
+  The Windows timer and immediate Android window update now use that baseline.
+- Test a click immediately after moving, text selection by hold/drag, modifiers,
+  and return through each edge. Edge return uses the original 0.7.8 freshness
+  policy again; Ctrl+Alt+F12 remains available.
+- Confirm plain wheel scroll, Ctrl+wheel PDF zoom, persisted wheel zoom setting,
+  Bluetooth routing, clipboard and file transfer still work.
+- APK 0.7.8 must receive the original mouse packet and scroll normally. APK
+  0.7.9/0.7.10 with new Windows must also receive baseline motion without seq.
+  Use the matching 0.7.11 APK to restore Android's pointer rendering too.

@@ -45,7 +45,6 @@ for (int i = 0; i < 1000; i++)
 Equal(Hid.MouseReports(0, 0, 0).Single(), "0000000000", "zero mouse report releases all five buttons and both wheels");
 Reject(() => Hid.MouseReports(32, 1, 2).ToArray(), "undefined sixth mouse button rejected");
 await NativeMouseTests.RunAsync(Check);
-PointerMotionTests.Run(Check);
 PhoneControlRouteTests.Run(Check);
 
 DesktopBounds bounds = new(-1920, -100, 1920, 1080);
@@ -83,15 +82,6 @@ Check(!MayReturn(atLeft with { ReceivedAt = 700 }), "stale feedback cannot retur
 Check(!MayReturn(atLeft, moved: 700), "stale direction cannot return");
 Check(!MayReturn(atLeft with { ReceivedAt = 1100 }), "future-dated feedback rejected");
 Check(!MayReturn(atLeft, moved: 1100), "future-dated motion rejected");
-PhoneEdgeSample confirmedExit = atLeft with { OutwardIntent = true, InputSequence = 1 };
-Check(MayReturn(confirmedExit, dx: 0, dy: 5, moved: 700), "phone confirmation allows return after delayed feedback and tangential host motion");
-Check(!MayReturn(confirmedExit with { InputSequence = 0 }, moved: 700), "confirmation requires a real mouse packet");
-Check(!MayReturn(confirmedExit with { OutwardIntent = false }), "modern touch feedback never falls back to stale host direction after a scroll or reversal");
-Check(!MayReturn(confirmedExit with { X = 20 }, moved: 700), "confirmation still requires the return edge");
-Check(!MayReturn(confirmedExit, held: true, moved: 700), "confirmed exit still blocks held keys");
-Check(!MayReturn(confirmedExit, buttons: 1, moved: 700), "confirmed exit still blocks dragging");
-Check(!MayReturn(confirmedExit, entered: 900, moved: 700), "confirmed exit still respects warmup");
-Check(!MayReturn(confirmedExit with { ReceivedAt = 700 }, moved: 700), "confirmed exit still requires fresh feedback");
 Check(MayReturn(atLeft with { X = 1079 }, PhoneSide.Left, dx: 5), "phone on left returns at right edge");
 Check(MayReturn(atLeft with { X = 500, Y = 2399 }, PhoneSide.Top, dx: 0, dy: 5), "phone above returns at bottom edge");
 Check(MayReturn(atLeft with { X = 500, Y = 0 }, PhoneSide.Bottom, dx: 0, dy: -5), "phone below returns at top edge");
@@ -101,7 +91,6 @@ Check(insetEdge is not null && MayReturn(insetEdge, PhoneSide.Top, dx: 0, dy: 5)
 Check(insetEdge is not null && !MayReturn(insetEdge with { Y = 2295 }, PhoneSide.Top, dx: 0, dy: 5), "reject cursor outside actual strip");
 Check(insetEdge is not null && !MayReturn(insetEdge, PhoneSide.Right), "horizontal strip cannot act as vertical edge");
 Check(insetEdge is not null && !MayReturn(insetEdge, PhoneSide.Top, dx: 0, dy: -5), "inset edge still requires outward motion");
-Check(insetEdge is not null && !MayReturn(insetEdge with { OutwardIntent = true, InputSequence = 1 }, PhoneSide.Top, dx: 0, dy: -5), "touch confirmation cannot override native hover direction");
 Check(insetEdge is not null && !MayReturn(insetEdge, PhoneSide.Top, dx: 0, dy: 5, buttons: 1), "inset edge still blocks dragging");
 Check(PhoneEdgeSample.TryParse("GB_EDGE2 7 2 1080 2400 20 500 0 20 80 4 2240", 1000, out PhoneEdgeSample? cutoutEdge) &&
     cutoutEdge is not null && MayReturn(cutoutEdge), "return at actual side inset around cutout");

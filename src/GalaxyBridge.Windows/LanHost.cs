@@ -104,12 +104,14 @@ internal sealed class LanHost : IAsyncDisposable
                     { State?.Invoke("Сохранённое сопряжение не принято. Повторите сопряжение новым QR."); return; }
                     bool autoClipboard = root.TryGetProperty("clipboardSync", out var capability) && capability.ValueKind == System.Text.Json.JsonValueKind.Number && capability.TryGetInt32(out int syncVersion) && syncVersion == 1;
                     bool nativeEdge = root.TryGetProperty("nativeEdge", out var edgeCapability) && edgeCapability.ValueKind == System.Text.Json.JsonValueKind.Number && edgeCapability.TryGetInt32(out int edgeVersion) && edgeVersion == 1;
-                    bool touchInput = root.TryGetProperty("touchInput", out var touchCapability) && touchCapability.ValueKind == System.Text.Json.JsonValueKind.Number && touchCapability.TryGetInt32(out int touchVersion) && touchVersion == 1;
-                    session = new LanSession(client, stream, name, autoClipboard, nativeEdge, touchInput);
+                    bool wheelZoom = root.TryGetProperty("wheelZoom", out var zoomCapability) && zoomCapability.ValueKind == System.Text.Json.JsonValueKind.Number && zoomCapability.TryGetInt32(out int zoomVersion) && zoomVersion == 1;
+                    // 0.7.9/0.7.10 advertise the same wheel feature as touchInput.
+                    wheelZoom |= root.TryGetProperty("touchInput", out var oldTouch) && oldTouch.ValueKind == System.Text.Json.JsonValueKind.Number && oldTouch.TryGetInt32(out int oldVersion) && oldVersion == 1;
+                    session = new LanSession(client, stream, name, autoClipboard, nativeEdge, wheelZoom);
                     session.ConfigureReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder);
                     current?.Close(); current = session;
                 }
-                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0, touchInput = session.TouchInputSupported ? 1 : 0 }), hello.Token);
+                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0, wheelZoom = session.WheelZoomSupported ? 1 : 0 }), hello.Token);
                 // Explicit acknowledgement proves the phone saved its new token before any control session is accepted.
                 stage = "подтверждение телефона";
                 State?.Invoke("Ожидаем подтверждение сохранения сопряжения…");
