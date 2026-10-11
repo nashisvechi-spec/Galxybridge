@@ -51,7 +51,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.7"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.8"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -75,7 +75,7 @@ internal sealed class LanForm : Form
         FlowLayoutPanel control = new() { AutoSize = true }; control.Controls.Add(side); control.Controls.Add(toggle); control.Controls.Add(edgeEntry); page.Controls.Add(control);
         FlowLayoutPanel nativeActions = new() { AutoSize = true };nativeActions.Controls.Add(bluetooth);nativeActions.Controls.Add(bluetoothStop);page.Controls.Add(nativeActions);
         page.Controls.Add(bluetoothPeers);page.Controls.Add(bluetoothState);
-        bluetoothState.Text = "Выбор мыши автоматический: подключённый Bluetooth HID — системная мышь Android; только Wi-Fi — курсор приложения. Требуется Bluetooth LE Peripheral на ноутбуке.";
+        bluetoothState.Text = "Выбор мыши автоматический: готовая BLE HID-связь — системная мышь Android; только Wi-Fi — курсор приложения. Для текущего BLE-режима Windows должна поддерживать Bluetooth LE Peripheral.";
         bluetooth.Click += async (_, _) => await RunBluetoothAsync(true);
         bluetoothStop.Click += async (_, _) => await RunBluetoothAsync(false);
         bluetoothPeers.SelectedIndexChanged += (_, _) =>
@@ -84,7 +84,7 @@ internal sealed class LanForm : Form
             if (bluetoothPeers.SelectedItem is BluetoothPeer peer) nativeMouse?.Select(peer.Id);
             UpdateState();
         };
-        page.Controls.Add(new Label { Text = "Без подходящего Bluetooth-адаптера используйте сенсорное управление через Wi-Fi. Для возврата Bluetooth-мыши через край подключите тот же телефон по QR и разрешите «Поверх других приложений». Быстрый возврат — Ctrl + Alt + F12.", AutoSize = true, MaximumSize = new Size(660, 0) });
+        page.Controls.Add(new Label { Text = "Если BLE-режим недоступен, используйте сенсорное управление через Wi-Fi. Для возврата Bluetooth-мыши через край подключите тот же телефон по QR и разрешите «Поверх других приложений». Быстрый возврат — Ctrl + Alt + F12.", AutoSize = true, MaximumSize = new Size(660, 0) });
         speed.Value = (decimal)settings.Sensitivity;
         FlowLayoutPanel mouse = new() { AutoSize = true };
         mouse.Controls.Add(new Label { Text = "Скорость курсора телефона ×", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });

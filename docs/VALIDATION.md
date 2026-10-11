@@ -1,11 +1,25 @@
-# Validation — Windows 0.7.7 / Android 0.7.8
+# Validation — Windows 0.7.8 / Android 0.7.8
 
-This revision adds Bluetooth system-mouse edge return using actual Android hover,
+The previous revision added Bluetooth system-mouse edge return using actual Android hover,
 a one-physical-pixel overlay and the paired LAN TLS connection. It preserves
 native HID input and automatic Wi-Fi touch fallback. Native edge capability is
 negotiated; old APKs retain HID with hotkey return. No debugging edition is added.
 
-## Current verification
+## Windows 0.7.8 diagnostic correction
+
+The BLE Peripheral failure message now describes the limitation of our current
+BLE mode instead of declaring the adapter generally unsuitable for system input.
+The driver package in supplied Windows GlideX was unpacked and statically examined;
+vendor executables and drivers were not run. No Classic HID backend is added.
+Android and transport logic are unchanged.
+
+- Current structural validation passed: **45,152 source-package checks**.
+- All Core and Windows C# sources, including the changed diagnostics, compiled
+  with the existing .NET 8 / Windows SDK reference set and warnings as errors.
+  The Core test executable also compiled. Transport tests were not rerun for
+  this text-only change; their previous results are listed below.
+
+## Previous transport verification
 
 - scripts/check_sources.py passed structural validation, including manual-only
   workflow, package pins, signing, permissions and removal checks.
@@ -37,5 +51,7 @@ pairing/subscriptions, boundary hit-testing, rotation/IME/system-bar behavior,
 protected-app overlays, text selection and clipboard return must be checked on
 devices using TESTING.md. The entry cursor keeps its last relative HID position;
 absolute alignment with the desktop entry point is not implemented. BLE Peripheral
-support is still required; the vendor GlideX Bluetooth backend was not recovered.
+support is still required for the current BLE backend. Static Windows GlideX
+analysis identifies a separate Classic Bluetooth HID driver; it does not
+implement or test that transport in Galaxy Bridge. See GLIDEX_WINDOWS.ru.md.
 No EXE/APK is delivered by a source commit: use Build Windows portable manually.

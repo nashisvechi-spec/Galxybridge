@@ -1,6 +1,6 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.7** / Android **0.7.8**. The application starts directly in its LAN
+Windows **0.7.8** / Android **0.7.8**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -18,6 +18,10 @@ Only this edition is maintained; the previous debugging edition remains in Git h
   Ctrl+Alt+F12 switches control. BLE return through the phone edge uses actual
   Android mouse hover over a one-pixel overlay and the authorized LAN connection.
   It requires APK 0.7.8 and overlay permission; it does not require accessibility.
+
+The supplied Windows GlideX uses a separate Classic Bluetooth HID driver.
+BLE Peripheral support does not measure Classic HID compatibility; Galaxy Bridge
+does not yet include a Classic HID backend. See [the analysis](docs/GLIDEX_WINDOWS.ru.md).
 
 Builds run **manually only**: Actions → Build Windows portable → Run workflow.
 Two artifacts are published: **GalaxyBridge-win10-x64** and **GalaxyBridgeLan-android**.

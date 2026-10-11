@@ -37,7 +37,7 @@ internal sealed class BleHidSession : IPhoneControl, IAsyncDisposable
     {
         BluetoothAdapter? adapter = await BluetoothAdapter.GetDefaultAsync().AsTask(ct);
         if (adapter is null) throw new IOException("Адаптер Bluetooth не найден. Включите Bluetooth на ноутбуке.");
-        if (!adapter.IsPeripheralRoleSupported) throw new IOException("Адаптер ноутбука не поддерживает Bluetooth LE Peripheral. На этом адаптере доступно сенсорное управление через Wi-Fi.");
+        if (!adapter.IsPeripheralRoleSupported) throw new IOException("Текущий BLE-режим Galaxy Bridge недоступен: Windows не сообщает поддержку Bluetooth LE Peripheral. Это не проверка совместимости с классической Bluetooth-мышью, которую использует GlideX. Сейчас в Galaxy Bridge доступно сенсорное управление через Wi-Fi.");
         GattServiceProvider hid = await ProviderAsync(0x1812, ct);
         await ConstantAsync(hid, 0x2A4A, [0x11, 0x01, 0, 2], ct);
         await ConstantAsync(hid, 0x2A4B, Hid.BluetoothReportMap, ct);
