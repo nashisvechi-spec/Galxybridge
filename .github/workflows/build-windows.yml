@@ -49,6 +49,12 @@ jobs:
         run: ./scripts/Test-LanProtocol.ps1
       - name: Test standalone file manager operations
         run: ./scripts/Test-Files.ps1
+      - name: Test file manager taps and mouse clicks on Android framework
+        timeout-minutes: 6
+        run: |
+          $env:JAVA_HOME = $env:JAVA_HOME_17_X64
+          mvn -B -f tests/android-files-ui/pom.xml test
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy Files Android UI regression tests failed.' }
       - name: Build independent Wi-Fi companion APK
         env:
           GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE: ${{ secrets.ANDROID_SIGNING_BUNDLE }}

@@ -119,7 +119,7 @@ MIT license; packaged dependencies retain [their notices](THIRD_PARTY_NOTICES.md
 
 ## Standalone Galaxy Files
 
-This repository also contains **Galaxy Files 0.1.0**, an independently installed
+This repository also contains **Galaxy Files 0.1.1**, an independently installed
 Android 13+ file manager (`android/files`, package `com.galaxybridge.files`).
 The manual Windows workflow builds `GalaxyFiles.apk` as `GalaxyFiles-android`
 and includes it beside the Wi-Fi companion in the portable ZIP.

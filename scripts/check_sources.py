@@ -188,10 +188,13 @@ def main() -> None:
     require('./scripts/Build-Files.ps1' in workflow and './scripts/Test-Files.ps1' in workflow and 'GalaxyFiles-android' in workflow,
             'Manual build tests and packages the standalone file manager')
     require('Resolve-AndroidSigning.ps1' in read('scripts/Build-Files.ps1'), 'File manager uses the persistent project key')
+    ET.fromstring(read('tests/android-files-ui/pom.xml'))
+    require('mvn -B -f tests/android-files-ui/pom.xml test' in workflow, 'Manual packaging must run Android UI regressions')
     read('docs/GALAXY_FILES.ru.md')
     for xml in (ROOT / 'android/files/res').rglob('*.xml'):
         ET.parse(xml)
     java += list((ROOT / 'android/files/src').rglob('*.java')) + list((ROOT / 'tests/android-files').rglob('*.java'))
+    java += list((ROOT / 'tests/android-files-ui/src/test/java').rglob('*.java'))
     for helper in java:
         balanced_csharp(helper)
     sources = [p for p in ROOT.rglob('*.cs') if 'obj' not in p.parts and 'bin' not in p.parts]

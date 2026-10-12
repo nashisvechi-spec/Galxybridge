@@ -164,7 +164,7 @@ GalaxyBridgeLan.apk и GalaxyFiles.apk. Историческая версия с
 
 ## Отдельный файловый менеджер Galaxy Files
 
-В репозиторий добавлено отдельное Android-приложение **Galaxy Files 0.1.0**:
+В репозиторий добавлено отдельное Android-приложение **Galaxy Files 0.1.1**:
 папки, поиск, выделение, файловые операции и отправка через GalaxyBridge.
 APK `GalaxyFiles.apk` собирается вручную тем же workflow и доступен отдельным
 артефактом `GalaxyFiles-android`. Для управления мышью и перетаскивания по Wi-Fi

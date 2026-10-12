@@ -75,7 +75,7 @@ public final class FilesActivity extends Activity {
         search.addTextChangedListener(new TextWatcher() { public void beforeTextChanged(CharSequence s,int st,int c,int a){} public void onTextChanged(CharSequence s,int st,int b,int c){ main.removeCallbacks(reloadSearch);main.postDelayed(reloadSearch,200); } public void afterTextChanged(Editable e){} });
         summary=text("",13);summary.setPadding(dp(16),dp(4),dp(16),dp(4));page.addView(summary);
         list=new ListView(this);list.setDividerHeight(dp(1));adapter=new Rows();list.setAdapter(adapter);
-        list.setEmptyView(null);list.setOnItemClickListener((parent,v,position,id) -> { if(busy) return;File file=entries.get(position);if(selected.isEmpty()) open(file);else toggle(file); });
+        list.setEmptyView(null);list.setOnItemClickListener((parent,v,position,id) -> { if(!busy) open(entries.get(position)); });
         list.setOnItemLongClickListener((parent,v,position,id) -> { if(!busy) context(entries.get(position),v);return true; });
         page.addView(list,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout actions=new LinearLayout(this);
@@ -191,7 +191,7 @@ public final class FilesActivity extends Activity {
     }
     private void mainMenu() {
         String[] labels={"Новая папка","Обновить",hidden?"Скрыть скрытые файлы":"Показать скрытые файлы","Доступ к файлам","Как передавать на ПК"};
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Galaxy Files · 0.1.0").setItems(labels,(d,index) -> main.post(() -> {
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Galaxy Files · 0.1.1").setItems(labels,(d,index) -> main.post(() -> {
             switch(index) { case 0:newFolder();break;case 1:reload();break;case 2:hidden=!hidden;reload();break;case 3:permission();break;case 4:help();break; }
         })).create();showDialog(dialog);
     }
@@ -265,14 +265,21 @@ public final class FilesActivity extends Activity {
         @Override public long getItemId(int position) { return position; }
         @Override public View getView(int position,View recycled,android.view.ViewGroup parent) {
             File file=entries.get(position);LinearLayout row=new LinearLayout(FilesActivity.this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(8),dp(8),dp(12),dp(8));
+            // A focusable CheckBox suppresses ListView's click/long-click dispatch.
+            // Keep checkbox taps for selection and row taps for opening, even
+            // while another item is selected (needed when choosing a paste folder).
+            row.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);row.setFocusable(false);
+            row.setOnClickListener(v -> { if(!busy) open(file); });
+            row.setOnLongClickListener(v -> { if(!busy) context(file,v);return true; });
             row.setBackgroundColor(selected.contains(file)?0xffdeeff9:0xffffffff);
-            CheckBox check=new CheckBox(FilesActivity.this);check.setChecked(selected.contains(file));check.setContentDescription("Выделить "+file.getName());check.setEnabled(!busy);check.setOnClickListener(v -> toggle(file));row.addView(check);
+            CheckBox check=new CheckBox(FilesActivity.this);check.setFocusable(false);check.setFocusableInTouchMode(false);check.setChecked(selected.contains(file));check.setContentDescription("Выделить "+file.getName());check.setEnabled(!busy);check.setOnClickListener(v -> toggle(file));row.addView(check);
             TextView icon=text(file.isDirectory()?"▰":"▤",27);icon.setTextColor(file.isDirectory()?BLUE:0xff7c8fa0);icon.setPadding(0,0,dp(12),0);row.addView(icon);
             LinearLayout detail=new LinearLayout(FilesActivity.this);detail.setOrientation(LinearLayout.VERTICAL);TextView name=text(file.getName(),16);name.setTextColor(INK);detail.addView(name);
             String description=file.isDirectory()?"Папка":Formatter.formatFileSize(FilesActivity.this,file.length());
             TextView meta=text(description+" · "+android.text.format.DateFormat.format("dd.MM.yyyy HH:mm",file.lastModified()),12);meta.setTextColor(0xff738294);detail.addView(meta);
             row.addView(detail,new LinearLayout.LayoutParams(0,-2,1));
-            // Let ListView own finger taps/scrolling; actual mouse holds start global Android drags.
+            // Finger taps open the row; ListView still handles scrolling.
+            // Actual mouse holds start global Android drags.
             row.setOnTouchListener((view,event) -> {
                 if(!event.isFromSource(InputDevice.SOURCE_MOUSE) || busy) return false;
                 int action=event.getActionMasked();
