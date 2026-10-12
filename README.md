@@ -1,8 +1,16 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.32** / Android **0.7.32**. The application starts directly in its LAN
+Windows **0.7.33** / Android **0.7.32**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Windows **0.7.33** replaces the file widget with the selected blue/teal artwork.
+A per-pixel alpha window preserves its transparent silhouette without system
+chrome. Click the center to choose files, drop Explorer files there, drag the
+blue frame to move, or click the circular cross to close only the widget.
+Progress/cancel appear during sending; disconnected widgets reject files.
+Connection and the last result are in a tooltip. Position, tray behavior,
+keyboard actions and accessible named buttons are retained. Android stays at 0.7.32.
 
 Version **0.7.32** fixes file receipt notification handling. Windows uses a native
 non-activating corner card even with the main window hidden, with the exact

@@ -1,4 +1,35 @@
-# Validation — Windows 0.7.32 / Android 0.7.32
+# Validation — Windows 0.7.33 / Android 0.7.32
+
+## Borderless artwork file widget (Windows 0.7.33)
+
+Based on main 7b3e3e5. The selected 1635×962 RGBA reference is embedded unchanged
+as GalaxyBridge.FileWidget.png. The unowned topmost WinForms widget uses
+FormBorderStyle.None and WS_EX_LAYERED with UpdateLayeredWindow/AC_SRC_ALPHA.
+Premultiplied rendering preserves transparent margins, silhouette and glow.
+It does not use a chroma key or set WinForms Opacity/TransparencyKey; shared
+theme application excludes this independently painted window.
+
+The central area chooses or accepts up to 100 existing regular files; frame
+dragging, the circular close action, transient progress/cancel, connection/result
+tooltips, keyboard actions and accessible named actions use scaled artwork
+coordinates. Drop state and a submission gate prevent overlapping sends. Closing
+only the widget leaves the app and active transfer alive; existing position/tray
+settings still manage visibility and location. Android remains at 0.7.32.
+
+- All Windows/Core production C# sources compile with C# 12, .NET 8/Windows
+  reference assemblies and both embedded resources. Warnings are errors except
+  the existing QRCoder reference-unification warnings 1701/1702.
+- All 2527 portable assertions pass, including 45 new checks for button/frame
+  hit targets at 100/150/200% and compact size, close/cancel precedence, disconnected
+  and busy drops, folders, partial missing files and 100/101-file boundaries.
+  Existing real TLS file/clipboard/receipt checks also pass.
+- Source-package and whitespace checks pass; the PNG is byte-identical to the
+  selected reference and retains its alpha channel.
+
+This environment cannot run the Windows UI or full MSBuild packaging. Native
+alpha rendering, OLE Explorer drops, screen-reader navigation and actual DPI/
+monitor transitions require the Windows checklist in TESTING.md. No EXE or APK
+was packaged here; the existing manual Windows Actions workflow remains available.
 
 ## File receipt notifications (0.7.32)
 

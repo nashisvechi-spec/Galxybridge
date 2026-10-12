@@ -1,5 +1,28 @@
 # Testing the no-debugging edition
 
+## Borderless file widget (Windows 0.7.33)
+
+On Windows at 100%, 150% and 200% DPI, show the widget from Files or the tray:
+- Check the supplied blue/teal artwork, transparent outer pixels and absence of
+  title bar, system border, opaque rectangular background and extra taskbar icon.
+- Click both arrows; choose several files and confirm one transfer to the phone.
+  Cancel the picker and verify no file is sent. Drag normal Explorer files into
+  the center; the frame and cross must not accept drops. Folders and batches over
+  100 files are rejected. Repeat while disconnected and while already sending.
+- Verify the circular cross closes only the widget, including during a transfer.
+  Reopen it from the tray. Minimize/hide the main window; the widget stays visible.
+- Drag each blue edge between monitors with different DPI and negative desktop
+  coordinates. Check the artwork and button hit targets remain aligned. Close
+  and reopen, then restart; verify the saved location is on an available screen.
+- Check unknown-size animation, actual per-file percentage, cancellation and
+  long filename ellipsis. Hover the center after success/failure for the result.
+- Switch system/light/dark themes while the widget is open; its alpha and blue
+  artwork must remain intact. Use Tab/Shift+Tab, Enter/Space, Esc and a screen
+  reader to exercise choose, cancel and close without a mouse.
+
+These are physical Windows checks; portable tests cover hit target geometry
+and drop eligibility, not native layered-window rendering or Explorer interaction.
+
 ## Receipt notifications (0.7.32)
 
 Run the Android suite including `NotificationSettingsTest` and `ReceivedFilesTest`.

@@ -11,5 +11,6 @@
     <Compile Include="../../src/GalaxyBridge.Windows/DisplayCaptureSwitch.cs" Link="DisplayCaptureSwitch.cs" />
     <Compile Include="../../src/GalaxyBridge.Windows/PhoneWakeTransition.cs" Link="PhoneWakeTransition.cs" />
     <Compile Include="../../src/GalaxyBridge.Windows/ReceiveProgressWindow.cs" Link="ReceiveProgressWindow.cs" />
+    <Compile Include="../../src/GalaxyBridge.Windows/FileWidgetLayout.cs" Link="FileWidgetLayout.cs" />
   </ItemGroup>
 </Project>
