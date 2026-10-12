@@ -54,7 +54,7 @@ public class FilesActivityTest {
         directory=new File(root,"."+File.separator+"Documents");directory.mkdir();
         document=new File(root,"."+File.separator+"example.pdf");Files.write(document.toPath(),new byte[]{1,2,3});
         controller=Robolectric.buildActivity(FilesActivity.class);controller.get().setTheme(android.R.style.Theme_Material_Light_NoActionBar);controller.setup().visible();activity=controller.get();
-        list=(ListView)field("list");settle();
+        list=(ListView)field("list");settle();tapView(activity.getWindow().getDecorView().findViewWithTag("storage"));
     }
     @After public void close() { dismissDialog();if(controller!=null) controller.pause().stop().destroy();shadowOf(Looper.getMainLooper()).idle(); }
     private void dismissDialog() { android.app.AlertDialog dialog=ShadowAlertDialog.getLatestAlertDialog();if(dialog!=null && dialog.isShowing()) dialog.dismiss(); }
@@ -74,6 +74,10 @@ public class FilesActivityTest {
         tapView(row(file));
     }
     private void tapView(View row) throws Exception {
+        if(row instanceof CheckBox && row.getVisibility()!=View.VISIBLE) {
+            activity.getWindow().getDecorView().findViewWithTag("select").performClick();settle();
+            File current=(File)((View)row.getParent()).getTag();row=((LinearLayout)row(current)).getChildAt(0);
+        }
         assertNotNull(row);int[] position=new int[2];row.getLocationOnScreen(position);
         View decor=activity.getWindow().getDecorView();int[] origin=new int[2];decor.getLocationOnScreen(origin);
         float x=position[0]+row.getWidth()*0.75f-origin[0],y=position[1]+row.getHeight()/2f-origin[1];
@@ -96,6 +100,18 @@ public class FilesActivityTest {
         CheckBox check=(CheckBox)((LinearLayout)row(document)).getChildAt(0);tapView(check);
         assertTrue(((Set<?>)field("selected")).contains(document.getCanonicalFile()));assertNull(shadowOf(activity).getNextStartedActivity());
         assertEquals(root.getCanonicalFile(),field("folder"));
+    }
+    @Test public void homeCategoriesAndStorageAreRealNavigationTargets() throws Exception {
+        activity.onBackPressed();settle();assertTrue((Boolean)field("home"));
+        View documents=activity.getWindow().getDecorView().findViewWithTag("category:DOCUMENT");tapView(documents);
+        assertEquals(FileKind.DOCUMENT,field("category"));assertFalse((Boolean)field("home"));assertNotNull(row(document));
+    }
+    @Test public void gridTapOpensFileAndReturnsToHome() throws Exception {
+        activity.getWindow().getDecorView().findViewWithTag("view").performClick();
+        android.app.AlertDialog dialog=ShadowAlertDialog.getLatestAlertDialog();dialog.getListView().performItemClick(dialog.getListView().getChildAt(1),1,1);settle();
+        GridView tiles=(GridView)field("grid");assertEquals(View.VISIBLE,tiles.getVisibility());
+        View cell=null;for(int i=0;i<tiles.getAdapter().getCount();i++) if(document.getCanonicalFile().equals(tiles.getAdapter().getItem(i))) cell=tiles.getChildAt(i-tiles.getFirstVisiblePosition());
+        tapView(cell);assertEquals(Intent.ACTION_VIEW,shadowOf(activity).getNextStartedActivity().getAction());
     }
     @Test public void selectedItemsDoNotBlockFolderNavigation() throws Exception {
         tapView(((LinearLayout)row(document)).getChildAt(0));
