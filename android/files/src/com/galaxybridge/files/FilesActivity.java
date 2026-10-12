@@ -288,9 +288,14 @@ public final class FilesActivity extends Activity {
             if(!view.startDragAndDrop(data,new View.DragShadowBuilder(view),null,View.DRAG_FLAG_GLOBAL|View.DRAG_FLAG_GLOBAL_URI_READ)) toast("Не удалось начать перетаскивание.");
         } catch(IOException e) { toast(e.getMessage()); }
     }
+    private int windowDisplay() {
+        Display display=getWindow().getDecorView().getDisplay();
+        return display==null || !display.isValid()?-1:display.getDisplayId();
+    }
     private void register() {
-        if(resumed && !dialogOpen && bridge!=null && getDisplay()!=null) {
-            registeredDisplay=getDisplay().getDisplayId();
+        if(resumed && !dialogOpen && bridge!=null) {
+            registeredDisplay=windowDisplay();
+            if(registeredDisplay<0) { message(2,null);return; }
             Bundle data=new Bundle();data.putInt("display",registeredDisplay);message(1,data);
         }
     }
@@ -305,7 +310,8 @@ public final class FilesActivity extends Activity {
     }
     private View row(File file) { if(home) { for(Map.Entry<View,File> item:recentViews.entrySet()) if(item.getValue().equals(file)) return item.getKey();return homeScroll; }int index=entries.indexOf(file)-browser().getFirstVisiblePosition();return index>=0 && index<browser().getChildCount()?browser().getChildAt(index):browser(); }
     private void remote(Bundle data) {
-        if(getDisplay()==null || data.getInt("display",0)!=getDisplay().getDisplayId()) { remotePointer.cancel();remoteTouch=false;return; }
+        int display=windowDisplay();
+        if(display<0 || data.getInt("display",0)!=display) { remotePointer.cancel();remoteTouch=false;return; }
         float x=data.getFloat("x"),y=data.getFloat("y");int next=data.getInt("buttons"),previous=data.getInt("previous"),wheel=data.getInt("wheel");
         if(wheel!=0 && next==0) { if(home) homeScroll.smoothScrollBy(0,-wheel*dp(64));else browser().smoothScrollBy(-wheel*dp(64),120); }
         if((next&2)!=0 && (previous&2)==0) { File target=under(x,y);if(target!=null && !busy) context(target,row(target));return; }
@@ -390,7 +396,7 @@ public final class FilesActivity extends Activity {
     }
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
-        if(focused && getDisplay()!=null && registeredDisplay!=getDisplay().getDisplayId()) register();
+        if(focused && registeredDisplay!=windowDisplay()) register();
     }
     @Override protected void onSaveInstanceState(Bundle out) { out.putString("folder",folder==null?ops.root.getPath():folder.getPath());out.putBoolean("home",home);out.putBoolean("virtual",folder==null);out.putString("category",category==null?"":category.name());out.putString("section",sectionTitle);out.putBoolean("hidden",hidden);super.onSaveInstanceState(out); }
     @Override public void onBackPressed() { if(busy) return;if(!selected.isEmpty()) { selected.clear();selecting=false;adapter.notifyDataSetChanged();updateSelection(); }else if(selecting) { selecting=false;adapter.notifyDataSetChanged(); }else if(!home) up();else super.onBackPressed(); }

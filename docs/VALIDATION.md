@@ -1,5 +1,26 @@
 # Validation — GalaxyBridge 0.7.24 / Galaxy Files 0.2.3
 
+## CI Files window-display regression (0.7.24 / 0.2.3)
+
+Manual run 38229996709 passed the portable protocol tests, Windows TLS tests,
+Windows x64 publishing, LAN JVM tests and file-operation tests. Its Files UI
+test `wifiMouseDoubleClickOpensFolder` then threw UnsupportedOperationException
+because the framework test activity's Context had no associated display.
+
+FilesActivity now reads the display of its attached decor View for registration,
+remote input and focus changes. No attached/valid window means no input and an
+unregister message; it never guesses the phone display. This also binds DeX
+coordinates to the actual window instead of a potentially unrelated Context.
+Legacy packets without display metadata remain accepted only on the phone.
+
+All 19 Robolectric Android API 35 UI tests pass locally (16 activity tests and
+3 presentation tests), including the original failure, cross-display rejection,
+legacy phone input, detached-window rejection and window-scoped IPC registration.
+The two detached-window tests restore their windows for ordinary lifecycle
+cleanup. All Galaxy Files production sources compile against public API 35 and
+source-package checks pass. Runtime versions remain 0.7.24 / 0.2.3; full APK
+packaging still needs a new manual workflow run from corrected main.
+
 ## CI display-test heartbeat regression (0.7.24)
 
 Manual run 38227935380 on Windows failed in the portable protocol tests at
@@ -63,8 +84,9 @@ Windows widget and ordinary transfers remain supported.
 - EXE/APK packaging, OEM accessibility overlay placement and touch delivery,
   window focus/caption behavior, display hotplug/lock, keyboard/global navigation
   and actual DeX file handoff require manual device validation. Robolectric Files
-  UI regressions remain required by the packaging workflow; Maven is not present
-  in this local runtime. Existing phone smoothing/input JVM tests pass.
+  UI regressions remain required by the packaging workflow; the later window-display
+  fix restores the local Maven runtime and all 19 UI tests pass. Existing phone
+  smoothing/input JVM tests pass.
 
 Android API references:
 https://developer.android.com/reference/android/accessibilityservice/GestureDescription.Builder#setDisplayId(int)

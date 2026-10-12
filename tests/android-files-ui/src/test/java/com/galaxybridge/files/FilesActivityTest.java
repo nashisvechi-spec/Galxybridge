@@ -45,6 +45,7 @@ public class FilesActivityTest {
     private FilesActivity activity;
     private ListView list;
     private File root,directory,document;
+    private boolean windowDetached;
     @Before public void setup() throws Exception {
         shadowOf(RuntimeEnvironment.getApplication()).declareComponentUnbindable(new ComponentName("com.galaxybridge.lan","com.galaxybridge.lan.FilesBridgeService"));
         shadowOf(MimeTypeMap.getSingleton()).addExtensionMimeTypeMapping("pdf","application/pdf");
@@ -56,7 +57,17 @@ public class FilesActivityTest {
         controller=Robolectric.buildActivity(FilesActivity.class);controller.get().setTheme(android.R.style.Theme_Material_Light_NoActionBar);controller.setup().visible();activity=controller.get();
         list=(ListView)field("list");settle();tapView(activity.getWindow().getDecorView().findViewWithTag("storage"));
     }
-    @After public void close() { dismissDialog();if(controller!=null) controller.pause().stop().destroy();shadowOf(Looper.getMainLooper()).idle(); }
+    @After public void close() {
+        dismissDialog();
+        if(windowDetached) {
+            View decor=activity.getWindow().getDecorView();
+            activity.getWindowManager().addView(decor,decor.getLayoutParams());
+        }
+        if(controller!=null) controller.pause().stop().destroy();shadowOf(Looper.getMainLooper()).idle();
+    }
+    private void detachWindow() {
+        activity.getWindowManager().removeViewImmediate(activity.getWindow().getDecorView());windowDetached=true;
+    }
     private void dismissDialog() { android.app.AlertDialog dialog=ShadowAlertDialog.getLatestAlertDialog();if(dialog!=null && dialog.isShowing()) dialog.dismiss(); }
     private Object field(String name) throws Exception { Field f=FilesActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity); }
     private void settle() throws Exception {
@@ -145,11 +156,43 @@ public class FilesActivityTest {
         remoteClick(directory);assertTrue(((Set<?>)field("selected")).contains(directory.getCanonicalFile()));
         remoteClick(directory);assertEquals(directory.getCanonicalFile(),field("folder"));
     }
+    @Test public void wifiPacketsForAnotherDisplayCannotSelectOrOpen() throws Exception {
+        int other=activity.getWindow().getDecorView().getDisplay().getDisplayId()+1;
+        remoteClick(directory,other);remoteClick(directory,other);
+        assertTrue(((Set<?>)field("selected")).isEmpty());assertEquals(root.getCanonicalFile(),field("folder"));
+        assertNull(shadowOf(activity).getNextStartedActivity());
+    }
+    @Test public void legacyWifiPacketsStillOpenOnPhoneDisplay() throws Exception {
+        assertEquals(Display.DEFAULT_DISPLAY,activity.getWindow().getDecorView().getDisplay().getDisplayId());
+        remoteClick(directory,-1);remoteClick(directory,-1);
+        assertEquals(directory.getCanonicalFile(),field("folder"));
+    }
+    @Test public void detachedWindowRejectsWifiInput() throws Exception {
+        detachWindow();
+        assertNull(activity.getWindow().getDecorView().getDisplay());
+        remoteClick(directory,Display.DEFAULT_DISPLAY);remoteClick(directory,Display.DEFAULT_DISPLAY);
+        assertTrue(((Set<?>)field("selected")).isEmpty());assertEquals(root.getCanonicalFile(),field("folder"));
+    }
+    @Test public void bridgeUsesAttachedWindowDisplayAndUnregistersWhenDetached() throws Exception {
+        ArrayList<Message> received=new ArrayList<>();
+        Messenger endpoint=new Messenger(new Handler(Looper.getMainLooper(),message -> { received.add(Message.obtain(message));return true; }));
+        Field bridge=FilesActivity.class.getDeclaredField("bridge");bridge.setAccessible(true);bridge.set(activity,endpoint);
+        activity.onWindowFocusChanged(true);shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(1,received.size());assertEquals(1,received.get(0).what);
+        assertEquals(activity.getWindow().getDecorView().getDisplay().getDisplayId(),received.get(0).getData().getInt("display",-1));
+        detachWindow();
+        activity.onWindowFocusChanged(true);shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(2,received.size());assertEquals(2,received.get(1).what);assertEquals(-1,field("registeredDisplay"));
+    }
     private void remoteClick(File file) throws Exception {
+        remoteClick(file,activity.getWindow().getDecorView().getDisplay().getDisplayId());
+    }
+    private void remoteClick(File file,int display) throws Exception {
         View target=row(file);int[] position=new int[2];target.getLocationOnScreen(position);
         Method method=FilesActivity.class.getDeclaredMethod("remote",Bundle.class);method.setAccessible(true);
         for(int next:new int[]{1,0}) {
             Bundle message=new Bundle();message.putFloat("x",position[0]+target.getWidth()*0.75f);message.putFloat("y",position[1]+target.getHeight()/2f);
+            if(display>=0) message.putInt("display",display);
             message.putInt("buttons",next);message.putInt("previous",1-next);method.invoke(activity,message);
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(20));
         }
