@@ -51,6 +51,20 @@ static class PhoneControlRouteTests
         check(!migration.ShouldResume(false,true,false,4003) && !migration.Pending,"disconnect pause suspend or file sending cancels pending migration");
         migration.Changed(true,true,5000);
         check(!migration.ShouldResume(true,true,false,20001) && !migration.Pending,"unavailable monitor cannot capture the PC cursor long after hotplug");
+        PhoneWakeTransition wake = new();
+        wake.Begin(true,1000);
+        check(!wake.ShouldResume(true,false,false,true,1100) && wake.Pending,"sleeping or locked phone keeps PC cursor while wake is pending");
+        check(!wake.ShouldResume(true,true,true,true,1200) && wake.Pending,"waking never replays held mouse or keyboard input");
+        check(wake.ShouldResume(true,true,false,true,1300),"unlocked awake input target permits requested edge transition");
+        wake.Cancel();check(!wake.Pending,"successful wake transition consumes pending intent");
+        wake.Begin(true,2000);
+        check(!wake.ShouldResume(true,false,false,false,2100) && !wake.Pending,"leaving PC edge cancels wake intent before later unlock");
+        check(!wake.ShouldResume(true,true,false,true,2200),"returning to edge cannot revive cancelled wake intent");
+        wake.Begin(false,3000);
+        check(wake.ShouldResume(true,true,false,false,3100),"button and hotkey wake do not require cursor at edge");
+        check(!wake.ShouldResume(false,true,false,true,3200) && !wake.Pending,"pause disconnect sending or DeX target change cancels wake intent");
+        wake.Begin(true,4000);
+        check(!wake.ShouldResume(true,true,false,true,19000) && !wake.Pending,"wake expires at 15 seconds without delayed cursor capture");
     }
     private sealed class FakeControl : IPhoneControl
     {

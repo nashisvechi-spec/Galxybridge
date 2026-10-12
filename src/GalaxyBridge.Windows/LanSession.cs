@@ -108,6 +108,19 @@ internal sealed class LanSession : IPhoneControl
     }
     public string Name { get; }
     public bool InputReady => inputReady && IsAlive;
+    private sealed record WakeState(bool Supported, bool Awake, bool Unlocked, bool Available);
+    private volatile WakeState wakeState = new(false, true, true, false);
+    public bool CanWake { get { WakeState state = wakeState; return IsAlive && state.Supported && state.Available && !state.Awake && PhoneDisplaySelected; } }
+    public bool ScreenControlAllowed { get { WakeState state = wakeState; return !state.Supported || state.Awake && state.Unlocked; } }
+    public bool PhoneDisplaySelected => controlDisplay == 0;
+    public event Action<bool>? WakeAcknowledged;
+    private volatile string? wakeRequest;
+    public bool RequestWake()
+    {
+        if (!CanWake) return false;
+        string id = Guid.NewGuid().ToString("N");wakeRequest = id;
+        return Post(new { type = "wake", id });
+    }
     private volatile bool preferWifiInput;
     private int controlDisplay=-1;
     private long controlRevision=-1;
@@ -237,6 +250,9 @@ internal sealed class LanSession : IPhoneControl
                 {
                     case "pong":
                         inputReady = root.GetProperty("ready").GetBoolean();
+                        bool supportsWake = root.TryGetProperty("wakeScreen", out var wakeVersion) && wakeVersion.GetInt32() == 1;
+                        wakeState = supportsWake ? new(true, root.GetProperty("screenAwake").GetBoolean(),
+                            root.GetProperty("screenUnlocked").GetBoolean(), root.GetProperty("canWake").GetBoolean()) : new(false, true, true, false);
                         if (root.TryGetProperty("controlDisplay", out var displayValue))
                         {
                             int display = displayValue.GetInt32();long revision = root.GetProperty("controlRevision").GetInt64();
@@ -251,6 +267,13 @@ internal sealed class LanSession : IPhoneControl
                                 ControlDisplayChanged?.Invoke(moved);
                             }
                         }
+                        break;
+                    case "wakeAck":
+                        if (!wakeState.Supported) throw new InvalidDataException("Unexpected wake reply.");
+                        string wakeId = root.GetProperty("id").GetString() ?? "";
+                        if (!LanProtocol.Identifier(wakeId)) throw new InvalidDataException("Invalid wake reply.");
+                        bool wakeAccepted = root.GetProperty("ok").GetBoolean();
+                        if (wakeId == wakeRequest) { wakeRequest = null;WakeAcknowledged?.Invoke(wakeAccepted); }
                         break;
                     case "clipboardSetAck":
                         string setId = root.GetProperty("id").GetString() ?? "";

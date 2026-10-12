@@ -17,6 +17,8 @@
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
         <activity android:name=".ScanActivity" android:exported="false" />
+        <activity android:name=".WakeActivity" android:exported="false" android:theme="@style/BackgroundShare"
+            android:excludeFromRecents="true" android:taskAffinity="" />
         <activity android:name=".ClipboardActivity" android:exported="false" />
         <activity android:name=".ReceivedFolderActivity" android:exported="false" />
         <activity android:name=".DropActivity" android:exported="false" android:resizeableActivity="true" />

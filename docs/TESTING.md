@@ -1,5 +1,31 @@
 # Testing the no-debugging edition
 
+## Phone wake on cursor entry (0.7.30)
+
+Run the portable suite and `mvn -B -f tests/android-display-ui/pom.xml test`.
+The Android suite now includes ten wake cases alongside the existing 38 cases:
+sleep/AOD, already-awake no-op, overlay/accessibility launch grants, rejected
+launch, DeX exclusion, screen-on lifecycle, keyguard preservation and timeout.
+Production LanSession wake metadata/requests/acknowledgements are exercised over
+pinned TLS; pending transitions are checked for held input, edge departure,
+explicit cancellation, target/connection changes and the exact 15-second expiry.
+
+Build and install both 0.7.30 applications. On S25 with accessibility enabled,
+turn the screen off, leave and re-enter the configured PC edge after its delay.
+The screen should wake; the cursor must stay on the PC until input is ready.
+Repeat with AOD, no secure lock, PIN/fingerprint lock, the button and hotkey.
+With a secure lock, unlock normally; edge entry only completes while still at
+that edge. Moving away, cancelling, pausing, disconnecting or waiting 15 seconds
+must prevent later unlock from stealing the cursor. Check repeated attempts.
+
+Repeat in Bluetooth input mode with overlay permission and accessibility disabled.
+Test missing launch permissions and an Android-rejected background launch: no
+cursor capture or reconnect/retry loop. Connect DeX with phone screen off: control
+must go to the monitor without waking or opening a phone window. Connect/remove
+DeX during a pending phone wake. Check screen state races, Android battery limits,
+VPN/network loss and background reconnect with the physical devices. A request
+ACK verifies launch acceptance, not that Samsung hardware actually woke.
+
 ## Background sharing and Windows notifications (0.7.29)
 
 Run the portable tests and `mvn -B -f tests/android-display-ui/pom.xml test`.

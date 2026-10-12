@@ -1,4 +1,41 @@
-# Validation — Windows 0.7.26 / Android 0.7.28
+# Validation — Windows 0.7.30 / Android 0.7.30
+
+## Phone wake on cursor entry (0.7.30)
+
+Based on main commit 23d4c65. Windows negotiates wake support through paired
+LAN heartbeat metadata and sends an identified wake request before entering a
+sleeping phone. The request is processed only on the current authenticated TLS
+link, on the input looper and within the bounded command queue. ACKs correlate
+with the latest request and mean launch acceptance, not hardware readiness.
+Legacy phones never receive an unknown wake command.
+
+Android selects only the default phone display for wake; connected DeX is excluded.
+A bound accessibility service or granted overlay permission enables a private,
+transparent activity with no recents entry or main-task affinity. It calls public
+setTurnScreenOn/setShowWhenLocked, cannot dismiss the keyguard, and closes after
+screen-on or a two-second deadline. There is no wake lock or new permission.
+Awake phones are a no-op. Android reports screen power, device lock and input
+readiness; accepted launch alone cannot transfer the PC cursor.
+
+Windows keeps a pending user transition for at most 15 seconds and waits for
+awake, unlocked input readiness and released physical input. Edge departure,
+explicit cancellation, pause, disconnect, file sending and DeX selection cancel
+pending capture. A button/hotkey wake does not require an edge position. No
+capture is resumed later after cancellation or expiry.
+
+Validation: 48 Android API 35 Robolectric tests pass (10 new wake cases and all
+38 prior display/sharing/receipt regressions). All 2482 portable assertions pass,
+including real pinned TLS wake packets, correlated/stale ACKs, legacy behavior,
+locked-screen gating and DeX rejection. Full Windows production sources compile
+against .NET 8/Windows reference assemblies; resource/manifest linking and all
+30 Android production Java sources compile against the public API 35 SDK.
+Source checks pass. The local direct Windows compiler reports the existing
+QRCoder .NET 6-to-8 reference-unification warnings; no new compile errors occur.
+
+Signed EXE/APK packaging, Windows UI and actual Samsung screen wake/background
+launch behavior require the manual workflow and physical devices. The tests
+simulate display power and do not establish that S25 hardware actually wakes.
+See TESTING.md for sleep/AOD/PIN/fingerprint, Bluetooth, DeX and cancellation checks.
 
 ## Background file sharing and Windows receipt notices (0.7.29)
 

@@ -53,6 +53,7 @@ internal sealed class LanForm : Form
     private Task? sending;
     private bool closing, finished, paused, suspended, armed;
     private readonly DisplayCaptureSwitch displaySwitch = new();
+    private readonly PhoneWakeTransition wakeTransition = new();
     private bool desktopTarget;
     private long? edgeSince;
     public LanForm(Settings settings)
@@ -60,7 +61,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.29"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.30"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -138,7 +139,7 @@ internal sealed class LanForm : Form
         Controls.Add(page);
         renew.Click += (_, _) => { host.ClosePairing(); RefreshAddresses(); ShowQr(); }; addresses.SelectedIndexChanged += (_, _) => { if (host.PairingOpen) ShowQr(); };
         side.SelectedIndexChanged += (_, _) => { StopControl(); settings.PhoneSide = (PhoneSide)side.SelectedIndex; armed = false; SaveSettings(); };
-        edgeEntry.CheckedChanged += (_, _) => { settings.EdgeEntryEnabled = edgeEntry.Checked; SaveSettings(); };
+        edgeEntry.CheckedChanged += (_, _) => { wakeTransition.Cancel(); settings.EdgeEntryEnabled = edgeEntry.Checked; SaveSettings(); };
         speed.ValueChanged += (_, _) =>
         {
             StopControl(); armed = false; settings.Sensitivity = (double)speed.Value;
@@ -158,7 +159,7 @@ internal sealed class LanForm : Form
         host.State += text => Ui(() => {
             if (!paused && !suspended && session?.IsAlive != true) connectionDetail.Text = text;
         });
-        timer.Tick += (_, _) => { if (!host.PairingOpen) ClearQr(); UpdateState(); TryResumeDisplayCapture(); CheckEdge(); };
+        timer.Tick += (_, _) => { if (!host.PairingOpen) ClearQr(); UpdateState(); TryResumeWake(); TryResumeDisplayCapture(); CheckEdge(); };
         clipboardRetry.Tick += (_, _) => ReadLocalClipboard();
         SystemEvents.SessionSwitch += SessionChanged; SystemEvents.PowerModeChanged += PowerChanged;
         Shown += async (_, _) => { Start(); if (settings.FileWidgetVisible) OpenFileWidget();await RunBluetoothAsync(true); }; FormClosing += CloseAsync;
@@ -204,7 +205,8 @@ internal sealed class LanForm : Form
         catch (Exception ex) when (ex is IOException or SocketException or System.ComponentModel.Win32Exception)
         { connectionDetail.Text = "Не удалось открыть режим Wi-Fi: " + ex.Message; }
     }
-    private bool InputReady => route.Current is not null;
+    private bool InputReady => route.Current is not null && session?.ScreenControlAllowed != false;
+    private bool CanStartControl => InputReady || session?.CanWake == true;
     private async Task RunBluetoothAsync(bool enable)
     {
         if (closing || bluetoothOperation is not null) return;
@@ -354,8 +356,14 @@ internal sealed class LanForm : Form
         candidate.AutomaticClipboardWriter = (text, sequence, ct) => SetPhoneClipboardAsync(candidate, text, ct, sequence);
         candidate.ClipboardStatus += text => Ui(() => { if (session == candidate) clipboardState.Text = text; });
         candidate.NativeEdgeStatus += text => Ui(() => { if (session == candidate) bluetoothState.Text = text; });
+        candidate.WakeAcknowledged += accepted => Ui(() => {
+            if(session==candidate && wakeTransition.Pending && !accepted) {
+                wakeTransition.Cancel();connectionDetail.Text="Не удалось включить экран. Проверьте специальные возможности или разрешение «Поверх других приложений» на телефоне.";
+            }
+        });
         candidate.ControlDisplayChanged += moved => Ui(() => {
             if(session==candidate) {
+                if(moved) wakeTransition.Cancel();
                 displaySwitch.Changed(capture?.Active==true,moved,Environment.TickCount64);
                 capture?.Stop();armed=false;edgeSince=null;UpdateState();TryResumeDisplayCapture();
             }
@@ -380,10 +388,10 @@ internal sealed class LanForm : Form
         if(desktop!=desktopTarget) displaySwitch.Changed(capture?.Active==true,true,Environment.TickCount64);
         desktopTarget=desktop;
         route.Update(nativeMouse, session, session?.PreferWifiInput==true);
-        toggle.Enabled = !closing && !suspended && !paused && sending is null && InputReady && capture is not null;
+        toggle.Enabled = !closing && !suspended && !paused && sending is null && (CanStartControl || wakeTransition.Pending) && capture is not null;
         files.Enabled = !closing && !suspended && !paused && sending is null && session?.IsAlive == true;
         UpdateFiles();
-        toggle.Text = capture?.Active == true ? "Вернуть курсор на ПК" : "Управлять телефоном / DeX";
+        toggle.Text = wakeTransition.Pending ? "Отменить переход" : capture?.Active == true ? "Вернуть курсор на ПК" : "Управлять телефоном / DeX";
         if (qr.Image is not null) return;
         if (route.Current is BleHidSession)
         {
@@ -394,7 +402,27 @@ internal sealed class LanForm : Form
         state.Text = paused ? "Подключение остановлено." : session?.IsAlive == true ? "Подключён: " + session.Name +
             (session.InputReady ? session.PreferWifiInput ? ". Экран DeX: курсор приложения, по Wi-Fi." : ". Мышь: курсор приложения, по Wi-Fi." : ". Для управления проверьте выбранный экран и специальные возможности.") : "Ожидаем телефон по Wi-Fi или Bluetooth.";
     }
-    private void StopControl() { displaySwitch.Cancel();capture?.Stop(); }
+    private void StopControl() { wakeTransition.Cancel();displaySwitch.Cancel();capture?.Stop(); }
+    private bool AtPhoneEdge()
+    {
+        Point p=Cursor.Position;Screen screen=Screen.FromPoint(p);Rectangle b=screen.Bounds;
+        bool at=settings.PhoneSide switch { PhoneSide.Right => p.X>=b.Right-1,PhoneSide.Left => p.X<=b.Left,
+            PhoneSide.Top => p.Y<=b.Top,PhoneSide.Bottom => p.Y>=b.Bottom-1,_ => false };
+        Point outside=settings.PhoneSide switch { PhoneSide.Right => new(b.Right,p.Y),PhoneSide.Left => new(b.Left-1,p.Y),
+            PhoneSide.Top => new(p.X,b.Top-1),_ => new(p.X,b.Bottom) };
+        return at && !Screen.AllScreens.Any(s => s.DeviceName!=screen.DeviceName && s.Bounds.Contains(outside));
+    }
+    private void TryResumeWake()
+    {
+        if(!wakeTransition.Pending) return;
+        bool allowed=!closing && !suspended && !paused && sending is null && session?.IsAlive==true && session.PhoneDisplaySelected && capture is not null;
+        bool held=Native.MouseButtonDown || capture?.MouseHeld==true || capture?.KeyHeld==true || Native.KeyDown(0x10) || Native.KeyDown(0x11) || Native.KeyDown(0x12);
+        if(!wakeTransition.ShouldResume(allowed,InputReady,held,edgeEntry.Checked && AtPhoneEdge(),Environment.TickCount64)) {
+            if(!wakeTransition.Pending) connectionDetail.Text="Переход отменён. Если телефон заблокирован, разблокируйте его и снова подведите курсор к краю.";
+            return;
+        }
+        wakeTransition.Cancel();Toggle();
+    }
     private void TryResumeDisplayCapture()
     {
         bool allowed=!closing && !suspended && !paused && sending is null && session?.IsAlive==true && capture is not null;
@@ -406,12 +434,22 @@ internal sealed class LanForm : Form
             displaySwitch.Cancel();armed=false;
         } catch(InvalidOperationException ex) { connectionDetail.Text=ex.Message; }
     }
-    private void Toggle()
+    private void Toggle() => StartControl(false);
+    private void StartControl(bool fromEdge)
     {
         displaySwitch.Cancel();
+        if(wakeTransition.Pending) { wakeTransition.Cancel();armed=false;return; }
         route.Update(nativeMouse, session, session?.PreferWifiInput==true);
         if (capture?.Active == true) { StopControl(); armed = false; return; }
-        if (closing || suspended || paused || sending is not null || !InputReady || capture is null) return;
+        if (closing || suspended || paused || sending is not null || capture is null) return;
+        if(session?.CanWake==true) {
+            if(session.RequestWake()) {
+                wakeTransition.Begin(fromEdge,Environment.TickCount64);armed=false;edgeSince=null;
+                connectionDetail.Text="Включаем экран телефона. Если он заблокирован, разблокируйте его; курсор пока остаётся на ПК.";
+            }
+            return;
+        }
+        if(!InputReady) return;
         if (nativeMouse is not null) nativeMouse.ClipboardSession = session;
         IPhoneControl? current = route.Current;
         if (current is null) return;
@@ -449,7 +487,7 @@ internal sealed class LanForm : Form
     }
     private void CheckEdge()
     {
-        if (!edgeEntry.Checked || !toggle.Enabled || capture?.Active == true) { edgeSince = null; return; }
+        if (!edgeEntry.Checked || !toggle.Enabled || capture?.Active == true || wakeTransition.Pending) { edgeSince = null; return; }
         Point p = Cursor.Position; Screen screen = Screen.FromPoint(p); Rectangle b = screen.Bounds;
         bool at = settings.PhoneSide switch { PhoneSide.Right => p.X >= b.Right - 1, PhoneSide.Left => p.X <= b.Left,
             PhoneSide.Top => p.Y <= b.Top, PhoneSide.Bottom => p.Y >= b.Bottom - 1, _ => false };
@@ -459,7 +497,7 @@ internal sealed class LanForm : Form
             PhoneSide.Top => new(p.X, b.Top - 1), _ => new(p.X, b.Bottom) };
         if (Screen.AllScreens.Any(s => s.DeviceName != screen.DeviceName && s.Bounds.Contains(outside))) { edgeSince = null; return; }
         edgeSince ??= Environment.TickCount64;
-        if (Environment.TickCount64 - edgeSince.Value >= settings.EdgeEntryDelayMs) Toggle();
+        if (Environment.TickCount64 - edgeSince.Value >= settings.EdgeEntryDelayMs) StartControl(true);
     }
     private async Task ChooseFilesAsync()
     {

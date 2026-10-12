@@ -1,8 +1,17 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.29** / Android **0.7.29**. The application starts directly in its LAN
+Windows **0.7.30** / Android **0.7.30**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Version **0.7.30** wakes a sleeping phone when the user enters control from the
+PC edge, button or Ctrl+Alt+F12. Both parts must be updated and the paired LAN
+connection must be alive. The bound accessibility service or granted overlay
+permission enables the brief private transparent screen-on window. No wake lock,
+developer mode or keyguard dismissal is used. The PC cursor stays local until
+awake, unlocked input is available. Edge departure, explicit cancellation,
+disconnect, pause, DeX selection or the 15-second deadline cancel pending capture.
+DeX never wakes the phone screen. Real Samsung wake behavior requires device testing.
 
 Android file sharing now hands content URI grants to the foreground connection
 service through a transparent, short-lived share target. It returns directly to

@@ -170,6 +170,10 @@ def main() -> None:
             {'android.intent.action.SEND', 'android.intent.action.SEND_MULTIPLE'}, 'All file shares route to background handoff')
     require(lan.find('.//activity[@' + ns + 'name=".SendActivity"]').get(ns + 'exported') == 'false',
             'Manual sending window is not an external share target')
+    wake = lan.find('.//activity[@' + ns + 'name=".WakeActivity"]')
+    require(wake is not None and wake.get(ns + 'exported') == 'false' and
+            wake.get(ns + 'theme') == '@style/BackgroundShare' and wake.get(ns + 'excludeFromRecents') == 'true' and
+            wake.get(ns + 'taskAffinity') == '', 'Wake window is private, transparent and isolated from the main app task')
     for xml in (ROOT / 'android/lan/res').rglob('*.xml'):
         ET.parse(xml)
     native_script = read('scripts/Build-LanCompanion.ps1')
@@ -182,7 +186,7 @@ def main() -> None:
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
     java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java')) + list((ROOT / 'tests/android-drop-stubs').rglob('*.java'))
-    require(len(java) == 46, 'Expected active companion protocol/input/clipboard/wheel/drop/receive test sources')
+    require(len(java) == 48, 'Expected active companion protocol/input/clipboard/wheel/drop/receive test sources')
     files = ET.fromstring(read('android/files/AndroidManifest.xml'))
     require(files.get('package') == 'com.galaxybridge.files', 'File manager is a separate Android package')
     provider = files.find('.//provider')

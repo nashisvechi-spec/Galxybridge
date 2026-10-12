@@ -9,6 +9,7 @@
     <Compile Include="../../src/GalaxyBridge.Windows/IPhoneControl.cs" Link="IPhoneControl.cs" />
     <Compile Include="../../src/GalaxyBridge.Windows/PhoneControlRoute.cs" Link="PhoneControlRoute.cs" />
     <Compile Include="../../src/GalaxyBridge.Windows/DisplayCaptureSwitch.cs" Link="DisplayCaptureSwitch.cs" />
+    <Compile Include="../../src/GalaxyBridge.Windows/PhoneWakeTransition.cs" Link="PhoneWakeTransition.cs" />
     <Compile Include="../../src/GalaxyBridge.Windows/ReceiveProgressWindow.cs" Link="ReceiveProgressWindow.cs" />
   </ItemGroup>
 </Project>

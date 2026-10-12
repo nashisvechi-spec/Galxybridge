@@ -88,6 +88,7 @@ static class LanClipboardTests
         }
         await Status(new { type = "pong", ready = true });
         check(peer.Session.InputReady && !peer.Session.PreferWifiInput && changed == 0,"legacy phone readiness preserves existing transport policy");
+        check(!peer.Session.CanWake && !peer.Session.RequestWake() && peer.Session.ScreenControlAllowed,"legacy APK never receives unknown wake command");
         await Status(new { type = "pong", ready = true, controlDisplay = 9, controlRevision = 1, desktopInput = true });
         check(peer.Session.PreferWifiInput && changed == 0,"first DeX metadata chooses Wi-Fi without a false display-switch event");
         int epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);using var capture = await peer.NextAsync();
@@ -108,6 +109,28 @@ static class LanClipboardTests
         await Status(new { type = "pong", ready = true, controlDisplay = 0, controlRevision = 5, desktopInput = false });
         check(peer.Session.InputReady && !peer.Session.PreferWifiInput && changed == 4,"returning to phone restores original policy without disconnect");
         check(movedEvents.SequenceEqual(new[] {true,false,false,true}),"only actual target changes request automatic capture migration; revisions just release old input");
+        await Status(new { type = "pong", ready = false, controlDisplay = 0, controlRevision = 6, desktopInput = false,
+            wakeScreen = 1, screenAwake = false, screenUnlocked = false, canWake = true });
+        check(peer.Session.CanWake && !peer.Session.ScreenControlAllowed && peer.Session.RequestWake(),"sleeping locked phone negotiates wake without input capture");
+        string wakeId;
+        using(var wake = await peer.NextAsync()) {
+            check(wake.RootElement.GetProperty("type").GetString()=="wake","actual pinned TLS transmits wake command separately from capture");
+            wakeId = wake.RootElement.GetProperty("id").GetString()!;
+        }
+        bool? acknowledged = null;peer.Session.WakeAcknowledged += ok => acknowledged=ok;
+        await Deliver(new { type = "wakeAck", id = Guid.NewGuid().ToString("N"), ok = false });
+        check(acknowledged is null,"stale wake acknowledgement cannot cancel a newer user transition");
+        await Deliver(new { type = "wakeAck", id = wakeId, ok = true });
+        check(acknowledged==true && !peer.Session.ScreenControlAllowed,"accepted wake is not mistaken for unlocked screen readiness");
+        await Status(new { type = "pong", ready = false, controlDisplay = 0, controlRevision = 7, desktopInput = false,
+            wakeScreen = 1, screenAwake = true, screenUnlocked = false, canWake = false });
+        check(!peer.Session.CanWake && !peer.Session.ScreenControlAllowed,"awake keyguard blocks cursor capture including Bluetooth route");
+        await Status(new { type = "pong", ready = true, controlDisplay = 0, controlRevision = 7, desktopInput = false,
+            wakeScreen = 1, screenAwake = true, screenUnlocked = true, canWake = false });
+        check(peer.Session.InputReady && peer.Session.ScreenControlAllowed && !peer.Session.RequestWake(),"awake unlocked phone permits capture without waking again");
+        await Status(new { type = "pong", ready = false, controlDisplay = 9, controlRevision = 8, desktopInput = true,
+            wakeScreen = 1, screenAwake = false, screenUnlocked = true, canWake = true });
+        check(!peer.Session.CanWake && !peer.Session.RequestWake(),"external DeX selection cannot wake the phone even with invalid availability metadata");
     }
     private static async Task FileEdgeConfigurationAsync(Action<bool, string> check)
     {

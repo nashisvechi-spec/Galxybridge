@@ -179,6 +179,15 @@ public final class ConnectionService extends Service {
                                 nativeEdge.heartbeat();if(ControlService.instance!=null) ControlService.instance.poll();
                                 active.send(inputScreenMessage(this));
                             } });
+                        } else if("wake".equals(type)) {
+                            String wakeId=command.getString("id");if(!Wire.hex(wakeId,32)) throw new IOException("Invalid wake request");
+                            if(!active.commands.tryAcquire()) throw new IOException("Wake queue full");
+                            main.post(() -> {
+                                try { if(link==active && !active.closed.get()) {
+                                    active.send(Wire.message("wakeAck","id",wakeId,"ok",ScreenWake.request(this)));
+                                    active.send(inputScreenMessage(this));
+                                } } finally { active.commands.release(); }
+                            });
                         } else if("fileEdgeConfig".equals(type)) {
                             if(!active.fileEdgeConfig) throw new IOException("File edge configuration not negotiated");
                             command.getBoolean("enabled"); // Legacy configuration is consumed; file-edge transfer is removed.
@@ -284,7 +293,9 @@ public final class ConnectionService extends Service {
         // and old touch cancellation have caught up with the DisplayManager.
         ControlService.refreshSelection();
         return Wire.message("pong","ready",ControlService.ready(context),"controlDisplay",ControlDisplays.id(context),
-            "controlRevision",ControlService.displayRevision(),"desktopInput",ControlDisplays.desktop(context));
+            "controlRevision",ControlService.displayRevision(),"desktopInput",ControlDisplays.desktop(context),
+            "wakeScreen",1,"screenAwake",ScreenWake.awake(context),
+            "screenUnlocked",!context.getSystemService(KeyguardManager.class).isDeviceLocked(),"canWake",ScreenWake.available(context));
     }
     static void reportInputScreen() {
         ConnectionService current=instance;
