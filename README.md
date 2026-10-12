@@ -1,8 +1,17 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.20** / Android **0.7.21**. The application starts directly in its LAN
+Windows **0.7.26** / Android **0.7.28**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Android 0.7.28 shows a received-file notification only after checksum verification
+and successful publication in `Download/GalaxyBridge`. Tap it to open that folder
+in a system file manager. A system chooser at the same folder is the fallback;
+if unavailable, the general Downloads window is used. Notification permission is
+required for the notice, but denying it does not interrupt receipt. A new receipt
+updates the notice with the latest filename. Samsung device behavior still needs
+verification. The current package excludes Galaxy Files and file-edge transfer;
+ordinary sharing/receipt and the Windows send widget remain available.
 
 Windows **0.7.19** shows the native Shell operations progress dialog during
 phone-to-PC receipt and drag preparation. Progress follows actual received bytes;

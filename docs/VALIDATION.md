@@ -1,4 +1,32 @@
-# Validation — Windows 0.7.26 / Android 0.7.27
+# Validation — Windows 0.7.26 / Android 0.7.28
+
+## Android received-file notifications (0.7.28)
+
+The production Downloads receiver posts a separate, auto-cancelling receipt
+notification only after size/SHA-256 checks and successful MediaStore publication.
+The final provider filename is shown, with the requested name as fallback when
+the query is empty. Notification permission/manager failures cannot undo a saved
+file or cause a negative transfer acknowledgement. One notice is updated with
+the latest receipt; foreground connection notice 61 remains separate from 62.
+
+An immutable activity PendingIntent targets a private ReceivedFolderActivity.
+It opens the external-storage document for primary:Download/GalaxyBridge with
+directory VIEW. If unsupported, it launches OPEN_DOCUMENT with that initial
+directory, then general Downloads, then a saved-path toast. It requests no tree
+or broad storage permission. Files selected from the fallback chooser open with
+a temporary read grant.
+
+36 Android API 35 Robolectric tests pass: 14 new receive/notification/navigation
+tests plus the existing 22 sharing/display regressions. A fixture ContentProvider
+backs the real Downloads byte stream and publication lifecycle. Tests cover
+pending/chunk timing, successful publication/name/tap/channel, checksum and size
+failures, cancellation, publication failure, denied/disabled notifications,
+notification service exceptions, notice replacement, and folder/chooser/downloads
+fallbacks. All 27 shipped Java sources compile against public Android API 35;
+source checks pass. These checks do not validate Samsung file-manager routing,
+lock-screen notification presentation, or APK signing/packaging. Run the manual
+workflow and validate PC-to-S25 receipt/tap with the actual installed managers.
+Windows stays 0.7.26.
 
 ## Automatic Android file sharing (0.7.27)
 

@@ -1,5 +1,19 @@
 # Testing the no-debugging edition
 
+## Received-file notification checks (Android 0.7.28)
+
+The same `tests/android-display-ui/pom.xml` suite now has 36 tests, including
+14 receipt/notification/folder tests. They drive the production Downloads receiver
+through a fixture provider, check successful publication and failure/cancel paths,
+permission/notification failures, notice replacement and navigation fallbacks.
+
+On S25, allow notifications, send a file from the Windows widget, wait for receipt,
+and tap **Файл получен с ПК**. Verify the actual file in **Download/GalaxyBridge**.
+Test a duplicate filename, several files, cancellation/disconnection, and receiving
+with notifications disabled. Verify tapping with the app closed and in DeX. Check
+that the connection notice remains and that the saved file can be opened from the
+folder. If the manager does not support directory VIEW, verify the system chooser
+starts in that folder and can open a selected file. These are physical-device checks.
 
 ## Current DeX/package checks (0.7.25)
 

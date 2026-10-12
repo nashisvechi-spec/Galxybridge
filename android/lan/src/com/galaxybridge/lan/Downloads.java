@@ -17,6 +17,7 @@ final class Downloads implements AutoCloseable {
     private Uri row;
     private OutputStream out;
     private String transfer;
+    private String requestedName;
     private long expected, received;
     private int sequence;
     private MessageDigest digest;
@@ -35,7 +36,7 @@ final class Downloads implements AutoCloseable {
             row=context.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values);
             if (row==null) throw new IOException("Cannot create file");
             out=context.getContentResolver().openOutputStream(row,"w"); if(out==null) throw new IOException("Cannot open file");
-            transfer=incoming; expected=size; received=0; sequence=0; digest=MessageDigest.getInstance("SHA-256"); return "";
+            transfer=incoming; requestedName=name; expected=size; received=0; sequence=0; digest=MessageDigest.getInstance("SHA-256"); return "";
         }
         if (!incoming.equals(transfer) || row==null) {
             if ("fileAbort".equals(type)) return "";
@@ -51,13 +52,14 @@ final class Downloads implements AutoCloseable {
         if ("fileEnd".equals(type)) {
             if(received!=expected || !Wire.hex(command.getString("sha256"),64) || !Wire.hex(digest.digest()).equals(command.getString("sha256"))) throw new IOException("File checksum mismatch");
             out.close(); out=null;
-            String name="";
+            String name=requestedName;
             try (Cursor cursor=context.getContentResolver().query(row,new String[]{MediaStore.Downloads.DISPLAY_NAME},null,null,null)) {
                 if(cursor!=null && cursor.moveToFirst()) name=cursor.getString(0);
             }
             ContentValues values=new ContentValues(); values.put(MediaStore.Downloads.IS_PENDING,0);
             if(context.getContentResolver().update(row,values,null,null)!=1) throw new IOException("Cannot publish file");
-            row=null; transfer=null; return name;
+            row=null; transfer=null; requestedName=null;
+            ReceivedFiles.notifySaved(context,name); return name;
         }
         if ("fileAbort".equals(type)) { close(); return ""; }
         throw new IOException("Unknown file command");
@@ -65,6 +67,6 @@ final class Downloads implements AutoCloseable {
     @Override public void close() {
         if(out!=null) { try { out.close(); } catch(IOException ignored){} out=null; }
         if(row!=null) { try { context.getContentResolver().delete(row,null,null); } catch(RuntimeException ignored){} row=null; }
-        transfer=null;
+        transfer=null; requestedName=null;
     }
 }

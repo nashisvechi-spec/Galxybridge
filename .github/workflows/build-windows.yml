@@ -47,7 +47,7 @@ jobs:
           packages: platforms;android-35 build-tools;35.0.0
       - name: Test Android LAN wire and pairing parsers on JVM
         run: ./scripts/Test-LanProtocol.ps1
-      - name: Test Android display selection and automatic sharing
+      - name: Test Android display, sharing and received-file notifications
         timeout-minutes: 6
         run: |
           $env:JAVA_HOME = $env:JAVA_HOME_17_X64
