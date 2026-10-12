@@ -9,7 +9,6 @@ internal sealed class Settings
     public double Sensitivity { get; set; } = 1.0;
     public bool ClipboardEnabled { get; set; } = true;
     public bool EdgeEntryEnabled { get; set; } = true;
-    public bool FileEdgeTransferEnabled { get; set; }
     public bool FileWidgetVisible { get; set; }
     public int? FileWidgetX { get; set; }
     public int? FileWidgetY { get; set; }

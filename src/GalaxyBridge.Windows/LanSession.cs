@@ -22,38 +22,33 @@ internal sealed class LanSession : IPhoneControl
     private volatile ReceiveConfiguration receiving = new(false, "");
     private readonly object receiveGate = new();
     private readonly LanFileReceiver incoming = new();
-    private readonly LanDragStaging dragFiles = new();
-    private bool progressStaging;
-    private volatile bool fileEdgeEnabled;
     public bool FileEdgeConfigurationSupported { get; }
-    public bool FileEdgeEnabled => fileEdgeEnabled;
+    public bool FileEdgeEnabled => false;
     public void ConfigureFileEdge(bool enabled)
     {
-        lock (receiveGate) { fileEdgeEnabled = enabled; if (!enabled) dragFiles.Dispose(); }
-        if (FileEdgeConfigurationSupported) Post(new { type = "fileEdgeConfig", enabled });
+        if (FileEdgeConfigurationSupported) Post(new { type = "fileEdgeConfig", enabled = false });
     }
-    public event Action<string, PhoneEdgeSample>? FileDragRequested;
-    public LanReceiveState ReceiveState { get { lock (receiveGate) return dragFiles.State.Busy ? dragFiles.State : incoming.State; } }
+    public LanReceiveState ReceiveState { get { lock (receiveGate) return incoming.State; } }
     public (LanReceiveState State, bool Staging) ReceiveProgress
-    { get { lock (receiveGate) return (progressStaging ? dragFiles.State : incoming.State, progressStaging); } }
-    public string[] TakeDragFiles(string batch) { lock (receiveGate) { if (!receiving.Enabled) throw new IOException("Приём файлов выключен."); return dragFiles.Take(batch); } }
+    { get { lock (receiveGate) return (incoming.State, false); } }
     public void ConfigureReceive(bool enabled, string folder)
     {
         lock (receiveGate)
         {
-            if (!enabled || receiving.Folder != folder) { incoming.Cancel(); dragFiles.Dispose(); }
+            if (!enabled || receiving.Folder != folder) { incoming.Cancel(); }
             receiving = new(enabled, folder);
         }
     }
-    public void CancelReceive() { lock (receiveGate) { incoming.Cancel(); dragFiles.Dispose(); } }
+    public void CancelReceive() { lock (receiveGate) { incoming.Cancel(); } }
     public void CancelReceive(string transfer, bool staging)
     {
         lock (receiveGate)
         {
-            LanReceiveState active = staging ? dragFiles.State : incoming.State;
+            if (staging) return;
+            LanReceiveState active = incoming.State;
             // A delayed Cancel from an old dialog must not affect the next file.
             if (!active.Busy || active.OperationId != transfer) return;
-            if (staging) dragFiles.Dispose(); else incoming.Cancel();
+            incoming.Cancel();
         }
     }
     private PhoneEdgeSample? edge;
@@ -116,7 +111,7 @@ internal sealed class LanSession : IPhoneControl
     private int controlDisplay=-1;
     private long controlRevision=-1;
     public bool PreferWifiInput => preferWifiInput;
-    public event Action? ControlDisplayChanged;
+    public event Action<bool>? ControlDisplayChanged;
     public bool IsAlive => Volatile.Read(ref closed) == 0;
     public PhoneEdgeSample? LatestEdge
     {
@@ -245,13 +240,14 @@ internal sealed class LanSession : IPhoneControl
                         {
                             int display = displayValue.GetInt32();long revision = root.GetProperty("controlRevision").GetInt64();
                             if (display < -1 || revision < 0) throw new InvalidDataException("Invalid control display.");
-                            bool changed = controlRevision >= 0 && (controlDisplay != display || controlRevision != revision);
+                            bool moved = controlDisplay != display;
+                            bool changed = controlRevision >= 0 && (moved || controlRevision != revision);
                             controlDisplay = display;controlRevision = revision;
                             preferWifiInput = root.GetProperty("desktopInput").GetBoolean() || display > 0;
                             if (changed)
                             {
                                 touchActive = false;edge = null;
-                                ControlDisplayChanged?.Invoke();
+                                ControlDisplayChanged?.Invoke(moved);
                             }
                         }
                         break;
@@ -377,35 +373,15 @@ internal sealed class LanSession : IPhoneControl
                         if (correlatedDrag ? !LanProtocol.Identifier(dragRequest ?? "") :
                             root.GetProperty("type").GetString() != "dragCancel" || !LanProtocol.Identifier(root.GetProperty("batch").GetString() ?? ""))
                             throw new InvalidDataException("Invalid drag request.");
-                        try
-                        {
-                            lock (receiveGate)
-                            {
-                                if (!receiving.Enabled) throw new IOException("Включите приём файлов в окне файлов на ПК.");
-                                string batch = root.GetProperty("batch").GetString() ?? "";
-                                if (!fileEdgeEnabled && root.GetProperty("type").GetString() != "dragCancel")
-                                    throw new IOException("Включите «Перенос файлов с телефона через край» в окне Galaxy Bridge на ПК.");
-                                switch (root.GetProperty("type").GetString())
-                                {
-                                    case "dragPrepare": dragFiles.Begin(batch, root.GetProperty("count").GetInt32()); break;
-                                    case "dragReady": dragFiles.Ready(batch); break;
-                                    case "dragCancel": dragFiles.Cancel(batch); break;
-                                }
-                            }
-                            if (dragRequest is not null) Post(new { type = "uploadAck", id = dragRequest, ok = true });
-                        }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-                        { if (dragRequest is not null) Post(new { type = "uploadAck", id = dragRequest, ok = false, error = ex.Message }); }
+                        string obsoleteBatch = root.GetProperty("batch").GetString() ?? "";
+                        if (!LanProtocol.Identifier(obsoleteBatch)) throw new InvalidDataException("Invalid drag batch.");
+                        if (dragRequest is not null) Post(new { type = "uploadAck", id = dragRequest,
+                            ok = root.GetProperty("type").GetString() == "dragCancel", error = "Перенос файлов через край удалён. Используйте обычную отправку." });
                         break;
                     case "dragStart":
                         string dragBatch = root.GetProperty("batch").GetString() ?? "";
                         if (!LanProtocol.Identifier(dragBatch)) throw new InvalidDataException("Invalid drag batch.");
-                        bool prepared;
-                        lock (receiveGate) prepared = receiving.Enabled && fileEdgeEnabled && dragFiles.IsReady(dragBatch);
-                        if (prepared && touchActive && PhoneEdgeSample.TryParse(root.GetProperty("line").GetString() ?? "", Environment.TickCount64, out var dragSample) &&
-                            dragSample!.CaptureId == epoch && FileDragRequested is not null)
-                            FileDragRequested.Invoke(dragBatch, dragSample);
-                        else Post(new { type = "dragResult", batch = dragBatch, ok = false, error = "Подготовьте файлы и перетащите их мышью в режиме Wi-Fi." });
+                        Post(new { type = "dragResult", batch = dragBatch, ok = false, error = "Перенос файлов через край удалён." });
                         break;
                     case "uploadBegin": case "uploadChunk": case "uploadEnd": case "uploadAbort":
                         string request = root.GetProperty("id").GetString() ?? "";
@@ -416,15 +392,8 @@ internal sealed class LanSession : IPhoneControl
                             lock (receiveGate)
                             {
                                 ReceiveConfiguration options = receiving;
-                                if (root.TryGetProperty("dragBatch", out _))
-                                {
-                                    if (!fileEdgeEnabled) throw new IOException("Перенос через край выключен.");
-                                    if (!options.Enabled) throw new IOException("Приём файлов выключен.");
-                                    saved = dragFiles.Accept(root);
-                                }
-                                else saved = incoming.Accept(root, options.Folder, options.Enabled);
-                                if (root.GetProperty("type").GetString() == "uploadBegin")
-                                    progressStaging = root.TryGetProperty("dragBatch", out _);
+                                if (root.TryGetProperty("dragBatch", out _)) throw new IOException("Перенос файлов через край удалён.");
+                                saved = incoming.Accept(root, options.Folder, options.Enabled);
                             }
                             Post(new { type = "uploadAck", id = request, ok = true, name = saved });
                         }
@@ -444,7 +413,6 @@ internal sealed class LanSession : IPhoneControl
         finally
         {
             Close(); await Task.WhenAll(writer, ping); incoming.Dispose();
-            lock (receiveGate) dragFiles.Dispose();
             foreach (var reply in replies.Values) reply.TrySetException(new IOException("Связь прервалась. Отправка не повторяется автоматически."));
             replies.Clear(); lifetime.Dispose(); Lost?.Invoke();
         }
@@ -456,7 +424,7 @@ internal sealed class LanSession : IPhoneControl
     }
     private async Task PingAsync()
     {
-        try { while (!lifetime.IsCancellationRequested) { lock (receiveGate) { incoming.Expire(Environment.TickCount64); dragFiles.Expire(Environment.TickCount64); } Post(new { type = "ping" }); await Task.Delay(3000, lifetime.Token); } }
+        try { while (!lifetime.IsCancellationRequested) { lock (receiveGate) { incoming.Expire(Environment.TickCount64); } Post(new { type = "ping" }); await Task.Delay(3000, lifetime.Token); } }
         catch (OperationCanceledException) { }
     }
     private async Task<string> RequestAsync(Func<string, object> build, CancellationToken ct)

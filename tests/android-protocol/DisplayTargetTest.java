@@ -10,6 +10,13 @@ public final class DisplayTargetTest {
         DisplayTarget.Screen phone=screen(0,1080,2340,true,false),dex=screen(9,1920,1080,true,true);
         check(DisplayTarget.choose(-1,new DisplayTarget.Screen[]{phone})==phone,"phone-only behavior preserved");
         check(DisplayTarget.choose(-1,new DisplayTarget.Screen[]{phone,dex})==dex,"DeX wins automatic selection without hardcoded ID 1");
+        DisplayTarget.Screen sleepingDex=new DisplayTarget.Screen(9,1920,1080,0,true,true,true,160,false);
+        check(DisplayTarget.choose(DisplayTarget.AUTO,new DisplayTarget.Screen[]{phone,sleepingDex})==sleepingDex && !sleepingDex.awake,
+            "connected but waking DeX retains ownership rather than briefly steering the phone");
+        check(!DisplayTarget.same(dex,sleepingDex),"monitor wake publishes readiness even with identical geometry");
+        check(DisplayTarget.choose(DisplayTarget.AUTO,new DisplayTarget.Screen[]{phone,dex})==dex &&
+            DisplayTarget.choose(DisplayTarget.AUTO,new DisplayTarget.Screen[]{phone})==phone,
+            "hotplug selects DeX automatically and actual removal restores the phone");
         check(DisplayTarget.choose(0,new DisplayTarget.Screen[]{phone,dex})==phone,"explicit phone choice overrides connected DeX");
         check(DisplayTarget.choose(9,new DisplayTarget.Screen[]{phone,dex})==dex,"manual external display selection");
         check(DisplayTarget.choose(9,new DisplayTarget.Screen[]{phone})==null,"missing manual external screen cannot silently send input to phone");
@@ -31,13 +38,6 @@ public final class DisplayTargetTest {
         check(!DisplayTarget.same(dex,new DisplayTarget.Screen(9,1920,1080,0,true,true,true,240)),"density change recreates cursor resources");
         check(DisplayTarget.same(null,null) && !DisplayTarget.same(dex,null) && !DisplayTarget.same(null,dex),"removal and first connection change capture identity");
         check(DisplayTarget.matches(9,9) && !DisplayTarget.matches(9,0) && !DisplayTarget.matches(-1,-1),"IPC never routes monitor coordinates into phone activity");
-        EdgeStrip zone=EdgeStrip.create(1920,1080,0,24,0,48,0);
-        EdgeFileDrag.Pointer held=new EdgeFileDrag.Pointer(7,0,1920,1080,0,500,1,true,9);
-        EdgeFileDrag drag=new EdgeFileDrag();check(drag.begin(held,zone,1000),"DeX source hold at actual monitor edge");
-        check(drag.valid(drag.clamp(held),1100) && drag.clamp(held).displayId==9,"projection preserves display identity");
-        check(!drag.valid(new EdgeFileDrag.Pointer(7,0,1920,1080,0,500,1,true,0),1100),"same capture and metrics on phone cannot take DeX file hold");
-        FileDropContact contact=new FileDropContact();contact.location(held,zone,0,500-zone.y,1000);
-        check(contact.ready(held,zone,1200) && !contact.ready(new EdgeFileDrag.Pointer(7,0,1920,1080,0,500,1,true,0),zone,1200),"drop dwell bound to selected display");
         System.out.println("PASS: "+checks+" DeX display target assertions");
     }
 }

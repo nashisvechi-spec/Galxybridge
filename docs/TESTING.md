@@ -1,5 +1,20 @@
 # Testing the no-debugging edition
 
+
+## Current DeX/package checks (0.7.25)
+
+Run `mvn -B -f tests/android-display-ui/pom.xml test` with JDK 17 before packaging.
+The nine framework tests use the real companion display adapter and public
+Android API 35 models; they do not validate Samsung hardware overlays.
+The workflow packages GalaxyBridge.exe and only GalaxyBridgeLan.apk. Galaxy Files
+and file-edge transfer are excluded. Earlier file-edge checklists below are
+historical and do not apply to 0.7.25.
+
+On devices, verify connection to a monitor while the phone cursor is active,
+entry from an idle PC directly into DeX, release of held buttons before migration,
+return to the phone after removal, a sleeping monitor and phone lock/unlock.
+Also check ordinary file sending, receiving and the independent Windows widget.
+
 ## Automated checks
 
 ```powershell

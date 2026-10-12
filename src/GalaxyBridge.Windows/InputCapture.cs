@@ -17,6 +17,7 @@ internal sealed class InputCapture : IDisposable
     private Point anchor, returnPoint;
     private nint returnWindow;
     private readonly MouseInputState mouse = new();
+    private readonly MouseInputState physicalMouse = new();
     private byte buttons => mouse.Buttons;
     private bool cursorHidden;
     private int returnEpoch, lastDx, lastDy;
@@ -27,8 +28,7 @@ internal sealed class InputCapture : IDisposable
     private double pendingX, pendingY, sensitivity = 1;
     public bool Active => phone is not null;
     public bool KeyHeld => physical.Count != 0;
-    public bool FileDragButtonHeld { get; private set; }
-    public void EndFileDrag() => FileDragButtonHeld = false;
+    public bool MouseHeld => physicalMouse.Buttons != 0;
     public Func<string?>? PasteText { get; set; }
     public event Action? ToggleRequested;
     public event Action? DesktopChanged;
@@ -54,7 +54,7 @@ internal sealed class InputCapture : IDisposable
     public void Start(IPhoneControl session, double speed, PhoneSide side, bool returnEnabled)
     {
         if (Active) return;
-        if (Native.MouseButtonDown) throw new InvalidOperationException("Отпустите кнопки мыши перед переключением.");
+        if (MouseHeld || Native.MouseButtonDown) throw new InvalidOperationException("Отпустите кнопки мыши перед переключением.");
         if (physical.Any(key => key != 0x45 && key is not (>= 0xE0 and <= 0xE7)))
             throw new InvalidOperationException("Отпустите остальные клавиши перед переключением.");
         returnPoint = Cursor.Position; returnWindow = Native.GetForegroundWindow();
@@ -99,18 +99,7 @@ internal sealed class InputCapture : IDisposable
         if (Native.IsWindow(returnWindow)) _ = Native.SetForegroundWindow(returnWindow);
     }
 
-    public void ResetPhysicalState() => physical.Clear();
-
-    public bool HandoffFileDrag(LanSession source, PhoneEdgeSample sample)
-    {
-        if (phone != source ||
-            !FileDragHandoff.CanReturn(sample, returnEpoch, phoneSide, buttons, KeyHeld, lastDx, lastDy, Environment.TickCount64)) return false;
-        (int x, int y) = EdgeReturnPolicy.LaptopPosition(laptopBounds, phoneSide, sample);
-        returnPoint = new Point(x, y);
-        FileDragButtonHeld = true;
-        Stop(); // Releases Android inputs; the physical left button stays down for Windows OLE.
-        return true;
-    }
+    public void ResetPhysicalState() { physical.Clear();physicalMouse.Clear(); }
 
     private nint KeyboardHook(int code, nint wParam, nint lParam)
     {
@@ -162,17 +151,14 @@ internal sealed class InputCapture : IDisposable
 
     private nint MouseHook(int code, nint wParam, nint lParam)
     {
-        if (code >= 0 && FileDragButtonHeld && (int)wParam is 0x202 or 0x204 or 0x207 or 0x20B)
-        {
-            Native.MouseData physicalData = Marshal.PtrToStructure<Native.MouseData>(lParam);
-            if ((physicalData.Flags & 1) == 0) FileDragButtonHeld = false;
-        }
-        if (code < 0 || !Active) return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+        if (code < 0) return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
         try
         {
             Native.MouseData data = Marshal.PtrToStructure<Native.MouseData>(lParam);
             if ((data.Flags & 1) != 0) return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
             int message = (int)wParam;
+            physicalMouse.Update(message,data.MouseDataValue,out _);
+            if (!Active) return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
             if (message == 0x200)
             {
                 int dx = data.Point.X - anchor.X, dy = data.Point.Y - anchor.Y;

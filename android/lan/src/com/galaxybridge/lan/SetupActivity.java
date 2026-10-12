@@ -11,9 +11,6 @@ import android.net.Uri;
 import android.provider.Settings;
 import android.graphics.Insets;
 import android.view.WindowInsets;
-import android.view.Display;
-import android.hardware.display.DisplayManager;
-import java.util.ArrayList;
 import android.widget.*;
 
 public final class SetupActivity extends Activity {
@@ -30,14 +27,12 @@ public final class SetupActivity extends Activity {
         LinearLayout page = new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p = (int)(20 * getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b = i.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.24"); title.setTextSize(24); page.addView(title);
-        TextView help = new TextView(this); help.setText("Подключение к ноутбуку без отладки.\n\nНа Windows откройте «Wi-Fi без отладки» и покажите QR. Оба устройства подключите к одной локальной сети.\n\nФайлы сохраняются в Download/GalaxyBridge. Для мыши через Wi-Fi включите специальные возможности. Для системной мыши подключите телефон к ПК в настройках Bluetooth, а для возврата через край разрешите «Поверх других приложений». Приложение получает команды только от сопряжённого ноутбука."); help.setTextSize(16); page.addView(help);
+        TextView title = new TextView(this); title.setText("Galaxy Bridge Wi-Fi · 0.7.25"); title.setTextSize(24); page.addView(title);
+        TextView help = new TextView(this); help.setText("Подключение к ноутбуку без отладки.\n\nНа Windows откройте «Wi-Fi без отладки» и покажите QR. Оба устройства подключите к одной локальной сети.\n\nФайлы сохраняются в Download/GalaxyBridge. При подключении DeX управление автоматически переходит на внешний монитор. Для мыши через Wi-Fi включите специальные возможности. Для системной мыши подключите телефон к ПК в настройках Bluetooth, а для возврата через край разрешите «Поверх других приложений». Приложение получает команды только от сопряжённого ноутбука."); help.setTextSize(16); page.addView(help);
         status = new TextView(this); status.setTextSize(16); page.addView(status);
-        button(page,"Экран управления: телефон / DeX",this::chooseScreen);
         button(page,"Сканировать QR", () -> startActivityForResult(new Intent(this, ScanActivity.class), 7));
         button(page,"Отправить на ПК", () -> startActivity(new Intent(this,SendActivity.class)));
         button(page,"Приём из «Моих файлов»", () -> startActivity(new Intent(this,DropActivity.class)));
-        button(page,"Перенос файлов через край (тест)", () -> startActivity(new Intent(this,DropActivity.class).putExtra("edgeMode",true)));
         TextView clipboardHelp=new TextView(this);clipboardHelp.setText("Общий буфер: включите его на ПК и один раз разрешите «Поверх других приложений». Копируйте на ПК — текст появится в буфере телефона. Скопировав на телефоне, верните курсор на ПК и вставляйте. Отдельная отправка не нужна.");page.addView(clipboardHelp);
         button(page,"Разрешить переходы мыши и общий буфер", () -> startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()))));
         button(page,"Включить специальные возможности", () -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
@@ -49,22 +44,6 @@ public final class SetupActivity extends Activity {
         ScrollView scroll = new ScrollView(this); scroll.addView(page); setContentView(scroll);
     }
     private SharedPreferences prefs() { return getSharedPreferences("lan", MODE_PRIVATE); }
-    private void chooseScreen() {
-        ArrayList<Integer> ids=new ArrayList<>();ArrayList<String> labels=new ArrayList<>();
-        ids.add(DisplayTarget.AUTO);labels.add("Авто — внешний экран при подключении");
-        for(Display display:getSystemService(DisplayManager.class).getDisplays()) {
-            if(!display.isValid() || (display.getFlags()&Display.FLAG_PRIVATE)!=0) continue;
-            ids.add(display.getDisplayId());labels.add(display.getDisplayId()==Display.DEFAULT_DISPLAY?"Экран телефона":"Внешний экран / DeX: "+display.getName());
-        }
-        int current=ids.indexOf(ControlDisplays.preference(this));
-        new AlertDialog.Builder(this).setTitle("Экран для курсора и касаний")
-            .setSingleChoiceItems(labels.toArray(new String[0]),current,(dialog,which) -> {
-                if(getSharedPreferences("screen",MODE_PRIVATE).edit().putInt("target",ids.get(which)).commit()) {
-                    ControlService.preferenceChanged();dialog.dismiss();
-                    Toast.makeText(this,"Экран выбран. Верните курсор на ПК и включите управление снова.",Toast.LENGTH_LONG).show();
-                } else Toast.makeText(this,"Не удалось сохранить выбор экрана.",Toast.LENGTH_LONG).show();
-            }).setNegativeButton("Отмена",null).show();
-    }
     private void button(LinearLayout page, String text, Runnable run) { Button b = new Button(this); b.setText(text); b.setOnClickListener(v -> run.run()); page.addView(b); }
     @Override protected void onResume() { super.onResume(); handler.post(update); }
     @Override protected void onPause() { handler.removeCallbacks(update); super.onPause(); }

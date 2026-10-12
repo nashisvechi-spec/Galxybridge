@@ -61,7 +61,6 @@ static class LanClipboardTests
         await NativeEdgeAsync(check);
         await ControlDisplayAsync(check);
         await LegacyMouseAsync(check);
-        await FileDragAsync(check);
         await FileEdgeConfigurationAsync(check);
         await SendProgressAsync(check);
         await InvalidDragRequestsAsync(check);
@@ -70,7 +69,8 @@ static class LanClipboardTests
     {
         await using var peer = await Peer.CreateAsync();
         peer.Session.ClipboardWriter = (_, _) => Task.FromResult(true);peer.Session.ConfigureClipboard(true);
-        int changed = 0;peer.Session.ControlDisplayChanged += () => changed++;
+        int changed = 0;List<bool> movedEvents = [];
+        peer.Session.ControlDisplayChanged += moved => { changed++;movedEvents.Add(moved); };
         async Task Deliver(object value)
         {
             await peer.Stream.WriteAsync(LanProtocol.Encode(value));
@@ -102,56 +102,44 @@ static class LanClipboardTests
         await Deliver(new { type = "edge", line = $"GB_EDGE {epoch} 1 1920 1080 0 500 0" });
         await Status(new { type = "pong", ready = true, controlDisplay = 2, controlRevision = 3, desktopInput = true });
         check(changed == 2 && peer.Session.LatestEdge is null,"resolution/rotation/density revision stops existing capture on the same display");
-        await Status(new { type = "pong", ready = false, controlDisplay = -1, controlRevision = 4, desktopInput = true });
-        check(!peer.Session.InputReady && peer.Session.PreferWifiInput && changed == 3,"missing explicitly selected monitor cannot route to phone Bluetooth");
+        await Status(new { type = "pong", ready = false, controlDisplay = 2, controlRevision = 4, desktopInput = true });
+        check(!peer.Session.InputReady && peer.Session.PreferWifiInput && changed == 3,"sleeping external monitor cannot route to phone Bluetooth");
         await Status(new { type = "pong", ready = true, controlDisplay = 0, controlRevision = 5, desktopInput = false });
         check(peer.Session.InputReady && !peer.Session.PreferWifiInput && changed == 4,"returning to phone restores original policy without disconnect");
+        check(movedEvents.SequenceEqual(new[] {true,false,false,true}),"only actual target changes request automatic capture migration; revisions just release old input");
     }
     private static async Task FileEdgeConfigurationAsync(Action<bool, string> check)
     {
         await using var peer = await Peer.CreateAsync(fileEdgeConfig: true);
-        string folder = Path.Combine(Path.GetTempPath(), "GalaxyBridge-Edge-Config-" + Guid.NewGuid().ToString("N"));
+        string folder = Path.Combine(Path.GetTempPath(), "GalaxyBridge-Ordinary-" + Guid.NewGuid().ToString("N"));
         string batch = Guid.NewGuid().ToString("N"), transfer = Guid.NewGuid().ToString("N");
         peer.Session.ConfigureReceive(true, folder);
+        string Id() => Guid.NewGuid().ToString("N");
         async Task<bool> Request(object value)
         {
             await peer.Stream.WriteAsync(LanProtocol.Encode(value));
             using var reply = await peer.NextAsync();
             return reply.RootElement.GetProperty("type").GetString() == "uploadAck" && reply.RootElement.GetProperty("ok").GetBoolean();
         }
-        string Id() => Guid.NewGuid().ToString("N");
-        async Task Config(bool enabled)
-        {
-            peer.Session.ConfigureFileEdge(enabled);
-            using var command = await peer.NextAsync();
-            check(command.RootElement.GetProperty("type").GetString() == "fileEdgeConfig" &&
-                command.RootElement.GetProperty("enabled").GetBoolean() == enabled, "edge checkbox sends negotiated configuration over real TLS");
-        }
         try
         {
-            check(!peer.Session.FileEdgeEnabled && !await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }) && peer.Session.IsAlive,
-                "edge transfer is opt-in and disabled preparation does not disconnect");
-            await Config(true);
-            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "checkbox enables preparation");
-            check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "partial.txt", size = 3 }), "enabled edge starts staged upload");
-            await Config(false);
-            check(!peer.Session.ReceiveProgress.State.Busy && peer.Session.IsAlive, "turning edge off cancels only staging and preserves TLS");
-            check(!await Request(new { type = "uploadChunk", id = Id(), dragBatch = batch, transfer, seq = 0, data = "AQID" }), "disabled edge rejects later staged packets");
-            check(await Request(new { type = "uploadBegin", id = Id(), transfer, name = "ordinary.txt", size = 0 }), "ordinary receiving works with edge off");
-            await Config(false);
-            check(peer.Session.ReceiveProgress.State.Busy, "edge off does not cancel an ordinary receive");
-            check(await Request(new { type = "uploadEnd", id = Id(), transfer, size = 0, sha256 = Convert.ToHexString(SHA256.HashData([])).ToLowerInvariant() }), "ordinary receive completes with edge off");
-            await Config(true);
-            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "new explicit drag allowed after re-enabling");
-            check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "ready.txt", size = 0 }) &&
-                await Request(new { type = "uploadEnd", id = Id(), dragBatch = batch, transfer, size = 0, sha256 = Convert.ToHexString(SHA256.HashData([])).ToLowerInvariant() }) &&
-                await Request(new { type = "dragReady", id = Id(), batch }), "batch prepared before checkbox disable");
-            await Config(false);
-            int epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);
-            using var capture = await peer.NextAsync();
-            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE {epoch} 1 1000 2000 0 1000 1" }));
-            using var rejected = await peer.NextAsync();
-            check(rejected.RootElement.GetProperty("type").GetString() == "dragResult" && !rejected.RootElement.GetProperty("ok").GetBoolean(), "queued or legacy drag cannot bypass disabled checkbox");
+            peer.Session.ConfigureFileEdge(true);
+            using (var disabled = await peer.NextAsync())
+                check(disabled.RootElement.GetProperty("type").GetString() == "fileEdgeConfig" && !disabled.RootElement.GetProperty("enabled").GetBoolean() && !peer.Session.FileEdgeEnabled,
+                    "obsolete enable requests cannot restore removed edge transfer");
+            check(!await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }) && peer.Session.IsAlive, "legacy drag preparation rejects without disconnecting ordinary transfer");
+            check(!await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "staged.txt", size = 3 }), "tagged uploads cannot create staging after removal");
+            check(!peer.Session.ReceiveProgress.State.Busy && !Directory.Exists(folder), "rejected staging creates no incoming file or progress window");
+            check(await Request(new { type = "dragCancel", id = Id(), batch }), "legacy cancellation is safe after removal");
+            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = "GB_EDGE 1 1 1920 1080 0 500 1" }));
+            using (var rejected = await peer.NextAsync())
+                check(rejected.RootElement.GetProperty("type").GetString() == "dragResult" && !rejected.RootElement.GetProperty("ok").GetBoolean(), "legacy desktop drag cannot start after removal");
+            check(await Request(new { type = "uploadBegin", id = Id(), transfer, name = "ordinary.txt", size = 3 }), "ordinary receiving remains available without edge transfer");
+            peer.Session.CancelReceive(peer.Session.ReceiveProgress.State.OperationId!, true);
+            check(peer.Session.ReceiveProgress.State.Busy && !peer.Session.ReceiveProgress.Staging, "obsolete staging cancellation cannot interrupt ordinary receive");
+            check(await Request(new { type = "uploadChunk", id = Id(), transfer, seq = 0, data = "AQID" }) &&
+                await Request(new { type = "uploadEnd", id = Id(), transfer, size = 3, sha256 = Convert.ToHexString(SHA256.HashData(new byte[] {1,2,3})).ToLowerInvariant() }), "ordinary file bytes and final checksum survive removed edge feature");
+            check((await File.ReadAllBytesAsync(Path.Combine(folder,"ordinary.txt"))).SequenceEqual(new byte[] {1,2,3}) && peer.Session.IsAlive, "ordinary receiving saves exact bytes and keeps TLS alive");
         }
         finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
     }
@@ -211,107 +199,6 @@ static class LanClipboardTests
             await peer.Stream.WriteAsync(LanProtocol.Encode(command));
             await peer.Session.Completion.WaitAsync(TimeSpan.FromSeconds(5));
             check(!peer.Session.IsAlive, "malformed drag requests or invalid control display metadata are rejected");
-        }
-    }
-    private static async Task FileDragAsync(Action<bool, string> check)
-    {
-        Console.WriteLine("LAN files: checking staged drag delivery over actual TLS");
-        await using var peer = await Peer.CreateAsync();
-        string folder = Path.Combine(Path.GetTempPath(), "GalaxyBridge-Drag-Test-" + Guid.NewGuid().ToString("N"));
-        peer.Session.ConfigureFileEdge(true);
-        string batch = Guid.NewGuid().ToString("N"), transfer = Guid.NewGuid().ToString("N");
-        async Task<bool> Request(object message)
-        {
-            await peer.Stream.WriteAsync(LanProtocol.Encode(message));
-            using var reply = await peer.NextAsync();
-            check(reply.RootElement.GetProperty("type").GetString() == "uploadAck", "drag request acknowledged over TLS");
-            return reply.RootElement.GetProperty("ok").GetBoolean();
-        }
-        string Id() => Guid.NewGuid().ToString("N");
-        string[] paths = [];
-        try
-        {
-            check(!await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "disabled receiving rejects drag preparation");
-            peer.Session.ConfigureReceive(true, folder);
-            // Real legacy APK cancellation: no id was sent on physical release.
-            // It must not close TLS, and a stale cancellation cannot delete new data.
-            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "cancel regression prepares partial batch");
-            check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "partial.txt", size = 3 }), "cancel regression starts real staged receive");
-            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragCancel", batch = Id() }));
-            check(await Request(new { type = "uploadChunk", id = Id(), dragBatch = batch, transfer, seq = 0, data = "AQ==" }) && peer.Session.IsAlive,
-                "legacy stale cancel preserves staged data and TLS");
-            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragCancel", batch }));
-            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }) && peer.Session.IsAlive,
-                "legacy active cancel removes partial receive without disconnect; next drag can start");
-            check(!peer.Session.ReceiveProgress.State.Busy && !File.Exists(Path.Combine(folder, "partial.txt")), "cancel publishes no partial file");
-            string cancelId = Id();
-            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragCancel", id = cancelId, batch }));
-            using (var cancelReply = await peer.NextAsync())
-                check(cancelReply.RootElement.GetProperty("id").GetString() == cancelId && cancelReply.RootElement.GetProperty("ok").GetBoolean() && peer.Session.IsAlive,
-                    "new Android correlated cancellation receives matching ACK without disconnect");
-            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "enabled receiver prepares drag batch");
-            check(!await Request(new { type = "dragReady", id = Id(), batch }), "partial batch rejected without disconnect");
-            check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "тест.txt", size = 3 }), "tagged file begin accepted");
-            var stagedProgress = peer.Session.ReceiveProgress;
-            check(stagedProgress.Staging && stagedProgress.State.Busy && LanProtocol.Identifier(stagedProgress.State.OperationId ?? ""), "staging exposes a host-owned operation identity for native progress");
-            peer.Session.CancelReceive(stagedProgress.State.OperationId!, false);
-            peer.Session.CancelReceive(Id(), true);
-            check(peer.Session.ReceiveProgress.State.Busy, "wrong channel or stale operation cannot cancel staging");
-            check(await Request(new { type = "uploadChunk", id = Id(), dragBatch = batch, transfer, seq = 0, data = "AQID" }), "tagged chunk accepted");
-            check(await Request(new { type = "uploadEnd", id = Id(), dragBatch = batch, transfer, size = 3,
-                sha256 = Convert.ToHexString(SHA256.HashData(new byte[] { 1, 2, 3 })).ToLowerInvariant() }), "tagged checksum verified");
-            check(await Request(new { type = "dragReady", id = Id(), batch }), "completed drag ready");
-            check(!Directory.Exists(folder), "preparing a drag does not copy into configured receive folder");
-            // No capture: a paired peer still cannot start a desktop drag.
-            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = "GB_EDGE 1 1 1000 2000 0 1000 1" }));
-            using (var rejected = await peer.NextAsync()) check(rejected.RootElement.GetProperty("type").GetString() == "dragResult" &&
-                !rejected.RootElement.GetProperty("ok").GetBoolean(), "desktop drag requires active phone capture");
-            int epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);
-            using var capture = await peer.NextAsync();
-            TaskCompletionSource<PhoneEdgeSample> handed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            peer.Session.FileDragRequested += (id, sample) => { if (id == batch) handed.TrySetResult(sample); };
-            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE {epoch} 1 1000 2000 0 1000 1" }));
-            var sample = await handed.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            check(sample.CaptureId == epoch && sample.Buttons == 1, "capture-bound drag event delivered without blocking TLS reader");
-            TaskCompletionSource<PhoneEdgeSample> insetHanded = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            peer.Session.FileDragRequested += (id, s) => { if (id == batch && s.Zone is not null) insetHanded.TrySetResult(s); };
-            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE2 {epoch} 1 1000 2000 18 1000 1 18 24 1 1930" }));
-            var inset = await insetHanded.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            check(inset.Zone == new DesktopBounds(18, 24, 1, 1930) && inset.CaptureId == epoch, "inset file edge survives real TLS dispatch");
-            check(FileDragHandoff.CanReturn(inset, epoch, PhoneSide.Right, 1, false, -1, 0, Environment.TickCount64), "TLS inset edge passes physical handoff policy");
-            paths = peer.Session.TakeDragFiles(batch);
-            check(paths.Length == 1 && File.ReadAllBytes(paths[0]).SequenceEqual(new byte[] { 1, 2, 3 }), "staged drag has verified actual file bytes");
-            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE {epoch} 1 1000 2000 0 1000 1" }));
-            using (var replay = await peer.NextAsync()) check(!replay.RootElement.GetProperty("ok").GetBoolean(), "same batch cannot start another drag");
-            // Ordinary, untagged uploads remain compatible with earlier APKs.
-            check(await Request(new { type = "uploadBegin", id = Id(), transfer, name = "normal.txt", size = 0 }), "legacy upload begin still accepted");
-            var normalProgress = peer.Session.ReceiveProgress;
-            check(!normalProgress.Staging && normalProgress.State.OperationId != stagedProgress.State.OperationId, "ordinary upload using same wire transfer gets a separate progress operation");
-            peer.Session.CancelReceive(stagedProgress.State.OperationId!, false);
-            check(peer.Session.ReceiveProgress.State.Busy, "old native dialog cannot cancel the next upload");
-            check(await Request(new { type = "uploadEnd", id = Id(), transfer, size = 0,
-                sha256 = Convert.ToHexString(SHA256.HashData(Array.Empty<byte>())).ToLowerInvariant() }), "legacy upload end still accepted");
-            check(File.Exists(Path.Combine(folder, "normal.txt")), "legacy upload still uses configured folder");
-            check(peer.Session.ReceiveProgress.State is { Busy: false, SavedPath: not null } completed &&
-                completed.OperationId == normalProgress.State.OperationId, "verified publish retains operation identity for native completion");
-            check(await Request(new { type = "uploadBegin", id = Id(), transfer, name = "cancel.txt", size = 3 }), "ordinary cancellable receive started");
-            string cancelledOperation = peer.Session.ReceiveProgress.State.OperationId!;
-            peer.Session.CancelReceive(cancelledOperation, false);
-            check(peer.Session.ReceiveProgress.State is { Busy: false, SavedPath: null } stopped && stopped.OperationId == cancelledOperation,
-                "native cancellation stops exactly the active normal receive");
-            check(!await Request(new { type = "uploadChunk", id = Id(), transfer, seq = 0, data = "AQID" }) &&
-                !File.Exists(Path.Combine(folder, "cancel.txt")), "cancelled receive rejects subsequent chunks and publishes nothing");
-            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }) &&
-                await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "cancel-drag.txt", size = 3 }), "cancellable staging started");
-            peer.Session.CancelReceive(peer.Session.ReceiveProgress.State.OperationId!, true);
-            check(!peer.Session.ReceiveProgress.State.Busy && !await Request(new { type = "dragReady", id = Id(), batch }), "native cancellation discards staging and prevents delayed desktop handoff");
-            peer.Session.Close(); await peer.Session.Completion.WaitAsync(TimeSpan.FromSeconds(5));
-            check(paths.All(File.Exists), "TLS close does not remove files handed to Explorer");
-        }
-        finally
-        {
-            if (paths.Length > 0) LanDragStaging.DeleteOwnedFolder(Path.GetDirectoryName(paths[0])!);
-            if (Directory.Exists(folder)) Directory.Delete(folder, true);
         }
     }
     private static async Task LegacyMouseAsync(Action<bool, string> check)

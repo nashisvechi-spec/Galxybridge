@@ -24,8 +24,6 @@ public final class ConnectionService extends Service {
     public static volatile String status="Подключение выключено.";
     public static volatile String fileStatus="Выберите файлы или используйте «Поделиться» → Galaxy Bridge Wi-Fi.";
     public static volatile String clipboardStatus="Общий буфер: копируйте на ПК или на телефоне и возвращайте курсор на ПК.";
-    static volatile String dragReadyBatch="";
-    private volatile String uploadDragBatch="";
     private static volatile ConnectionService instance;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicReference<Pairing> pending=new AtomicReference<>();
@@ -72,7 +70,7 @@ public final class ConnectionService extends Service {
         synchronized(this) { notifyAll(); }
         if(intent!=null && intent.hasExtra("files")) {
             ArrayList<Uri> files=intent.getParcelableArrayListExtra("files",Uri.class);
-            if(files!=null) startUpload(files,intent.getStringExtra("dragBatch"));
+            if(files!=null) startUpload(files);
         }
         return START_STICKY;
     }
@@ -168,28 +166,21 @@ public final class ConnectionService extends Service {
                     pending.compareAndSet(pair,null);
                 } else prefs.edit().putString("host",host).apply();
                 Wire.write(out,Wire.message("saved"));
-                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); active.fileDrag=welcome.optInt("fileDrag",0)==1;active.fileEdge=active.fileDrag && welcome.optInt("fileEdge",0)==1;active.fileDropZone=active.fileEdge && welcome.optInt("fileDropZone",0)==1;active.fileEdgeConfig=welcome.optInt("fileEdgeConfig",0)==1;active.fileEdgeEnabled=!active.fileEdgeConfig || welcome.optBoolean("fileEdgeEnabled",false);link=active; connecting=null;
+                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); active.fileEdgeConfig=welcome.optInt("fileEdgeConfig",0)==1;link=active; connecting=null;
                 main.post(() -> { if(link==active) { clipboardBridge.configure(false);clipboardStatus=active.automaticClipboard?"Общий буфер готов после включения на ПК.":"Для автоматического буфера обновите Windows до 0.7.3."; } });
-                status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();active.send(inputScreenMessage(this));
+                status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();
+                main.post(() -> { if(link==active) active.send(inputScreenMessage(this)); });
                 try(Downloads downloads=new Downloads(this)) {
                     while(running && !active.closed.get()) {
                         JSONObject command=Wire.read(in); String type=command.getString("type");
                         if("ping".equals(type)) {
-                            active.send(inputScreenMessage(this));
-                            main.post(() -> { if(link==active) { nativeEdge.heartbeat();if(ControlService.instance!=null) ControlService.instance.poll(); } });
+                            main.post(() -> { if(link==active) {
+                                nativeEdge.heartbeat();if(ControlService.instance!=null) ControlService.instance.poll();
+                                active.send(inputScreenMessage(this));
+                            } });
                         } else if("fileEdgeConfig".equals(type)) {
                             if(!active.fileEdgeConfig) throw new IOException("File edge configuration not negotiated");
-                            active.fileEdgeEnabled=command.getBoolean("enabled");
-                            main.post(() -> { if(link==active && !active.fileEdgeEnabled) {
-                                FilesBridgeService.disableDrag();if(!uploadDragBatch.isEmpty()) cancelUpload();
-                                dragReadyBatch="";SendActivity.cancelRemoteDrag();
-                            } });
-                        } else if("dragResult".equals(type)) {
-                            String batch=command.getString("batch");if(!Wire.hex(batch,32)) throw new IOException("Invalid drag result");
-                            if(batch.equals(dragReadyBatch)) {
-                                dragReadyBatch="";
-                                fileStatus=command.getBoolean("ok")?"Файлы переданы Windows в выбранную папку. Оригиналы на телефоне сохранены.":command.optString("error","Перетаскивание отменено. Подготовьте файлы заново.");
-                            }
+                            command.getBoolean("enabled"); // Legacy configuration is consumed; file-edge transfer is removed.
                         } else if("uploadAck".equals(type) || "clipboardAck".equals(type)) {
                             active.ack(command);
                         } else if(Arrays.asList("clipboardConfig","clipboardGet","clipboardSet").contains(type)) {
@@ -288,28 +279,20 @@ public final class ConnectionService extends Service {
     }
     static void send(JSONObject message) { ConnectionService current=instance; if(current!=null) { Link active=current.link; if(active!=null) active.send(message); } }
     private static JSONObject inputScreenMessage(Context context) {
+        // Called on the input looper: announce a target only after its revision
+        // and old touch cancellation have caught up with the DisplayManager.
+        ControlService.refreshSelection();
         return Wire.message("pong","ready",ControlService.ready(context),"controlDisplay",ControlDisplays.id(context),
             "controlRevision",ControlService.displayRevision(),"desktopInput",ControlDisplays.desktop(context));
     }
-    static void reportInputScreen() { ConnectionService current=instance;if(current!=null) send(inputScreenMessage(current)); }
+    static void reportInputScreen() {
+        ConnectionService current=instance;
+        if(current!=null) current.main.post(() -> { if(instance==current) send(inputScreenMessage(current)); });
+    }
     static void inputScreenChanged() {
         ConnectionService current=instance;if(current!=null) { current.nativeEdge.stop();reportInputScreen(); }
     }
     static boolean uploading() { ConnectionService current=instance; return current!=null && current.uploadBusy.get(); }
-    static boolean edgeFilesReady() {
-        ConnectionService current=instance;Link target=current==null?null:current.link;
-        return target!=null && !target.closed.get() && target.fileDropZone && target.fileEdgeEnabled;
-    }
-    static boolean prepareEdgeFiles(ArrayList<Uri> files,String batch) {
-        ConnectionService current=instance;
-        if(current==null || !edgeFilesReady() || uploading()) return false;
-        current.startUpload(new ArrayList<>(files),batch);return current.uploadBusy.get();
-    }
-    static void discardEdgeFiles(String batch) {
-        if(!Wire.hex(batch,32)) return;
-        if(batch.equals(dragReadyBatch)) dragReadyBatch="";
-        send(Wire.dragCancel(batch));
-    }
     static boolean sendingClipboard() { ConnectionService current=instance;return current!=null && current.clipboardBusy.get(); }
     static void sendClipboard(String text) {
         // Validate the actual JSON frame before starting a worker or changing a clipboard.
@@ -334,23 +317,14 @@ public final class ConnectionService extends Service {
         InputStream input=uploadInput.getAndSet(null); if(input!=null) try { input.close(); } catch(IOException ignored) { }
         Thread thread=uploadWorker; if(thread!=null) thread.interrupt();
     }
-    static boolean startFileDrag(String batch,String line) {
-        ConnectionService current=instance;Link target=current==null?null:current.link;
-        if(target==null || target.closed.get() || !target.fileDrag || !target.fileEdgeEnabled || !batch.equals(dragReadyBatch)) return false;
-        fileStatus="Перетащите файлы на рабочий стол или в папку ПК, затем отпустите кнопку. Esc — отмена.";
-        target.send(Wire.message("dragStart","batch",batch,"line",line));return true;
-    }
-    private void startUpload(ArrayList<Uri> files,String dragBatch) {
-        if(dragBatch!=null && !Wire.hex(dragBatch,32)) { fileStatus="Недопустимая подборка файлов.";return; }
+    private void startUpload(ArrayList<Uri> files) {
         if(files.isEmpty() || files.size()>100) { fileStatus="Выберите от 1 до 100 файлов."; return; }
         for(Uri uri:files) if(uri==null || !"content".equals(uri.getScheme())) { fileStatus="Недопустимый файл. Используйте системный выбор файлов."; return; }
         if(!uploadBusy.compareAndSet(false,true)) { fileStatus="Дождитесь завершения текущей отправки."; return; }
-        uploadDragBatch=dragBatch==null?"":dragBatch;
         AtomicBoolean cancel=new AtomicBoolean(); uploadCancel=cancel;
-        dragReadyBatch="";
         fileStatus="Ожидаем подключение к ноутбуку…";
         uploadWorker=new Thread(() -> {
-            int completed=0; Link destination=null; boolean prepared=false;
+            int completed=0; Link destination=null;
             try {
                 long deadline=SystemClock.elapsedRealtime()+30000; Link target;
                 while((target=link)==null) {
@@ -360,11 +334,6 @@ public final class ConnectionService extends Service {
                 }
                 if(!target.upload) throw new IOException("Обновите Windows Galaxy Bridge до 0.7.0 для приёма файлов.");
                 destination=target; final Link uploadTarget=target;
-                if(dragBatch!=null) {
-                    if(!target.fileEdgeEnabled) throw new IOException("Включите «Перенос файлов с телефона через край» в Galaxy Bridge на ПК.");
-                    if(!target.fileDrag) throw new IOException("Для перетаскивания обновите Galaxy Bridge на ПК до 0.7.13.");
-                    target.request(Wire.message("dragPrepare","batch",dragBatch,"count",files.size()),20000,cancel);
-                }
                 for(Uri uri:files) {
                     Upload.check(cancel);
                     if(link!=destination || destination.closed.get()) throw new IOException("Связь прервалась. Очередь не повторяется автоматически.");
@@ -384,7 +353,6 @@ public final class ConnectionService extends Service {
                         if(input==null) throw new IOException("Не удалось открыть файл.");
                         uploadInput.set(input); Upload.check(cancel);
                         Upload.send(input,name,size,(message,timeout,cancellation) -> {
-                            if(dragBatch!=null) message.put("dragBatch",dragBatch);
                             return uploadTarget.request(message,timeout,cancellation);
                         },cancel,(sent,total) -> {
                             fileStatus="Отправка "+number+" из "+files.size()+": "+display+"\n"+
@@ -393,24 +361,12 @@ public final class ConnectionService extends Service {
                     } finally { uploadInput.set(null); }
                     completed++;
                 }
-                if(dragBatch!=null) {
-                    destination.request(Wire.message("dragReady","batch",dragBatch),20000,cancel);
-                    Upload.check(cancel);
-                    if(!destination.fileEdgeEnabled) throw new IOException("Перенос файлов через край выключен на ПК.");
-                    if(link!=destination || destination.closed.get()) throw new IOException("Связь прервалась. Подготовьте файлы заново.");
-                    prepared=true;dragReadyBatch=dragBatch;
-                    fileStatus="Готово к перетаскиванию: "+completed+". Зажмите синюю карточку мышью и тяните к краю экрана со стороны ПК.";
-                } else fileStatus="Отправлено файлов: "+completed+". Папка приёма указана в окне файлов Windows.";
+                fileStatus="Отправлено файлов: "+completed+". Папка приёма указана в окне файлов Windows.";
             } catch(Exception e) {
                 fileStatus=(cancel.get()?"Отправка отменена.":"Отправка остановлена: "+
                     (e instanceof IOException?e.getMessage():"Проверьте доступ к файлу и соединение."))+"\nОтправлено: "+completed+".";
             } finally {
-                if(dragBatch!=null && !prepared && destination!=null) {
-                    boolean interrupted=Thread.interrupted();
-                    try { destination.request(Wire.message("dragCancel","batch",dragBatch),2000,new AtomicBoolean()); } catch(Exception ignored) { }
-                    finally { if(interrupted) Thread.currentThread().interrupt(); }
-                }
-                uploadInput.set(null); uploadWorker=null;uploadDragBatch="";uploadBusy.set(false);
+                uploadInput.set(null); uploadWorker=null;uploadBusy.set(false);
             }
         },"GalaxyBridge-upload");
         uploadWorker.start();
@@ -420,8 +376,7 @@ public final class ConnectionService extends Service {
         final AtomicBoolean closed=new AtomicBoolean(); final ArrayBlockingQueue<JSONObject> queue=new ArrayBlockingQueue<>(256);
         final Semaphore commands=new Semaphore(128); final Thread writer;
         final boolean upload,clipboard,automaticClipboard,nativeEdge;
-        boolean fileDrag,fileEdge,fileDropZone,fileEdgeConfig;
-        volatile boolean fileEdgeEnabled;
+        boolean fileEdgeConfig;
         volatile boolean clipboardEnabled;
         volatile String clipboardRequest;
         final ConcurrentHashMap<String,CompletableFuture<JSONObject>> replies=new ConcurrentHashMap<>();
@@ -455,7 +410,6 @@ public final class ConnectionService extends Service {
         void close() { if(closed.compareAndSet(false,true)) { try { socket.close(); } catch(IOException ignored){} writer.interrupt(); } }
     }
     private void drop() {
-        dragReadyBatch="";
         Link active=link; if(active!=null) active.close(); Socket socket=connecting;
         if(socket!=null) { try { socket.close(); } catch(IOException ignored){} }
     }

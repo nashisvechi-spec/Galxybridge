@@ -5,14 +5,18 @@ final class DisplayTarget {
     static final int AUTO=-1;
     static final class Screen {
         final int id,width,height,rotation,density;
-        final boolean available,external,presentation;
+        final boolean available,external,presentation,awake;
         Screen(int id,int width,int height,int rotation,boolean available,boolean external,boolean presentation) {
             this(id,width,height,rotation,available,external,presentation,160);
         }
         Screen(int id,int width,int height,int rotation,boolean available,boolean external,boolean presentation,int density) {
+            this(id,width,height,rotation,available,external,presentation,density,available);
+        }
+        Screen(int id,int width,int height,int rotation,boolean available,boolean external,boolean presentation,int density,boolean awake) {
             this.id=id;this.width=width;this.height=height;this.rotation=rotation;
             this.available=available;this.external=external;this.presentation=presentation;
             this.density=density;
+            this.awake=awake;
         }
         boolean usable() { return available && id>=0 && width>=16 && height>=16 && width<=20000 && height<=20000; }
     }
@@ -28,7 +32,7 @@ final class DisplayTarget {
         return requested==AUTO?(best!=null?best:primary):null;
     }
     static boolean same(Screen a,Screen b) {
-        return a==null?b==null:b!=null && a.id==b.id && a.width==b.width && a.height==b.height && a.rotation==b.rotation && a.density==b.density;
+        return a==null?b==null:b!=null && a.id==b.id && a.width==b.width && a.height==b.height && a.rotation==b.rotation && a.density==b.density && a.awake==b.awake;
     }
     static boolean matches(int selected,int owner) { return selected>=0 && selected==owner; }
 }

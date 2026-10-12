@@ -1,4 +1,44 @@
-# Validation — GalaxyBridge 0.7.24 / Galaxy Files 0.2.3
+# Validation — GalaxyBridge 0.7.25
+
+## Automatic external DeX and simplified package (0.7.25)
+
+Based on c89948aa721afcbe8b9b297dfc3d114cb740f2ae. Galaxy Files is no longer
+built, tested or uploaded by the active portable workflow. Its independent
+sources remain in the repository. The package check now requires one EXE and
+one APK (GalaxyBridgeLan.apk). The companion's Files signature IPC and receiver
+are removed, as are file-edge overlays, preparation cards, desktop OLE handoff
+and the edge-transfer preference. Removed staging requests are rejected without
+breaking ordinary file TLS; legacy cancellation is accepted and old peers receive
+forced-disabled configuration. Upload/receive, native receive progress, the
+Windows send widget and cursor edge transitions remain supported.
+
+The companion always chooses the public external display automatically and
+ignores old phone/manual-display preferences. Display validity is separate from
+wake state: a connected sleeping monitor keeps the DeX target while input waits,
+so it cannot briefly steer the smartphone. Actual monitor removal restores the
+phone. Geometry, pointer context and gestures still use the selected display.
+Target announcements run on the input looper after display revision and old
+stroke cancellation have been synchronized.
+
+Windows distinguishes target changes from geometry/error revisions. An existing
+capture can resume on the new target, after release and readiness, with a fresh
+capture epoch and no held-input replay. An idle PC cursor is not captured just
+because a monitor connected. Pending resume is cancelled by user stop, pause,
+lock, disconnect, file sending or a 15-second deadline; ordinary input failures
+do not start an automatic retry loop. DeX uses Wi-Fi even when BLE is ready.
+
+Local verification:
+- 9 Android API 35 Robolectric display-adapter tests pass: old preferences,
+  hotplug/removal, screen-off DeX, lock, private displays and target geometry.
+- 843 LAN JVM assertions pass, including 27 display-selection assertions,
+  pointer/wheel/clipboard, actual upload bytes/checksums and drop payload parsing.
+- 2,445 portable Core assertions pass: real TLS target/revision events, removed
+  edge rejection and exact ordinary received bytes, widget sending/cancel,
+  route priority and automatic-capture migration policy.
+- All shipped Android Java and Windows production sources compile. Source
+  package checks pass. Archived Files UI tests are not part of this package.
+- Signed EXE/APK packaging and real Samsung DeX cursor/touch/hotplug remain for
+  the manual workflow and physical devices.
 
 ## CI Files window-display regression (0.7.24 / 0.2.3)
 

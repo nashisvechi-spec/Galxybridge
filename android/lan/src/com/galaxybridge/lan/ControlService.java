@@ -1,12 +1,10 @@
 package com.galaxybridge.lan;
 
 import android.accessibilityservice.*;
-import android.app.KeyguardManager;
 import android.content.Context;
 import android.graphics.*;
 import android.hardware.display.DisplayManager;
 import android.os.*;
-import android.util.DisplayMetrics;
 import android.view.*;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -49,10 +47,6 @@ public final class ControlService extends AccessibilityService implements Displa
     }
     @Override public InputMethod onCreateInputMethod() { return new InputMethod(this); }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        int focusChanges=AccessibilityEvent.WINDOWS_CHANGE_ACTIVE|AccessibilityEvent.WINDOWS_CHANGE_FOCUSED|
-            AccessibilityEvent.WINDOWS_CHANGE_ADDED|AccessibilityEvent.WINDOWS_CHANGE_REMOVED;
-        if(event.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
-            event.getEventType()==AccessibilityEvent.TYPE_WINDOWS_CHANGED && (event.getWindowChanges()&focusChanges)!=0) filesForeground.invalidate();
         if(!ready(this)) { ConnectionService.cancelClipboardRead();if(active) reset(); }
     }
     @Override public void onInterrupt() { ConnectionService.cancelClipboardRead();reset(); }
@@ -72,15 +66,7 @@ public final class ControlService extends AccessibilityService implements Displa
         }
     }
     static long displayRevision() { ControlService current=instance;return current==null?0:current.displayRevision; }
-    static int pointerDisplay() { ControlService current=instance;return current!=null && current.active?current.displayId:-1; }
-    static void preferenceChanged() {
-        ControlService current=instance;
-        if(current!=null) {
-            current.reset();current.observedScreen=ControlDisplays.target(current);current.displayRevision++;
-            controlStatus="";ConnectionService.inputScreenChanged();
-        }
-        else ConnectionService.inputScreenChanged();
-    }
+    static void refreshSelection() { ControlService current=instance;if(current!=null) current.refreshDisplay(); }
     @Override public void onDisplayAdded(int id) { refreshDisplay(); }
     @Override public void onDisplayRemoved(int id) { refreshDisplay(); }
     @Override public void onDisplayChanged(int id) { refreshDisplay(); }
@@ -138,27 +124,10 @@ public final class ControlService extends AccessibilityService implements Displa
         ConnectionService.reportInputScreen();
     }
     private InputMethod.AccessibilityInputConnection input() { InputMethod method=getInputMethod(); return method==null?null:method.getCurrentInputConnection(); }
-    boolean filesForeground() {
-        long now=SystemClock.elapsedRealtime();
-        if(!active || !ready(this)) return filesForeground.check(null,false,now);
-        // A synchronous tree read on every mouse packet can stall this main
-        // thread while the Files app redraws, filling the input command queue.
-        if(!filesForeground.refresh(now)) return filesForeground.check(null,true,now);
-        AccessibilityNodeInfo root=rootAt(x,y);
-        if(root==null) return filesForeground.check(null,true,SystemClock.elapsedRealtime());
-        try { return filesForeground.check(root.getPackageName()==null?null:root.getPackageName().toString(),true,SystemClock.elapsedRealtime()); }
-        finally { root.recycle(); }
-    }
-    private final FilesForeground filesForeground=new FilesForeground();
     private void mouse(JSONObject command) throws Exception {
         int dx=command.getInt("dx"),dy=command.getInt("dy"),next=command.getInt("buttons"),wheel=command.getInt("wheel");
         if(Math.abs((long)dx)>8192 || Math.abs((long)dy)>8192 || Math.abs((long)wheel)>32 || next<0 || next>7) throw new IllegalArgumentException();
         if(!dimensions()) return;x=Math.max(0,Math.min(width-1,x+dx));y=Math.max(0,Math.min(height-1,y+dy));
-        if(next!=buttons) filesForeground.invalidate(); // Verify the window at a new physical press.
-        if(FilesBridgeService.route(x,y,next,buttons,wheel,side,epoch,width,height,dx,dy)) { buttons=next;poll();return; }
-        EdgeFileDrag.Pointer heldEdge=DropActivity.edgePointer(new EdgeFileDrag.Pointer(epoch,side,width,height,x,y,next,mouseStroke!=null,displayId));
-        if(heldEdge!=null) { x=heldEdge.x;y=heldEdge.y;buttons=next;poll();return; }
-        if(SendActivity.remotePointer(x,y,next,buttons,side,epoch,width,height)) { buttons=next;poll();return; }
         if((next&1)!=0 && (buttons&1)==0) {
             mouseStroke=new PointerStroke(ViewConfiguration.get(inputContext).getScaledTouchSlop(),x,y,SystemClock.uptimeMillis());
             enqueue(new PendingGesture(mouseStroke));
@@ -183,26 +152,6 @@ public final class ControlService extends AccessibilityService implements Displa
     private void enqueue(PendingGesture pending) {
         if(gestures.size()>=8) { reset(); ConnectionService.disconnect(); return; }
         gestures.add(pending);nextGesture();
-    }
-    static EdgeFileDrag.Pointer filePointer() {
-        ControlService current=instance;
-        if(current==null || !current.active || !ready(current)) return null;
-        return new EdgeFileDrag.Pointer(current.epoch,current.side,current.width,current.height,current.x,current.y,current.buttons,current.mouseStroke!=null,current.displayId);
-    }
-    static boolean dropFileTouch(EdgeFileDrag.Pointer pointer,EdgeStrip zone) {
-        ControlService current=instance;
-        if(pointer==null || current==null || !current.active || current.epoch!=pointer.epoch || current.buttons!=1 ||
-            current.side!=pointer.side || current.displayId!=pointer.displayId || current.width!=pointer.width || current.height!=pointer.height ||
-            pointer.x<0 || pointer.y<0 || pointer.x>=current.width || pointer.y>=current.height ||
-            current.mouseStroke==null || current.currentGesture==null || current.currentGesture.press!=current.mouseStroke ||
-            current.touchDispatching || current.touchStroke==null || current.touchEnd==null || zone==null ||
-            !zone.contains(pointer.x,pointer.y) || !zone.contains(current.touchEnd.x,current.touchEnd.y)) return false;
-        // End only the injected Android finger. The real PC mouse is still held.
-        // In-flight motion must complete first; queued overshoot must not move up
-        // into Samsung's native app-opening region after contact was confirmed.
-        if(!current.mouseStroke.releaseHere(SystemClock.uptimeMillis())) return false;
-        current.x=current.touchEnd.x;current.y=current.touchEnd.y;
-        current.mouseStroke=null;current.advanceTouch();return true;
     }
     private void nextGesture() {
         if(gestureBusy || !active) return;
@@ -360,14 +309,10 @@ public final class ControlService extends AccessibilityService implements Displa
     void poll() {
         if(!active) return; if(!ready(this)) { reset(); ConnectionService.send(Wire.message("pong","ready",false)); return; }
         if(!dimensions()) return;showPointer();
-        if(FilesBridgeService.suppressEdge()) return;
         String line=String.format(Locale.ROOT,"GB_EDGE %d %d %d %d %.2f %.2f %d",epoch,++sequence,width,height,x,y,buttons);
         ConnectionService.send(Wire.message("edge","line",line));
     }
     void reset() {
-        filesForeground.reset();
-        FilesBridgeService.resetPointer();
-        SendActivity.cancelRemoteDrag();
         // Finish even an in-flight continuation on disconnect/lock/re-entry. Android
         // schedules it after the current segment; stale callbacks cannot revive it.
         if(touchStroke!=null && touchStroke.willContinue() && touchEnd!=null) {

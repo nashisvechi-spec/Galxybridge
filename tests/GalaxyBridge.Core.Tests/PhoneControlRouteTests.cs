@@ -35,6 +35,22 @@ static class PhoneControlRouteTests
         wifi.InputReady = true;
         check(route.Update(bluetooth, wifi, preferWifi: true) && route.Current == wifi,"DeX readiness restores explicit Wi-Fi input");
         check(route.Update(bluetooth, wifi) && route.Current == bluetooth,"phone mode restores original ready Bluetooth priority");
+        DisplayCaptureSwitch migration = new();
+        migration.Changed(false,true,1000);
+        check(!migration.ShouldResume(true,true,false,1001),"DeX connection selects the target without stealing an idle PC cursor");
+        migration.Changed(true,true,2000);
+        check(migration.Pending && !migration.ShouldResume(true,false,false,2001),"active phone capture waits for DeX readiness after releasing old input");
+        check(!migration.ShouldResume(true,true,true,2002),"held mouse or keyboard input is never replayed onto DeX");
+        check(migration.ShouldResume(true,true,false,2003),"active control resumes automatically on DeX once ready and released");
+        migration.Cancel();
+        check(!migration.Pending,"successful migration or explicit user stop clears automatic resume");
+        migration.Changed(true,false,3000);
+        check(!migration.Pending,"input failures and geometry-only revisions do not trigger retry loops");
+        migration.Changed(true,true,4000);migration.Changed(false,false,4001);
+        check(migration.ShouldResume(true,true,false,4002),"monitor wake can finish an already pending automatic migration");
+        check(!migration.ShouldResume(false,true,false,4003) && !migration.Pending,"disconnect pause suspend or file sending cancels pending migration");
+        migration.Changed(true,true,5000);
+        check(!migration.ShouldResume(true,true,false,20001) && !migration.Pending,"unavailable monitor cannot capture the PC cursor long after hotplug");
     }
     private sealed class FakeControl : IPhoneControl
     {

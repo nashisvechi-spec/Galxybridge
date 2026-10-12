@@ -116,9 +116,9 @@ internal sealed class LanHost : IAsyncDisposable
                     bool fileEdgeConfig = root.TryGetProperty("fileEdgeConfig", out var fileCapability) && fileCapability.ValueKind == System.Text.Json.JsonValueKind.Number && fileCapability.TryGetInt32(out int fileVersion) && fileVersion == 1;
                     session = new LanSession(client, stream, name, autoClipboard, nativeEdge, wheelZoom, fileEdgeConfig);
                     session.ConfigureReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder);
-                    session.ConfigureFileEdge(settings.FileEdgeTransferEnabled);
+                    session.ConfigureFileEdge(false);
                 }
-                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, fileDrag = 1, fileEdge = 1, fileDropZone = 1, fileEdgeConfig = session.FileEdgeConfigurationSupported ? 1 : 0, fileEdgeEnabled = session.FileEdgeEnabled, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0, wheelZoom = session.WheelZoomSupported ? 1 : 0 }), hello.Token);
+                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, fileDrag = 0, fileEdge = 0, fileDropZone = 0, fileEdgeConfig = session.FileEdgeConfigurationSupported ? 1 : 0, fileEdgeEnabled = session.FileEdgeEnabled, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0, wheelZoom = session.WheelZoomSupported ? 1 : 0 }), hello.Token);
                 // Explicit acknowledgement proves the phone saved its new token before any control session is accepted.
                 stage = "подтверждение телефона";
                 PendingState("Ожидаем подтверждение сохранения сопряжения…");

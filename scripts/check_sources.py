@@ -114,7 +114,7 @@ def main() -> None:
     require(trigger is not None and trigger.group(1).strip() == 'workflow_dispatch:',
             'Workflow must be manual only; no push/PR/release trigger')
     actions = re.findall(r'uses:\s*([^\s]+)', workflow)
-    require(len(actions) == 6 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
+    require(len(actions) == 5 and all(re.fullmatch(r'(actions|android-actions)/[a-z-]+@[0-9a-f]{40}', a) for a in actions),
             'Actions must use pinned commit IDs')
     require('contents: read' in workflow and 'contents: write' not in workflow,
             'Build workflow requires read-only repository permissions')
@@ -174,22 +174,22 @@ def main() -> None:
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
     java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java')) + list((ROOT / 'tests/android-drop-stubs').rglob('*.java'))
-    require(len(java) == 52, 'Expected LAN Android and protocol/input/clipboard/wheel/drop/IPC test sources')
+    require(len(java) == 43, 'Expected active companion protocol/input/clipboard/wheel/drop test sources')
     files = ET.fromstring(read('android/files/AndroidManifest.xml'))
     require(files.get('package') == 'com.galaxybridge.files', 'File manager is a separate Android package')
     provider = files.find('.//provider')
     require(provider is not None and provider.get(ns + 'exported') == 'false' and provider.get(ns + 'grantUriPermissions') == 'true',
             'File sharing provider is private with explicit URI grants')
-    ipc = lan.find('.//service[@' + ns + 'name=".FilesBridgeService"]')
-    require(ipc is not None and ipc.get(ns + 'permission') == 'com.galaxybridge.lan.permission.FILES_BRIDGE',
-            'File manager IPC requires the signature permission')
-    permission = lan.find('permission')
-    require(permission is not None and permission.get(ns + 'protectionLevel') == 'signature', 'IPC is restricted to matching signatures')
-    require('./scripts/Build-Files.ps1' in workflow and './scripts/Test-Files.ps1' in workflow and 'GalaxyFiles-android' in workflow,
-            'Manual build tests and packages the standalone file manager')
-    require('Resolve-AndroidSigning.ps1' in read('scripts/Build-Files.ps1'), 'File manager uses the persistent project key')
-    ET.fromstring(read('tests/android-files-ui/pom.xml'))
-    require('mvn -B -f tests/android-files-ui/pom.xml test' in workflow, 'Manual packaging must run Android UI regressions')
+    require(lan.find('.//service[@' + ns + 'name=".FilesBridgeService"]') is None,
+            'Removed Files IPC must not be exposed by the companion')
+    require('./scripts/Build-Files.ps1' not in workflow and 'GalaxyFiles-android' not in workflow and 'android-files-ui/pom.xml' not in workflow,
+            'Portable build includes only the Galaxy Bridge companion, not Galaxy Files')
+    require("$apks.Count -ne 1" in workflow and "'GalaxyBridgeLan.apk'" in workflow, 'Package validates a single companion APK')
+    require('getSharedPreferences("screen"' not in read('android/lan/src/com/galaxybridge/lan/ControlDisplays.java'),
+            'Connected DeX must win automatically despite old screen preferences')
+    ET.fromstring(read('tests/android-display-ui/pom.xml'))
+    require('mvn -B -f tests/android-display-ui/pom.xml test' in workflow, 'Automatic DeX selection has Android framework regressions')
+    java += list((ROOT / 'tests/android-display-ui/src/test/java').rglob('*.java'))
     read('docs/GALAXY_FILES.ru.md')
     for xml in (ROOT / 'android/files/res').rglob('*.xml'):
         ET.parse(xml)
