@@ -1,5 +1,39 @@
 # Validation — Windows 0.7.26 / Android 0.7.28
 
+## Background file sharing and Windows receipt notices (0.7.29)
+
+Based on d5e394e. Both Windows and Android are version 0.7.29. The exported
+ShareActivity uses a transparent theme without a launch preview, no content view,
+no app task affinity and no recents entry. At its first resume it forwards every
+content URI through ClipData/read grants to ConnectionService and immediately
+finishes. The foreground service owns the upload and existing FIFO queue. Saved
+submission state prevents recreation/resume from sending twice. Text-only shares
+keep the clipboard window; manual file picking/sending stays in private SendActivity.
+
+Windows LanSession emits receipt only after the production receiver validates
+size/SHA-256 and publishes the final file. LanHost forwards it before the main
+form can attach, so fast receipts do not depend on status polling. The form posts
+notification work to its UI thread and uses the tray icon's received-file balloon.
+Clicking opens the destination folder from the latest receipt. Notification errors
+cannot undo receipt, reverse a successful ACK, or disconnect the transport.
+
+38 Android API 35 Robolectric tests pass, including background handoff with no
+opened activity/content view, grants, recreation, multiple/ClipData shares, mixed
+text/file sharing, invalid input, pairing, FIFO/busy/cancellation, and the existing
+display and Android receipt regressions. All 2459 portable assertions pass over
+real TLS, including new receipt-event checks for partial/completed files, rapid
+duplicate names, notification callback failure, checksum rejection, cancellation
+and disabled receipt. Full Windows production sources compile; Android resources
+and manifest link with build-tools 35 and all 28 production Java sources compile
+against the public Android API 35 SDK. Source checks pass.
+
+These are source/runtime tests, not signed EXE/APK packaging or device/UI tests.
+Run the manual workflow for installable updates and verify S25/My Files/Gallery
+handoff with Galaxy Bridge already open/closed, DeX, source-app return, real URI
+grants after handoff finishes, large/queued files and Windows receipt notifications.
+Windows notification/Focus Assist settings may suppress the balloon without
+interrupting receipt. Android's existing foreground connection notice remains.
+
 ## Android received-file notifications (0.7.28)
 
 The production Downloads receiver posts a separate, auto-cancelling receipt

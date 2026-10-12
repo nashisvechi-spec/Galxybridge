@@ -19,7 +19,7 @@ import static org.robolectric.Shadows.shadowOf;
 @Config(manifest=Config.NONE,sdk=35)
 @LooperMode(LooperMode.Mode.PAUSED)
 public class SendActivityTest {
-    private ActivityController<SendActivity> activity;
+    private ActivityController<ShareActivity> activity;
     private ServiceController<ConnectionService> service;
     private final Uri first=Uri.parse("content://example.files/first.pdf"),second=Uri.parse("content://example.files/second.jpg");
     @Before public void setup() {
@@ -34,7 +34,7 @@ public class SendActivityTest {
     }
     private Intent shared(Uri uri) { return new Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); }
     private void open(Intent intent,Bundle saved) {
-        activity=Robolectric.buildActivity(SendActivity.class,intent);
+        activity=Robolectric.buildActivity(ShareActivity.class,intent);
         if(saved==null) activity.create();else activity.create(saved);
         activity.start().resume().visible();shadowOf(Looper.getMainLooper()).idle();
     }
@@ -56,6 +56,9 @@ public class SendActivityTest {
         assertEquals(ConnectionService.class.getName(),request.getComponent().getClassName());assertEquals(Arrays.asList(first),files(request));
         assertTrue((request.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION)!=0);
         assertEquals(first,request.getClipData().getItemAt(0).getUri());
+        assertTrue(activity.get().isFinishing());
+        assertNull(shadowOf(activity.get()).getNextStartedActivity());
+        assertEquals(0,((android.view.ViewGroup)activity.get().findViewById(android.R.id.content)).getChildCount());
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));assertNull(nextService());
     }
     @Test public void multipleShareDeduplicatesUrisAndForwardsEveryGrant() {
@@ -75,7 +78,7 @@ public class SendActivityTest {
         open(intent,saved);assertNull(nextService());
     }
     @Test public void recreationBeforeFirstResumePreservesOnePendingShare() {
-        Intent intent=shared(first);activity=Robolectric.buildActivity(SendActivity.class,intent).create().start();
+        Intent intent=shared(first);activity=Robolectric.buildActivity(ShareActivity.class,intent).create().start();
         Bundle saved=new Bundle();activity.saveInstanceState(saved);activity.stop().destroy();activity=null;
         open(intent,saved);assertNotNull(nextService());shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));assertNull(nextService());
     }
@@ -83,11 +86,25 @@ public class SendActivityTest {
         open(shared(first),null);assertNotNull(nextService());activity.pause().resume();shadowOf(Looper.getMainLooper()).idle();assertNull(nextService());
     }
     @Test public void internalFileSelectionRequiresExplicitSend() {
-        Intent intent=new Intent();intent.setClipData(ClipData.newRawUri("file",first));open(intent,null);assertNull(nextService());
+        Intent intent=new Intent();intent.setClipData(ClipData.newRawUri("file",first));
+        try(ActivityController<SendActivity> manual=Robolectric.buildActivity(SendActivity.class,intent).setup()) {
+            shadowOf(Looper.getMainLooper()).idle();assertNull(nextService());assertFalse(manual.get().isFinishing());
+        }
+    }
+    @Test public void invalidFileShareFinishesWithoutOpeningAnAppWindow() {
+        open(shared(Uri.parse("https://example.com/file")),null);
+        assertNull(nextService());assertTrue(activity.get().isFinishing());
+        assertNull(shadowOf(activity.get()).getNextStartedActivity());
+    }
+    @Test public void mixedTextAndFileShareOnlyStartsBackgroundFileUpload() {
+        open(shared(first).putExtra(Intent.EXTRA_TEXT,"caption"),null);
+        assertNotNull(nextService());assertTrue(activity.get().isFinishing());
+        assertNull(shadowOf(activity.get()).getNextStartedActivity());
     }
     @Test public void missingPairingRejectsAutomaticFileUpload() {
         RuntimeEnvironment.getApplication().getSharedPreferences("lan",Context.MODE_PRIVATE).edit().clear().commit();
         open(shared(first),null);assertNull(nextService());assertTrue(ConnectionService.fileStatus.contains("QR"));
+        assertTrue(activity.get().isFinishing());assertNull(shadowOf(activity.get()).getNextStartedActivity());
     }
     @Test public void textSharingKeepsTheClipboardWindow() {
         open(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,"example text"),null);

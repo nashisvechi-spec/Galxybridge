@@ -22,6 +22,7 @@ internal sealed class LanSession : IPhoneControl
     private volatile ReceiveConfiguration receiving = new(false, "");
     private readonly object receiveGate = new();
     private readonly LanFileReceiver incoming = new();
+    public event Action<string>? FileReceived;
     public bool FileEdgeConfigurationSupported { get; }
     public bool FileEdgeEnabled => false;
     public void ConfigureFileEdge(bool enabled)
@@ -389,13 +390,20 @@ internal sealed class LanSession : IPhoneControl
                         try
                         {
                             string saved;
+                            string? savedPath;
                             lock (receiveGate)
                             {
                                 ReceiveConfiguration options = receiving;
                                 if (root.TryGetProperty("dragBatch", out _)) throw new IOException("Перенос файлов через край удалён.");
                                 saved = incoming.Accept(root, options.Folder, options.Enabled);
+                                savedPath = saved.Length > 0 ? incoming.State.SavedPath : null;
                             }
                             Post(new { type = "uploadAck", id = request, ok = true, name = saved });
+                            if (savedPath is not null)
+                            {
+                                // Notification failures must not turn a published file into a failed transfer.
+                                try { FileReceived?.Invoke(savedPath); } catch (Exception) { }
+                            }
                         }
                         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
                             FormatException or JsonException or InvalidOperationException or KeyNotFoundException)

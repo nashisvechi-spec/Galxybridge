@@ -10,6 +10,7 @@ namespace GalaxyBridge.Windows;
 internal sealed class LanForm : Form
 {
     private readonly NotifyIcon tray = new();
+    private string? receivedNoticeFolder;
     private readonly PhoneControlRoute route;
     private readonly Settings settings;
     private readonly LanHost host;
@@ -59,7 +60,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.26"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.29"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -153,6 +154,7 @@ internal sealed class LanForm : Form
         };
         toggle.Click += (_, _) => Toggle(); files.Click += async (_, _) => await ChooseFilesAsync();
         host.Connected += candidate => Ui(() => Attach(candidate));
+        host.FileReceived += (phone, path) => Ui(() => NotifyFileReceived(phone, path));
         host.State += text => Ui(() => {
             if (!paused && !suspended && session?.IsAlive != true) connectionDetail.Text = text;
         });
@@ -168,6 +170,7 @@ internal sealed class LanForm : Form
         menu.Items.Add("Выход", null, (_, _) => Close());
         tray.Icon = AppIcon.Value; tray.Text = "Galaxy Bridge"; tray.ContextMenuStrip = menu; tray.Visible = true;
         tray.DoubleClick += (_, _) => OpenWindow();
+        tray.BalloonTipClicked += (_, _) => { if (receivedNoticeFolder is string folder) OpenReceiveFolder(folder); };
         Resize += (_, _) => { if (WindowState == FormWindowState.Minimized) Hide(); };
         RegisterDrop(this);
     }
@@ -529,11 +532,21 @@ internal sealed class LanForm : Form
         { settings.NativeReceiveFolder = picker.SelectedPath; SaveReceiveSettings(); }
     }
     private void OpenReceiveFolder()
+    { OpenReceiveFolder(settings.NativeReceiveFolder); }
+    private void NotifyFileReceived(string phone, string path)
+    {
+        receivedNoticeFolder = Path.GetDirectoryName(path);
+        string text = Path.GetFileName(path) + "\nОт: " + phone + "\nНажмите, чтобы открыть папку.";
+        try { tray.ShowBalloonTip(5000, "Файл получен с телефона", text, ToolTipIcon.Info); }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or ArgumentException)
+        { connectionDetail.Text = "Файл получен: " + Path.GetFileName(path); }
+    }
+    private void OpenReceiveFolder(string folder)
     {
         try
         {
-            Directory.CreateDirectory(settings.NativeReceiveFolder);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(settings.NativeReceiveFolder) { UseShellExecute = true });
+            Directory.CreateDirectory(folder);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or ArgumentException)
         { connectionDetail.Text = "Не удалось открыть папку приёма. Выберите другую папку в окне файлов."; }

@@ -162,6 +162,14 @@ def main() -> None:
         'Control service must require Android accessibility binding')
     connection = lan.find('.//service[@' + ns + 'name=".ConnectionService"]')
     require(connection is not None and connection.get(ns + 'exported') == 'false', 'LAN service must not be exported')
+    share = lan.find('.//activity[@' + ns + 'name=".ShareActivity"]')
+    require(share is not None and share.get(ns + 'theme') == '@style/BackgroundShare' and
+            share.get(ns + 'excludeFromRecents') == 'true' and share.get(ns + 'taskAffinity') == '',
+            'Share target must be transparent and must not reuse the main app task')
+    require({e.get(ns + 'name') for e in share.findall('.//action')} ==
+            {'android.intent.action.SEND', 'android.intent.action.SEND_MULTIPLE'}, 'All file shares route to background handoff')
+    require(lan.find('.//activity[@' + ns + 'name=".SendActivity"]').get(ns + 'exported') == 'false',
+            'Manual sending window is not an external share target')
     for xml in (ROOT / 'android/lan/res').rglob('*.xml'):
         ET.parse(xml)
     native_script = read('scripts/Build-LanCompanion.ps1')
@@ -174,7 +182,7 @@ def main() -> None:
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
     java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java')) + list((ROOT / 'tests/android-drop-stubs').rglob('*.java'))
-    require(len(java) == 45, 'Expected active companion protocol/input/clipboard/wheel/drop/receive test sources')
+    require(len(java) == 46, 'Expected active companion protocol/input/clipboard/wheel/drop/receive test sources')
     files = ET.fromstring(read('android/files/AndroidManifest.xml'))
     require(files.get('package') == 'com.galaxybridge.files', 'File manager is a separate Android package')
     provider = files.find('.//provider')

@@ -1,5 +1,26 @@
 # Testing the no-debugging edition
 
+## Background sharing and Windows notifications (0.7.29)
+
+Run the portable tests and `mvn -B -f tests/android-display-ui/pom.xml test`.
+The Android suite has 38 cases; the portable suite checks successful/failed
+receipt events against actual TLS/file publication, without polling a last state.
+
+On S25, share one file, several files and a large video from My Files/Gallery.
+The source app should remain on screen; no Galaxy Bridge transfer window or
+launch preview should appear. Test with the main app already open, stopped but
+paired, on DeX, after rotation, and while another selection is uploading. Closing
+the share handoff must not revoke the service's read access or cancel its upload.
+Test missing pairing, a missing PC, and cancellation from the manual send window.
+Text-only sharing should still open the existing clipboard screen.
+
+On Windows, minimize to tray, receive one/multiple/duplicate-name files, and check
+that receipt notices only appear after valid complete files are saved. Click the
+notice to open the destination folder. Check failed checksum, cancellation,
+disconnection and disabled receipt: none may show successful receipt. Repeat with
+Windows notifications disabled/Focus Assist enabled; saving and ACK must still
+work. These device/UI checks are required after the manual signed build.
+
 ## Received-file notification checks (Android 0.7.28)
 
 The same `tests/android-display-ui/pom.xml` suite now has 36 tests, including

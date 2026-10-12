@@ -1,8 +1,16 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.26** / Android **0.7.28**. The application starts directly in its LAN
+Windows **0.7.29** / Android **0.7.29**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Android file sharing now hands content URI grants to the foreground connection
+service through a transparent, short-lived share target. It returns directly to
+the source app without opening the transfer window. The manual sending window
+remains available from Galaxy Bridge. Windows shows a tray notification only
+after checksum verification and file publication, using the final saved filename.
+Click the notification to open the actual destination folder. Windows notification
+settings control presentation; receipt is independent of notification availability.
 
 Android 0.7.28 shows a received-file notification only after checksum verification
 and successful publication in `Download/GalaxyBridge`. Tap it to open that folder

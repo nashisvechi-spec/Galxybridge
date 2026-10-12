@@ -20,7 +20,9 @@
         <activity android:name=".ClipboardActivity" android:exported="false" />
         <activity android:name=".ReceivedFolderActivity" android:exported="false" />
         <activity android:name=".DropActivity" android:exported="false" android:resizeableActivity="true" />
-        <activity android:name=".SendActivity" android:exported="true">
+        <activity android:name=".SendActivity" android:exported="false" />
+        <activity android:name=".ShareActivity" android:exported="true" android:theme="@style/BackgroundShare"
+            android:excludeFromRecents="true" android:taskAffinity="">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />

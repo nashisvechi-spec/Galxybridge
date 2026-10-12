@@ -62,6 +62,7 @@ static class LanClipboardTests
         await ControlDisplayAsync(check);
         await LegacyMouseAsync(check);
         await FileEdgeConfigurationAsync(check);
+        await ReceivedNoticesAsync(check);
         await SendProgressAsync(check);
         await InvalidDragRequestsAsync(check);
     }
@@ -140,6 +141,51 @@ static class LanClipboardTests
             check(await Request(new { type = "uploadChunk", id = Id(), transfer, seq = 0, data = "AQID" }) &&
                 await Request(new { type = "uploadEnd", id = Id(), transfer, size = 3, sha256 = Convert.ToHexString(SHA256.HashData(new byte[] {1,2,3})).ToLowerInvariant() }), "ordinary file bytes and final checksum survive removed edge feature");
             check((await File.ReadAllBytesAsync(Path.Combine(folder,"ordinary.txt"))).SequenceEqual(new byte[] {1,2,3}) && peer.Session.IsAlive, "ordinary receiving saves exact bytes and keeps TLS alive");
+        }
+        finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+    }
+    private static async Task ReceivedNoticesAsync(Action<bool, string> check)
+    {
+        await using var peer = await Peer.CreateAsync();
+        string folder = Path.Combine(Path.GetTempPath(), "GalaxyBridge-Notices-" + Guid.NewGuid().ToString("N"));
+        var notices = System.Threading.Channels.Channel.CreateUnbounded<string>();
+        peer.Session.FileReceived += path => notices.Writer.TryWrite(path);
+        peer.Session.FileReceived += _ => throw new InvalidOperationException("Unavailable notification surface");
+        peer.Session.ConfigureReceive(true, folder);
+        string transfer = Guid.NewGuid().ToString("N");
+        async Task<bool> Request(string type, object fields)
+        {
+            var data = JsonSerializer.SerializeToElement(fields);
+            var message = data.EnumerateObject().ToDictionary(p => p.Name, p => (object)p.Value.Clone());
+            message["type"] = type;message["id"] = Guid.NewGuid().ToString("N");message["transfer"] = transfer;
+            await peer.Stream.WriteAsync(LanProtocol.Encode(message));
+            using var reply = await peer.NextAsync();
+            return reply.RootElement.GetProperty("ok").GetBoolean();
+        }
+        try
+        {
+            byte[] bytes = [1,2,3];string checksum = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            for (int index = 0; index < 2; index++)
+            {
+                transfer = Guid.NewGuid().ToString("N");
+                check(await Request("uploadBegin", new { name = "notice.txt", size = 3 }), "notification test starts real upload");
+                check(await Request("uploadChunk", new { seq = 0, data = "AQID" }) && !notices.Reader.TryRead(out _), "partial file never triggers a received notification");
+                check(await Request("uploadEnd", new { size = 3, sha256 = checksum }), "notification failure cannot reverse the successful save ACK");
+                string saved = await notices.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+                check(Path.GetFileName(saved) == (index == 0 ? "notice.txt" : "notice (1).txt") &&
+                    (await File.ReadAllBytesAsync(saved)).SequenceEqual(bytes), "each rapid receipt reports its actual published duplicate-safe filename and bytes");
+                check(!notices.Reader.TryRead(out _) && peer.Session.IsAlive, "receipt emits once without breaking the connection");
+            }
+            transfer = Guid.NewGuid().ToString("N");
+            await Request("uploadBegin", new { name = "bad.txt", size = 3 });
+            await Request("uploadChunk", new { seq = 0, data = "AQID" });
+            check(!await Request("uploadEnd", new { size = 3, sha256 = new string('0',64) }) && !notices.Reader.TryRead(out _), "checksum failure never triggers a received notification");
+            transfer = Guid.NewGuid().ToString("N");
+            await Request("uploadBegin", new { name = "cancelled.txt", size = 3 });
+            check(await Request("uploadAbort", new { }) && !notices.Reader.TryRead(out _), "cancelled receipt never triggers a received notification");
+            peer.Session.ConfigureReceive(false, folder);
+            check(!await Request("uploadBegin", new { name = "denied.txt", size = 3 }) && !notices.Reader.TryRead(out _), "disabled receiving never triggers a received notification");
+            check(Directory.GetFiles(folder).Length == 2, "only completed files survive failed and cancelled receipts");
         }
         finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
     }

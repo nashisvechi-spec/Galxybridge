@@ -25,6 +25,7 @@ internal sealed class LanHost : IAsyncDisposable
     private LanSession? current;
     public event Action<LanSession>? Connected;
     public event Action<string>? State;
+    public event Action<string, string>? FileReceived;
     public string Pin => identity.Pin;
     public string HostId => identity.HostId;
     public bool HasPhone => identity.HasPhone;
@@ -115,6 +116,7 @@ internal sealed class LanHost : IAsyncDisposable
                     wheelZoom |= root.TryGetProperty("touchInput", out var oldTouch) && oldTouch.ValueKind == System.Text.Json.JsonValueKind.Number && oldTouch.TryGetInt32(out int oldVersion) && oldVersion == 1;
                     bool fileEdgeConfig = root.TryGetProperty("fileEdgeConfig", out var fileCapability) && fileCapability.ValueKind == System.Text.Json.JsonValueKind.Number && fileCapability.TryGetInt32(out int fileVersion) && fileVersion == 1;
                     session = new LanSession(client, stream, name, autoClipboard, nativeEdge, wheelZoom, fileEdgeConfig);
+                    session.FileReceived += path => FileReceived?.Invoke(name, path);
                     session.ConfigureReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder);
                     session.ConfigureFileEdge(false);
                 }
