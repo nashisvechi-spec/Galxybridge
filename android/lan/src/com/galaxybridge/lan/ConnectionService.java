@@ -34,6 +34,7 @@ public final class ConnectionService extends Service {
     private Thread worker;
     private volatile Thread uploadWorker;
     private final AtomicBoolean uploadBusy=new AtomicBoolean();
+    private final ArrayDeque<ArrayList<Uri>> uploadQueue=new ArrayDeque<>();
     private final AtomicBoolean clipboardBusy=new AtomicBoolean();
     private ClipboardBridge clipboardBridge;
     private NativeEdgeBridge nativeEdge;
@@ -70,7 +71,7 @@ public final class ConnectionService extends Service {
         synchronized(this) { notifyAll(); }
         if(intent!=null && intent.hasExtra("files")) {
             ArrayList<Uri> files=intent.getParcelableArrayListExtra("files",Uri.class);
-            if(files!=null) startUpload(files);
+            if(files!=null) enqueueUpload(files);
         }
         return START_STICKY;
     }
@@ -292,7 +293,7 @@ public final class ConnectionService extends Service {
     static void inputScreenChanged() {
         ConnectionService current=instance;if(current!=null) { current.nativeEdge.stop();reportInputScreen(); }
     }
-    static boolean uploading() { ConnectionService current=instance; return current!=null && current.uploadBusy.get(); }
+    static boolean uploading() { ConnectionService current=instance; return current!=null && (current.uploadBusy.get() || !current.uploadQueue.isEmpty()); }
     static boolean sendingClipboard() { ConnectionService current=instance;return current!=null && current.clipboardBusy.get(); }
     static void sendClipboard(String text) {
         // Validate the actual JSON frame before starting a worker or changing a clipboard.
@@ -313,9 +314,23 @@ public final class ConnectionService extends Service {
     }
     static void cancelFiles() { ConnectionService current=instance; if(current!=null) current.cancelUpload(); }
     private void cancelUpload() {
+        uploadQueue.clear();
         uploadCancel.set(true);
         InputStream input=uploadInput.getAndSet(null); if(input!=null) try { input.close(); } catch(IOException ignored) { }
         Thread thread=uploadWorker; if(thread!=null) thread.interrupt();
+    }
+    private void enqueueUpload(ArrayList<Uri> files) {
+        if(files.isEmpty() || files.size()>100) { fileStatus="Выберите от 1 до 100 файлов.";return; }
+        for(Uri uri:files) if(uri==null || !"content".equals(uri.getScheme())) { fileStatus="Недопустимый файл. Используйте системный выбор файлов.";return; }
+        if(uploadQueue.size()>=8) { fileStatus="Очередь отправки заполнена. Дождитесь передачи файлов и поделитесь снова.";return; }
+        uploadQueue.addLast(new ArrayList<>(files));
+        if(uploadBusy.get()) fileStatus="Файлы добавлены в очередь. Ожидают отправки подборок: "+uploadQueue.size()+".";
+        startNextUpload();
+    }
+    private void startNextUpload() {
+        // Queue ownership stays on the service's main looper; URI grants belong
+        // to this foreground service, so closing the share window is safe.
+        if(running && !uploadBusy.get() && !uploadQueue.isEmpty()) startUpload(uploadQueue.removeFirst());
     }
     private void startUpload(ArrayList<Uri> files) {
         if(files.isEmpty() || files.size()>100) { fileStatus="Выберите от 1 до 100 файлов."; return; }
@@ -367,6 +382,7 @@ public final class ConnectionService extends Service {
                     (e instanceof IOException?e.getMessage():"Проверьте доступ к файлу и соединение."))+"\nОтправлено: "+completed+".";
             } finally {
                 uploadInput.set(null); uploadWorker=null;uploadBusy.set(false);
+                main.post(() -> { if(instance==ConnectionService.this) startNextUpload(); });
             }
         },"GalaxyBridge-upload");
         uploadWorker.start();

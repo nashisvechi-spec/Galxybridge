@@ -1,4 +1,31 @@
-# Validation — Windows 0.7.26 / Android 0.7.25
+# Validation — Windows 0.7.26 / Android 0.7.27
+
+## Automatic Android file sharing (0.7.27)
+
+ACTION_SEND and ACTION_SEND_MULTIPLE with content URIs automatically submit
+one foreground-service upload on the first resumed sending window. Saved pending
+state preserves submission across pre-resume recreation and prevents replay after
+rotation or revisiting an already-submitted share. Text-only sharing still opens
+the clipboard window. Finished redirect windows do not schedule an uninitialized
+progress view. Pairing validation and explicit manual retry remain.
+
+The foreground service owns a FIFO queue of copied URI lists, bounded to eight
+waiting selections of up to 100 files each. New shares cannot disappear behind
+the previous upload's busy flag. Worker completion posts queue advancement back
+to the main looper; cancellation clears waiting selections and interrupts the
+current read, and service shutdown cannot restart the queue. Each service intent
+forwards all shared URIs in ClipData with a read grant. File framing, checksums,
+PC receiving, cursor/DeX handling and removed file-edge transfer are unchanged.
+
+22 Android API 35 Robolectric tests pass: 13 file-share/lifecycle/queue cases and
+9 existing display-adapter regressions. Tests verify service submission and URI
+read grants, one/multiple/ClipData-only shares, recreation/resume, pairing, text
+redirect, busy submission, copied FIFO data, queue capacity and cancellation.
+They do not simulate the phone provider's actual bytes or a live PC. Existing
+843 LAN JVM assertions pass, including production upload bytes/checksums and
+payload/read-access tests. Shipped Java compiles against public Android API 35;
+source checks pass. Signed APK packaging and phone-to-PC sharing require the
+manual workflow and device validation. Windows remains 0.7.26.
 
 ## Cursor speed and edge-entry delay settings (Windows 0.7.26)
 

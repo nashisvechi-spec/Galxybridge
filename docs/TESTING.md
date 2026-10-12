@@ -4,8 +4,12 @@
 ## Current DeX/package checks (0.7.25)
 
 Run `mvn -B -f tests/android-display-ui/pom.xml test` with JDK 17 before packaging.
-The nine framework tests use the real companion display adapter and public
-Android API 35 models; they do not validate Samsung hardware overlays.
+The nine display framework tests use the real companion display adapter and public
+Android API 35 models; they do not validate Samsung hardware overlays. Android
+0.7.27 adds thirteen share-window and upload-queue regressions to the same suite.
+On a phone, share a file and a multi-file selection into Galaxy Bridge, verify
+automatic submission and real saved PC bytes, then test a second share while
+the first runs, window recreation and cancellation.
 The workflow packages GalaxyBridge.exe and only GalaxyBridgeLan.apk. Galaxy Files
 and file-edge transfer are excluded. Earlier file-edge checklists below are
 historical and do not apply to 0.7.25.

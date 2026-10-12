@@ -18,7 +18,10 @@ public final class SendActivity extends Activity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private TextView selection, progress;
     private Button send, cancel;
+    private boolean autoSendPending;
     private final Runnable update=new Runnable() { public void run() {
+        if(isFinishing() || progress==null) return;
+        if(autoSendPending) { autoSendPending=false;send(true); }
         progress.setText(ConnectionService.status+"\n\n"+ConnectionService.fileStatus);
         send.setEnabled(!files.isEmpty() && !ConnectionService.uploading()); cancel.setEnabled(ConnectionService.uploading());
         handler.postDelayed(this,500);
@@ -38,19 +41,24 @@ public final class SendActivity extends Activity {
         LinearLayout page=new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(20*getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.25"); title.setTextSize(24); page.addView(title);
+        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.27"); title.setTextSize(24); page.addView(title);
         TextView help=new TextView(this); help.setText("Файлы получит сохранённый ноутбук. Откройте на нём режим Wi-Fi без отладки. Оба устройства должны быть в одной сети. Папку приёма можно изменить в окне файлов Windows."); page.addView(help);
         selection=new TextView(this); selection.setTextSize(18); page.addView(selection);
         Button choose=new Button(this); choose.setText("Выбрать файлы…"); choose.setOnClickListener(v -> choose(false)); page.addView(choose);
         Button other=new Button(this); other.setText("Выбрать через файловое приложение…"); other.setOnClickListener(v -> choose(true)); page.addView(other);
-        TextView hint=new TextView(this); hint.setText("Щёлкните по названию файла, чтобы выбрать его. Для нескольких файлов используйте режим выделения файлового приложения и подтвердите выбор в файловом окне. Также можно отправить через «Поделиться → Galaxy Bridge Wi-Fi»."); page.addView(hint);
+        TextView hint=new TextView(this); hint.setText("Щёлкните по названию файла, чтобы выбрать его. Для нескольких файлов используйте режим выделения файлового приложения и подтвердите выбор в файловом окне. Через «Поделиться → Galaxy Bridge Wi-Fi» подготовка и отправка начинаются автоматически."); page.addView(hint);
         send=new Button(this); send.setText("Отправить на ноутбук"); send.setOnClickListener(v -> send()); page.addView(send);
         cancel=new Button(this); cancel.setText("Отменить отправку"); cancel.setOnClickListener(v -> ConnectionService.cancelFiles()); page.addView(cancel);
         progress=new TextView(this); progress.setTextSize(16); page.addView(progress);
         ScrollView scroll=new ScrollView(this); scroll.addView(page); setContentView(scroll);
         if(saved!=null) {
             ArrayList<Uri> restored=saved.getParcelableArrayList("files",Uri.class); if(restored!=null) files.addAll(restored);
-        } else collect(getIntent());
+            autoSendPending=saved.getBoolean("autoSendPending",false);
+        }
+        if(saved==null) {
+            String action=getIntent().getAction();
+            autoSendPending=!files.isEmpty() && (Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action));
+        }
         describe();
     }
     private void collect(Intent intent) {
@@ -77,8 +85,12 @@ public final class SendActivity extends Activity {
         catch(ActivityNotFoundException e) { Toast.makeText(this,"Приложение для выбора файлов не найдено. Используйте «Поделиться» из «Моих файлов».",Toast.LENGTH_LONG).show(); }
     }
     private void send() {
-        if(files.isEmpty() || ConnectionService.uploading()) return;
+        send(false);
+    }
+    private void send(boolean automatic) {
+        if(files.isEmpty() || !automatic && ConnectionService.uploading()) return;
         if(!Wire.hex(getSharedPreferences("lan",MODE_PRIVATE).getString("token",""),64)) {
+            ConnectionService.fileStatus="Сначала выполните QR-сопряжение в Galaxy Bridge Wi-Fi, затем поделитесь файлами снова.";
             Toast.makeText(this,"Сначала выполните QR-сопряжение в Galaxy Bridge Wi-Fi.",Toast.LENGTH_LONG).show(); return;
         }
         Intent service=new Intent(this,ConnectionService.class); service.putParcelableArrayListExtra("files",new ArrayList<>(files));
@@ -95,7 +107,9 @@ public final class SendActivity extends Activity {
         super.onActivityResult(request,result,data);
         if(request==11 && result==RESULT_OK && data!=null) { collect(data); describe(); }
     }
-    @Override protected void onSaveInstanceState(Bundle out) { out.putParcelableArrayList("files",files); super.onSaveInstanceState(out); }
-    @Override protected void onResume() { super.onResume(); handler.post(update); }
+    @Override protected void onSaveInstanceState(Bundle out) {
+        out.putParcelableArrayList("files",files);out.putBoolean("autoSendPending",autoSendPending);super.onSaveInstanceState(out);
+    }
+    @Override protected void onResume() { super.onResume();if(progress!=null && !isFinishing()) handler.post(update); }
     @Override protected void onPause() { handler.removeCallbacks(update); super.onPause(); }
 }

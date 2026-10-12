@@ -47,12 +47,12 @@ jobs:
           packages: platforms;android-35 build-tools;35.0.0
       - name: Test Android LAN wire and pairing parsers on JVM
         run: ./scripts/Test-LanProtocol.ps1
-      - name: Test automatic DeX target selection on Android framework
+      - name: Test Android display selection and automatic sharing
         timeout-minutes: 6
         run: |
           $env:JAVA_HOME = $env:JAVA_HOME_17_X64
           mvn -B -f tests/android-display-ui/pom.xml test
-          if ($LASTEXITCODE -ne 0) { throw 'Automatic display selection tests failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Android display and automatic sharing tests failed.' }
       - name: Build independent Wi-Fi companion APK
         env:
           GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE: ${{ secrets.ANDROID_SIGNING_BUNDLE }}
