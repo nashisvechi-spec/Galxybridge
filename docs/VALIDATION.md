@@ -1,4 +1,41 @@
-# Validation — GalaxyBridge 0.7.22 / Galaxy Files 0.2.1
+# Validation — GalaxyBridge 0.7.23 / Galaxy Files 0.2.2
+
+## Opt-in edge files and standalone Windows send widget (0.7.23)
+
+Based on 4e70028528d183a8d17d77ff65e307c9f512dc44. The existing edge file
+transfer remains available under a separate, persisted, off-by-default checkbox
+in the main Windows form. The cursor's EdgeEntryEnabled preference is unchanged.
+fileEdgeConfig=1 is negotiated in hello/welcome; welcome carries the initial
+preference and supported peers receive updates. Legacy peers are not sent an
+unknown command. The host independently refuses preparation/start when edge
+transfer is disabled, even for an old APK. Disabling disposes only staged files,
+not ordinary incoming/outgoing transfers, and Android cancels file-only staging.
+Updates on reconnect use the saved Windows setting; interrupted batches are not
+replayed. Samsung's overlay receiver still requires its explicit Android enable.
+
+A separate topmost tool window provides drag/drop and file-picker sending to the
+paired phone using the existing SendAsync/SendFileAsync transport. It has no owner
+so minimizing the main form does not minimize it. Availability follows the same
+session/pause/lock/busy state as existing sending. It accepts ordinary files
+only (up to 100), presents current-file byte progress and Cancel, and sends to
+Download/GalaxyBridge. Progress uses ACKed chunks; success still requires fileEnd
+ACK. Closing the widget does not cancel the shared transfer. Main app shutdown
+closes it and cancels through the existing lifetime. Persisted visibility and
+position are restored and clamped into an available working area.
+
+- 2,467 portable Core assertions pass. New real TLS tests cover negotiated initial
+  state, enable/disable commands, disabled staging rejection, cancellation of
+  staging without dropping TLS or ordinary receiving, blocked stale dragStart,
+  acknowledged multi-chunk progress, actual bytes/checksum, final save ACK and
+  cancellation before chunk ACK without disconnecting.
+- Full Windows production sources compile with .NET 8/Roslyn references, including
+  the actual native widget. A Linux run does not render WinForms or exercise OLE.
+- Both Android applications compile with JDK 17/Java 8 bytecode, API 35 and ZXing
+  for the companion. Existing JVM protocol/file tests remain in the workflow.
+- Manual Windows packaging and physical verification remain required: checkbox
+  persistence/reconnect and Android update, actual widget rendering/DPI/position,
+  main minimize/restore, tray opening, offline and busy drop rejection, cancellation
+  and delivered phone file. These native UI and device checks were not executed.
 
 ## Intermittent Galaxy Files edge-transfer disconnect (0.7.22 / Files 0.2.1)
 

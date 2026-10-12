@@ -24,6 +24,14 @@ internal sealed class LanSession : IPhoneControl
     private readonly LanFileReceiver incoming = new();
     private readonly LanDragStaging dragFiles = new();
     private bool progressStaging;
+    private volatile bool fileEdgeEnabled;
+    public bool FileEdgeConfigurationSupported { get; }
+    public bool FileEdgeEnabled => fileEdgeEnabled;
+    public void ConfigureFileEdge(bool enabled)
+    {
+        lock (receiveGate) { fileEdgeEnabled = enabled; if (!enabled) dragFiles.Dispose(); }
+        if (FileEdgeConfigurationSupported) Post(new { type = "fileEdgeConfig", enabled });
+    }
     public event Action<string, PhoneEdgeSample>? FileDragRequested;
     public LanReceiveState ReceiveState { get { lock (receiveGate) return dragFiles.State.Busy ? dragFiles.State : incoming.State; } }
     public (LanReceiveState State, bool Staging) ReceiveProgress
@@ -115,8 +123,8 @@ internal sealed class LanSession : IPhoneControl
     }
     public Task Completion { get; private set; } = Task.CompletedTask;
     public event Action? Lost;
-    public LanSession(TcpClient socket, SslStream stream, string name, bool automaticClipboard = false, bool nativeEdgeSupported = false, bool wheelZoomSupported = false)
-    { this.socket = socket; this.stream = stream; Name = name; AutomaticClipboard = automaticClipboard; NativeEdgeSupported = nativeEdgeSupported; WheelZoomSupported = wheelZoomSupported; }
+    public LanSession(TcpClient socket, SslStream stream, string name, bool automaticClipboard = false, bool nativeEdgeSupported = false, bool wheelZoomSupported = false, bool fileEdgeConfigurationSupported = false)
+    { this.socket = socket; this.stream = stream; Name = name; AutomaticClipboard = automaticClipboard; NativeEdgeSupported = nativeEdgeSupported; WheelZoomSupported = wheelZoomSupported; FileEdgeConfigurationSupported = fileEdgeConfigurationSupported; }
     public void Start() => Completion = RunAsync();
     public bool Post(object value)
     {
@@ -355,6 +363,8 @@ internal sealed class LanSession : IPhoneControl
                             {
                                 if (!receiving.Enabled) throw new IOException("Включите приём файлов в окне файлов на ПК.");
                                 string batch = root.GetProperty("batch").GetString() ?? "";
+                                if (!fileEdgeEnabled && root.GetProperty("type").GetString() != "dragCancel")
+                                    throw new IOException("Включите «Перенос файлов с телефона через край» в окне Galaxy Bridge на ПК.");
                                 switch (root.GetProperty("type").GetString())
                                 {
                                     case "dragPrepare": dragFiles.Begin(batch, root.GetProperty("count").GetInt32()); break;
@@ -371,7 +381,7 @@ internal sealed class LanSession : IPhoneControl
                         string dragBatch = root.GetProperty("batch").GetString() ?? "";
                         if (!LanProtocol.Identifier(dragBatch)) throw new InvalidDataException("Invalid drag batch.");
                         bool prepared;
-                        lock (receiveGate) prepared = receiving.Enabled && dragFiles.IsReady(dragBatch);
+                        lock (receiveGate) prepared = receiving.Enabled && fileEdgeEnabled && dragFiles.IsReady(dragBatch);
                         if (prepared && touchActive && PhoneEdgeSample.TryParse(root.GetProperty("line").GetString() ?? "", Environment.TickCount64, out var dragSample) &&
                             dragSample!.CaptureId == epoch && FileDragRequested is not null)
                             FileDragRequested.Invoke(dragBatch, dragSample);
@@ -388,6 +398,7 @@ internal sealed class LanSession : IPhoneControl
                                 ReceiveConfiguration options = receiving;
                                 if (root.TryGetProperty("dragBatch", out _))
                                 {
+                                    if (!fileEdgeEnabled) throw new IOException("Перенос через край выключен.");
                                     if (!options.Enabled) throw new IOException("Приём файлов выключен.");
                                     saved = dragFiles.Accept(root);
                                 }
@@ -439,7 +450,7 @@ internal sealed class LanSession : IPhoneControl
         }
         finally { replies.TryRemove(id, out _); }
     }
-    public async Task<string> SendFileAsync(string path, CancellationToken ct)
+    public async Task<string> SendFileAsync(string path, CancellationToken ct, IProgress<(long Sent, long Total)>? progress = null)
     {
         string name = Path.GetFileName(path);
         if (!LanProtocol.SafeName(name)) throw new ArgumentException("Недопустимое имя файла.");
@@ -451,6 +462,7 @@ internal sealed class LanSession : IPhoneControl
         try
         {
             await RequestAsync(id => new { type = "fileBegin", id, transfer, name, size }, ct);
+            progress?.Report((0, size));
             using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             byte[] buffer = new byte[LanProtocol.ChunkSize]; int seq = 0; long sent = 0;
             int length;
@@ -460,6 +472,7 @@ internal sealed class LanSession : IPhoneControl
                 if (sent > size) throw new IOException("Файл изменился во время отправки.");
                 string data = Convert.ToBase64String(buffer, 0, length);
                 await RequestAsync(id => new { type = "fileChunk", id, transfer, seq, data }, ct); seq++;
+                progress?.Report((sent, size));
             }
             if (sent != size) throw new IOException("Файл изменился во время отправки.");
             string sha256 = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();

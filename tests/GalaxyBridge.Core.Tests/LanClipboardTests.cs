@@ -61,7 +61,99 @@ static class LanClipboardTests
         await NativeEdgeAsync(check);
         await LegacyMouseAsync(check);
         await FileDragAsync(check);
+        await FileEdgeConfigurationAsync(check);
+        await SendProgressAsync(check);
         await InvalidDragRequestsAsync(check);
+    }
+    private static async Task FileEdgeConfigurationAsync(Action<bool, string> check)
+    {
+        await using var peer = await Peer.CreateAsync(fileEdgeConfig: true);
+        string folder = Path.Combine(Path.GetTempPath(), "GalaxyBridge-Edge-Config-" + Guid.NewGuid().ToString("N"));
+        string batch = Guid.NewGuid().ToString("N"), transfer = Guid.NewGuid().ToString("N");
+        peer.Session.ConfigureReceive(true, folder);
+        async Task<bool> Request(object value)
+        {
+            await peer.Stream.WriteAsync(LanProtocol.Encode(value));
+            using var reply = await peer.NextAsync();
+            return reply.RootElement.GetProperty("type").GetString() == "uploadAck" && reply.RootElement.GetProperty("ok").GetBoolean();
+        }
+        string Id() => Guid.NewGuid().ToString("N");
+        async Task Config(bool enabled)
+        {
+            peer.Session.ConfigureFileEdge(enabled);
+            using var command = await peer.NextAsync();
+            check(command.RootElement.GetProperty("type").GetString() == "fileEdgeConfig" &&
+                command.RootElement.GetProperty("enabled").GetBoolean() == enabled, "edge checkbox sends negotiated configuration over real TLS");
+        }
+        try
+        {
+            check(!peer.Session.FileEdgeEnabled && !await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }) && peer.Session.IsAlive,
+                "edge transfer is opt-in and disabled preparation does not disconnect");
+            await Config(true);
+            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "checkbox enables preparation");
+            check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "partial.txt", size = 3 }), "enabled edge starts staged upload");
+            await Config(false);
+            check(!peer.Session.ReceiveProgress.State.Busy && peer.Session.IsAlive, "turning edge off cancels only staging and preserves TLS");
+            check(!await Request(new { type = "uploadChunk", id = Id(), dragBatch = batch, transfer, seq = 0, data = "AQID" }), "disabled edge rejects later staged packets");
+            check(await Request(new { type = "uploadBegin", id = Id(), transfer, name = "ordinary.txt", size = 0 }), "ordinary receiving works with edge off");
+            await Config(false);
+            check(peer.Session.ReceiveProgress.State.Busy, "edge off does not cancel an ordinary receive");
+            check(await Request(new { type = "uploadEnd", id = Id(), transfer, size = 0, sha256 = Convert.ToHexString(SHA256.HashData([])).ToLowerInvariant() }), "ordinary receive completes with edge off");
+            await Config(true);
+            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "new explicit drag allowed after re-enabling");
+            check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "ready.txt", size = 0 }) &&
+                await Request(new { type = "uploadEnd", id = Id(), dragBatch = batch, transfer, size = 0, sha256 = Convert.ToHexString(SHA256.HashData([])).ToLowerInvariant() }) &&
+                await Request(new { type = "dragReady", id = Id(), batch }), "batch prepared before checkbox disable");
+            await Config(false);
+            int epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);
+            using var capture = await peer.NextAsync();
+            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragStart", batch, line = $"GB_EDGE {epoch} 1 1000 2000 0 1000 1" }));
+            using var rejected = await peer.NextAsync();
+            check(rejected.RootElement.GetProperty("type").GetString() == "dragResult" && !rejected.RootElement.GetProperty("ok").GetBoolean(), "queued or legacy drag cannot bypass disabled checkbox");
+        }
+        finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+    }
+    private sealed class InlineSendProgress(Action<(long Sent, long Total)> report) : IProgress<(long Sent, long Total)>
+    { public void Report((long Sent, long Total) value) => report(value); }
+    private static async Task SendProgressAsync(Action<bool, string> check)
+    {
+        await using var peer = await Peer.CreateAsync();
+        string folder = Path.Combine(Path.GetTempPath(), "GalaxyBridge-Widget-Send-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);string path = Path.Combine(folder, "на S25.txt");
+        byte[] bytes = Enumerable.Range(0, LanProtocol.ChunkSize+3).Select(i => (byte)(i%251)).ToArray();
+        await File.WriteAllBytesAsync(path, bytes);
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<(long Sent, long Total)>();
+        async Task Ack(JsonElement command, string name = "") => await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "ack", id = command.GetProperty("id").GetString(), ok = true, name }));
+        try
+        {
+            Task<string> sending = peer.Session.SendFileAsync(path, CancellationToken.None, new InlineSendProgress(reports.Enqueue));
+            using var begin = await peer.NextAsync();
+            check(begin.RootElement.GetProperty("type").GetString() == "fileBegin" && reports.IsEmpty, "widget reports no bytes before phone accepts file begin");
+            await Ack(begin.RootElement);
+            using MemoryStream received = new();
+            for (int i=0;i<2;i++)
+            {
+                using var chunk = await peer.NextAsync();
+                check(chunk.RootElement.GetProperty("type").GetString() == "fileChunk" && reports.Count == i+1, "unacknowledged chunk cannot advance widget progress");
+                received.Write(Convert.FromBase64String(chunk.RootElement.GetProperty("data").GetString()!));
+                await Ack(chunk.RootElement);
+            }
+            using var end = await peer.NextAsync();
+            check(received.ToArray().SequenceEqual(bytes) && end.RootElement.GetProperty("sha256").GetString() == Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), "widget path sends actual bytes and checksum");
+            check(!sending.IsCompleted, "all bytes acknowledged is not yet verified file completion");
+            await Ack(end.RootElement, "на S25.txt");
+            check(await sending == "на S25.txt" && reports.ToArray().SequenceEqual(new[] { (0L,(long)bytes.Length), ((long)LanProtocol.ChunkSize,(long)bytes.Length), ((long)bytes.Length,(long)bytes.Length) }), "widget progress uses acknowledged bytes and waits for final save ACK");
+            reports.Clear();using CancellationTokenSource cancel = new();
+            sending = peer.Session.SendFileAsync(path, cancel.Token, new InlineSendProgress(reports.Enqueue));
+            using var cancelBegin = await peer.NextAsync();await Ack(cancelBegin.RootElement);
+            using var outstanding = await peer.NextAsync();cancel.Cancel();
+            using var abort = await peer.NextAsync();
+            check(abort.RootElement.GetProperty("type").GetString() == "fileAbort" && reports.Count == 1, "widget Cancel aborts without reporting unacknowledged bytes");
+            await Ack(abort.RootElement);
+            bool cancelled = false;try { await sending; } catch (OperationCanceledException) { cancelled = true; }
+            check(cancelled && peer.Session.IsAlive, "widget cancellation does not drop the Wi-Fi connection");
+        }
+        finally { Directory.Delete(folder, true); }
     }
     private static async Task InvalidDragRequestsAsync(Action<bool, string> check)
     {
@@ -82,6 +174,7 @@ static class LanClipboardTests
         Console.WriteLine("LAN files: checking staged drag delivery over actual TLS");
         await using var peer = await Peer.CreateAsync();
         string folder = Path.Combine(Path.GetTempPath(), "GalaxyBridge-Drag-Test-" + Guid.NewGuid().ToString("N"));
+        peer.Session.ConfigureFileEdge(true);
         string batch = Guid.NewGuid().ToString("N"), transfer = Guid.NewGuid().ToString("N");
         async Task<bool> Request(object message)
         {
@@ -446,7 +539,7 @@ static class LanClipboardTests
         public LanSession Session { get; }
         private Peer(TcpClient client, SslStream stream, LanSession session, X509Certificate2 certificate, SslStream server)
         { this.client = client; Stream = stream; Session = session; this.certificate = certificate; this.server = server; }
-        public static async Task<Peer> CreateAsync(bool automatic = false, bool nativeEdge = false, bool wheelZoom = false)
+        public static async Task<Peer> CreateAsync(bool automatic = false, bool nativeEdge = false, bool wheelZoom = false, bool fileEdgeConfig = false)
         {
             using RSA rsa = RSA.Create(2048);
             CertificateRequest request = new("CN=Galaxy Bridge clipboard test", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -475,7 +568,7 @@ static class LanClipboardTests
                     ct => server.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate, EnabledSslProtocols = SslProtocols.Tls12 }, ct),
                     ct => stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost", EnabledSslProtocols = SslProtocols.Tls12 }, ct),
                     deadline.Token, () => { accepted.Dispose(); client.Dispose(); });
-                LanSession session = new(accepted, server, "clipboard test", automatic, nativeEdge, wheelZoom); session.Start();
+                LanSession session = new(accepted, server, "clipboard test", automatic, nativeEdge, wheelZoom, fileEdgeConfig); session.Start();
                 return new(client, stream, session, certificate, server);
             }
             catch (Exception ex)

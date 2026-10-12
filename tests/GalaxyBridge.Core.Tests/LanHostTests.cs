@@ -41,16 +41,20 @@ internal static class LanHostTests
         string device = Guid.NewGuid().ToString("N");
 
         using Peer first = await Peer.OpenAsync(host.Pin, ct);
-        await first.SendAsync(new { type = "pair", v = 1, device, name = "Test phone", ticket }, ct);
+        await first.SendAsync(new { type = "pair", v = 1, device, name = "Test phone", ticket, fileEdgeConfig = 1 }, ct);
         string token;
         using (JsonDocument welcome = await first.ReadAsync(ct))
         {
             token = welcome.RootElement.GetProperty("token").GetString()!;
             check(welcome.RootElement.GetProperty("fileDropZone").GetInt32() == 1 &&
                 welcome.RootElement.GetProperty("fileEdge").GetInt32() == 1, "welcome advertises inset zone and legacy file edge capabilities");
+            check(welcome.RootElement.GetProperty("fileEdgeConfig").GetInt32() == 1 &&
+                !welcome.RootElement.GetProperty("fileEdgeEnabled").GetBoolean(), "negotiated file edge is explicitly off by default in welcome");
         }
         await first.SendAsync(new { type = "saved" }, ct);
         LanSession original = await connected.Reader.ReadAsync(ct);
+        using (JsonDocument config = await first.ReadAsync(ct))
+            check(config.RootElement.GetProperty("type").GetString() == "fileEdgeConfig" && !config.RootElement.GetProperty("enabled").GetBoolean(), "new phone receives persisted edge preference after saved acknowledgement");
         check(host.IsCurrent(original), "first acknowledged connection is current");
         states.Clear();
 

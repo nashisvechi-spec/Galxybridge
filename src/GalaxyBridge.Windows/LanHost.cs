@@ -113,10 +113,12 @@ internal sealed class LanHost : IAsyncDisposable
                     bool wheelZoom = root.TryGetProperty("wheelZoom", out var zoomCapability) && zoomCapability.ValueKind == System.Text.Json.JsonValueKind.Number && zoomCapability.TryGetInt32(out int zoomVersion) && zoomVersion == 1;
                     // 0.7.9/0.7.10 advertise the same wheel feature as touchInput.
                     wheelZoom |= root.TryGetProperty("touchInput", out var oldTouch) && oldTouch.ValueKind == System.Text.Json.JsonValueKind.Number && oldTouch.TryGetInt32(out int oldVersion) && oldVersion == 1;
-                    session = new LanSession(client, stream, name, autoClipboard, nativeEdge, wheelZoom);
+                    bool fileEdgeConfig = root.TryGetProperty("fileEdgeConfig", out var fileCapability) && fileCapability.ValueKind == System.Text.Json.JsonValueKind.Number && fileCapability.TryGetInt32(out int fileVersion) && fileVersion == 1;
+                    session = new LanSession(client, stream, name, autoClipboard, nativeEdge, wheelZoom, fileEdgeConfig);
                     session.ConfigureReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder);
+                    session.ConfigureFileEdge(settings.FileEdgeTransferEnabled);
                 }
-                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, fileDrag = 1, fileEdge = 1, fileDropZone = 1, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0, wheelZoom = session.WheelZoomSupported ? 1 : 0 }), hello.Token);
+                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, fileDrag = 1, fileEdge = 1, fileDropZone = 1, fileEdgeConfig = session.FileEdgeConfigurationSupported ? 1 : 0, fileEdgeEnabled = session.FileEdgeEnabled, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0, wheelZoom = session.WheelZoomSupported ? 1 : 0 }), hello.Token);
                 // Explicit acknowledgement proves the phone saved its new token before any control session is accepted.
                 stage = "подтверждение телефона";
                 PendingState("Ожидаем подтверждение сохранения сопряжения…");

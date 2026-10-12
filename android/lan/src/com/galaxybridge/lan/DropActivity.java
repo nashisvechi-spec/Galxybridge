@@ -97,7 +97,7 @@ public final class DropActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(16*getResources().getDisplayMetrics().density);page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom);return i; });
-        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.22");title.setTextSize(22);page.addView(title);
+        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.23");title.setTextSize(22);page.addView(title);
         report=new TextView(this);report.setTextSize(16);report.setMaxLines(5);page.addView(report);
         report.setText(saved==null?"Ожидаем перетаскивание из файлового приложения.":"Окно было пересоздано. Перетащите файлы ещё раз: временное разрешение на чтение не сохраняется.");
         copy=new Button(this);copy.setText("Скопировать диагностику сброса");copy.setEnabled(false);
@@ -122,7 +122,7 @@ public final class DropActivity extends Activity {
             report.setText("Разрешите «Поверх других приложений», затем нажмите включение переноса снова.");
             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));return;
         }
-        if(!ConnectionService.edgeFilesReady()) { report.setText("Подключите ноутбук и обновите Windows Galaxy Bridge до 0.7.20.");return; }
+        if(!ConnectionService.edgeFilesReady()) { report.setText("Подключите ноутбук, обновите Galaxy Bridge и включите «Перенос файлов с телефона через край» в окне Windows.");return; }
         if(edgeOwner!=null && edgeOwner!=this) edgeOwner.stopEdge("Полоса переноса включена в другом окне.");
         EdgeFileDrag.Pointer pointer=ControlService.filePointer();
         int side=pointer==null?0:pointer.side;
@@ -259,7 +259,7 @@ public final class DropActivity extends Activity {
         return true; // Edge mode prepares after validation; the normal receiver waits for its button.
     }
     private void showDiagnostic(String text) {
-        dropDiagnostic="Galaxy Bridge Android 0.7.22\n"+text.replace("Galaxy Bridge Android 0.7.22\n","");
+        dropDiagnostic="Galaxy Bridge Android 0.7.23\n"+text.replace("Galaxy Bridge Android 0.7.23\n","");
         format.setText("Формат сброса:\n"+dropDiagnostic);copy.setEnabled(true);
     }
     private DropProbe.Source open(Uri uri) throws IOException {

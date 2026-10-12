@@ -22,7 +22,7 @@ public final class FilesBridgeService extends Service {
     private final FilesDragMotion motion=new FilesDragMotion();
     private final Runnable tick=new Runnable() { public void run() {
         if(client==null) return;
-        if(holding && (buttons!=1 || !foreground() || SystemClock.elapsedRealtime()-holdStarted>300000)) cancelDrag();
+        if(holding && (buttons!=1 || !ConnectionService.edgeFilesReady() || !foreground() || SystemClock.elapsedRealtime()-holdStarted>300000)) cancelDrag();
         if(holding && batch.equals(ConnectionService.dragReadyBatch) && atEdge() && motion.outward(side)) handoff();
         if(holding && !ConnectionService.uploading() && !batch.equals(ConnectionService.dragReadyBatch)) holding=false;
         String status=ConnectionService.fileStatus;
@@ -55,7 +55,7 @@ public final class FilesBridgeService extends Service {
     private void begin(Bundle data) {
         if(client==null || buttons!=1 || data.getLong("hold")!=holdSerial || !foreground()) return;
         if(!ConnectionService.edgeFilesReady() || ConnectionService.uploading()) {
-            Bundle result=new Bundle();result.putString("status","Для перетаскивания подключите ПК по Wi-Fi и дождитесь окончания отправки.");reply(102,result);return;
+            Bundle result=new Bundle();result.putString("status","Для перетаскивания включите «Перенос файлов с телефона через край» в Galaxy Bridge на ПК, подключите Wi-Fi и дождитесь окончания отправки.");reply(102,result);return;
         }
         ArrayList<Uri> files=data.getParcelableArrayList("files",Uri.class);
         if(files==null || files.isEmpty() || files.size()>100) return;
@@ -109,6 +109,7 @@ public final class FilesBridgeService extends Service {
     static void resetPointer() {
         if(instance!=null) { instance.cancelDrag();instance.motion.reset();instance.buttons=0;instance.reply(103,new Bundle()); }
     }
+    static void disableDrag() { if(instance!=null) instance.cancelDrag(); }
     @Override public boolean onUnbind(Intent intent) { cancelDrag();client=null;owner=-1;main.removeCallbacks(tick);return false; }
     @Override public void onDestroy() { cancelDrag();main.removeCallbacks(tick);if(instance==this) instance=null;super.onDestroy(); }
 }

@@ -264,7 +264,7 @@ public final class FilesActivity extends Activity {
     }
     private void mainMenu() {
         String[] labels={"Новая папка","Обновить",hidden?"Скрыть скрытые файлы":"Показать скрытые файлы","Доступ к файлам","Как передавать на ПК"};
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Galaxy Files · 0.2.1").setItems(labels,(d,index) -> main.post(() -> {
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Galaxy Files · 0.2.2").setItems(labels,(d,index) -> main.post(() -> {
             switch(index) { case 0:newFolder();break;case 1:reload();break;case 2:hidden=!hidden;reload();break;case 3:permission();break;case 4:help();break; }
         })).create();showDialog(dialog);
     }
@@ -275,7 +275,7 @@ public final class FilesActivity extends Activity {
                 case 2:if(selected.size()==1) rename(selected.iterator().next());else toast("Для переименования выберите один элемент.");break;case 3:share();break;case 4:deleteSelection();break;case 5:newFolder();break; }
         })).create();showDialog(dialog);
     }
-    private void help() { showDialog(new AlertDialog.Builder(this).setTitle("Телефон → ПК").setMessage("Кнопка «На ПК» отправляет выделенные файлы через GalaxyBridge Wi-Fi.\n\nМышь по Wi-Fi: один клик выделяет, двойной открывает, правый показывает действия. Зажмите файл и тяните к краю со стороны ПК. Дождитесь подготовки, удерживая кнопку, затем отпустите файл в папке Windows.\n\nДля обычной Bluetooth-мыши доступно перетаскивание Android; включите приём файлов у края в GalaxyBridge.\n\nПередача папок на ПК пока не поддерживается. Оригиналы файлов на телефоне сохраняются.").setPositiveButton("Понятно",null).create()); }
+    private void help() { showDialog(new AlertDialog.Builder(this).setTitle("Телефон → ПК").setMessage("Кнопка «На ПК» отправляет выделенные файлы через GalaxyBridge Wi-Fi.\n\nМышь по Wi-Fi: один клик выделяет, двойной открывает, правый показывает действия. В окне Windows включите «Перенос файлов с телефона через край». Зажмите файл и тяните к краю со стороны ПК. Дождитесь подготовки, удерживая кнопку, затем отпустите файл в папке Windows.\n\nДля обычной Bluetooth-мыши доступно перетаскивание Android; включите приём файлов у края в GalaxyBridge.\n\nПередача папок на ПК пока не поддерживается. Оригиналы файлов на телефоне сохраняются.").setPositiveButton("Понятно",null).create()); }
     private void permission() {
         try { startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,Uri.parse("package:"+getPackageName()))); }
         catch(ActivityNotFoundException e) { startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)); }

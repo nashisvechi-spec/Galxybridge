@@ -25,6 +25,8 @@ internal sealed class LanForm : Form
     private readonly Label connectionDetail = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly Button toggle = new() { Enabled = false, Text = "Управлять телефоном", AutoSize = true }, files = new() { Enabled = false, Text = "Отправить файлы…", AutoSize = true };
     private readonly CheckBox edgeEntry = new() { Text = "Вход через край экрана", AutoSize = true };
+    private readonly CheckBox fileEdge = new() { Text = "Перенос файлов с телефона через край", AutoSize = true };
+    private readonly CheckBox showFileWidget = new() { Text = "Виджет отправки файлов на S25", AutoSize = true };
     private readonly CheckBox wheelZoom = new() { Text = "Масштабировать колёсиком по Wi-Fi", AutoSize = true };
     private readonly Label transferState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly Label receiveState = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
@@ -41,6 +43,8 @@ internal sealed class LanForm : Form
     private LanReceiveState received = new(false, 0, 0, "Файлы с телефона ещё не получены.");
     private readonly NumericUpDown speed = new() { Minimum = .25M, Maximum = 4M, Increment = .05M, DecimalPlaces = 2, Width = 90 };
     private FileDropForm? fileWindow;
+    private FileTransferWidget? fileWidget;
+    private int? sendPercent;
     private readonly ReceiveProgressWindow receiveProgress = new(() => new ShellReceiveProgress());
     private InputCapture? capture;
     private LanSession? session;
@@ -53,7 +57,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.22"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.23"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -109,6 +113,16 @@ internal sealed class LanForm : Form
         FlowLayoutPanel fileActions = new() { AutoSize = true }; fileActions.Controls.Add(files);
         Button dropWindow = new() { Text = "Окно файлов: отправка и приём", AutoSize = true }; dropWindow.Click += (_, _) => OpenFiles();
         fileActions.Controls.Add(dropWindow); page.Controls.Add(fileActions); page.Controls.Add(transferState); page.Controls.Add(receiveState);
+        fileEdge.Checked = settings.FileEdgeTransferEnabled;page.Controls.Add(fileEdge);
+        fileEdge.CheckedChanged += (_, _) => {
+            settings.FileEdgeTransferEnabled = fileEdge.Checked;session?.ConfigureFileEdge(fileEdge.Checked);SaveSettings();
+            connectionDetail.Text = fileEdge.Checked ? "Перенос через край включён. На телефоне нужен APK 0.7.23." : "Перенос через край выключен. Обычная отправка файлов доступна.";
+        };
+        showFileWidget.Checked = settings.FileWidgetVisible;page.Controls.Add(showFileWidget);
+        showFileWidget.CheckedChanged += (_, _) => {
+            settings.FileWidgetVisible = showFileWidget.Checked;SaveSettings();
+            if (showFileWidget.Checked) OpenFileWidget();else fileWidget?.Close();
+        };
         Button cancel = new() { Text = "Отменить отправку", AutoSize = true }; cancel.Click += (_, _) => transfer?.Cancel(); page.Controls.Add(cancel);
         Button pause = new() { Text = "Остановить / возобновить подключение", AutoSize = true };
         pause.Click += (_, _) => ToggleConnection(); page.Controls.Add(pause);
@@ -134,10 +148,11 @@ internal sealed class LanForm : Form
         timer.Tick += (_, _) => { if (!host.PairingOpen) ClearQr(); UpdateState(); CheckEdge(); };
         clipboardRetry.Tick += (_, _) => ReadLocalClipboard();
         SystemEvents.SessionSwitch += SessionChanged; SystemEvents.PowerModeChanged += PowerChanged;
-        Shown += async (_, _) => { Start(); await RunBluetoothAsync(true); }; FormClosing += CloseAsync;
+        Shown += async (_, _) => { Start(); if (settings.FileWidgetVisible) OpenFileWidget();await RunBluetoothAsync(true); }; FormClosing += CloseAsync;
         ContextMenuStrip menu = new();
         menu.Items.Add("Открыть", null, (_, _) => OpenWindow());
         menu.Items.Add("Управлять телефоном / вернуться на ПК", null, (_, _) => Toggle());
+        menu.Items.Add("Виджет файлов на S25", null, (_, _) => { showFileWidget.Checked = true;OpenFileWidget(); });
         menu.Items.Add("Остановить / возобновить подключение", null, (_, _) => ToggleConnection());
         menu.Items.Add("Выход", null, (_, _) => Close());
         tray.Icon = AppIcon.Value; tray.Text = "Galaxy Bridge"; tray.ContextMenuStrip = menu; tray.Visible = true;
@@ -328,6 +343,7 @@ internal sealed class LanForm : Form
         candidate.FileDragRequested += (batch, sample) => Ui(() => StartPhoneFileDrag(candidate, batch, sample));
         lastPushedSequence = Native.GetClipboardSequenceNumber(); clipboardRetry.Stop();
         candidate.ConfigureClipboard(share.Checked);
+        candidate.ConfigureFileEdge(settings.FileEdgeTransferEnabled);
         if (!candidate.AutomaticClipboard) clipboardState.Text = "Для автоматического общего буфера обновите Galaxy Bridge Wi-Fi на телефоне до 0.7.13.";
         candidate.Lost += () => Ui(() => { if (session == candidate) {
             received = candidate.ReceiveState; capture?.Stop(); session = null; armed = false;
@@ -419,7 +435,7 @@ internal sealed class LanForm : Form
         string[] paths = [];
         QueryContinueDragEventHandler guard = (_, e) =>
         {
-            if (e.EscapePressed || closing || paused || suspended || session != source || !source.IsAlive || !settings.NativeReceiveEnabled)
+            if (e.EscapePressed || closing || paused || suspended || session != source || !source.IsAlive || !settings.NativeReceiveEnabled || !settings.FileEdgeTransferEnabled)
                 e.Action = DragAction.Cancel;
             // Phone capture consumed the original Windows DOWN. Use the real hook's UP,
             // not Windows' missing button state; never inject a synthetic click on the desktop.
@@ -428,7 +444,7 @@ internal sealed class LanForm : Form
         try
         {
             if (fileDragging || closing || paused || suspended || session != source || !source.IsAlive || sending is not null ||
-                !settings.NativeReceiveEnabled || capture?.HandoffFileDrag(source, sample) != true)
+                !settings.NativeReceiveEnabled || !settings.FileEdgeTransferEnabled || capture?.HandoffFileDrag(source, sample) != true)
             { message = "Зажмите подготовленные файлы мышью и тяните к краю ПК, не отпуская кнопку."; return; }
             armed = false; edgeSince = null;
             paths = source.TakeDragFiles(batch);
@@ -480,6 +496,24 @@ internal sealed class LanForm : Form
         }
         else { if (fileWindow.WindowState == FormWindowState.Minimized) fileWindow.WindowState = FormWindowState.Normal; fileWindow.Activate(); }
     }
+    private void OpenFileWidget()
+    {
+        if (closing) return;
+        if (fileWidget is { IsDisposed: false }) { fileWidget.Show();fileWidget.Activate();return; }
+        FileTransferWidget widget = new(SendAsync, () => transfer?.Cancel());fileWidget = widget;
+        Rectangle area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1000, 700);
+        Point wanted = settings.FileWidgetX is int x && settings.FileWidgetY is int y ? new Point(x, y) :
+            new Point(area.Right-widget.Width-16, area.Bottom-widget.Height-16);
+        Screen screen = Screen.FromPoint(wanted);area = screen.WorkingArea;
+        widget.Location = new Point(Math.Clamp(wanted.X, area.Left, Math.Max(area.Left, area.Right-widget.Width)),
+            Math.Clamp(wanted.Y, area.Top, Math.Max(area.Top, area.Bottom-widget.Height)));
+        widget.FormClosed += (_, _) => {
+            settings.FileWidgetX = widget.Left;settings.FileWidgetY = widget.Top;
+            if (fileWidget == widget) fileWidget = null;
+            if (!closing) { showFileWidget.Checked = false;settings.FileWidgetVisible = false;SaveSettings(); }
+        };
+        UpdateFiles();widget.Show(); // No owner: minimizing the main window must not hide the widget.
+    }
     private void UpdateFiles()
     {
         LanSession? current = !closing && !paused && !suspended && !fileDragging && session?.IsAlive == true ? session : null;
@@ -494,6 +528,9 @@ internal sealed class LanForm : Form
             suspended ? "Ноутбук заблокирован или спит." : paused ? "Подключение остановлено." :
             session?.IsAlive == true ? "Телефон: " + session.Name : "Ожидаем подключение телефона…", transferState.Text);
         fileWindow?.UpdateReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder, received);
+        fileWidget?.UpdateTransfer(files.Enabled, sending is not null,
+            suspended ? "Ноутбук заблокирован или спит." : paused ? "Подключение остановлено." :
+            session?.IsAlive == true ? "Телефон: " + session.Name : "Ожидаем подключение S25…", transferState.Text, sendPercent);
     }
     private void SaveReceiveSettings()
     {
@@ -533,23 +570,33 @@ internal sealed class LanForm : Form
     {
         LanSession? current = session;
         if (closing || !files.Enabled || current is null || paths.Length == 0) return;
-        if (paths.Any(p => !File.Exists(p))) { TransferStatus("Выберите обычные файлы. Папки не поддерживаются."); return; }
+        if (paths.Length > 100 || paths.Any(p => !File.Exists(p))) { TransferStatus("Выберите до 100 обычных файлов. Папки не поддерживаются."); return; }
         capture?.Stop(); armed = false;
         using CancellationTokenSource cancel = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); transfer = cancel;
+        sendPercent = null;
         async Task Work()
         {
             int done = 0;
             try
             {
                 foreach (string path in paths)
-                { TransferStatus($"Отправка {done + 1} из {paths.Length}: {Path.GetFileName(path)}"); await current.SendFileAsync(path, cancel.Token); done++; }
+                {
+                    int number = done + 1;string label = $"Отправка {number} из {paths.Length}: {Path.GetFileName(path)}";
+                    sendPercent = null;TransferStatus(label);
+                    Progress<(long Sent, long Total)> progress = new(value => {
+                        if (transfer != cancel || done != number-1 || closing) return;
+                        sendPercent = value.Total > 0 ? (int)Math.Min(100, value.Sent*100/value.Total) : null;
+                        TransferStatus(label + (sendPercent is int percent ? $" · {percent}%" : ""));
+                    });
+                    await current.SendFileAsync(path, cancel.Token, progress);done++;
+                }
                 TransferStatus($"Сохранено файлов: {done}. Download/GalaxyBridge.");
             }
             catch (OperationCanceledException) { TransferStatus($"Отменено. Сохранено файлов: {done}."); }
             catch (Exception ex) when (ex is IOException or TimeoutException or UnauthorizedAccessException or ArgumentException)
             { TransferStatus($"Сохранено: {done}. Отправка остановлена: " + ex.Message); }
         }
-        sending = Work(); UpdateState(); await sending; sending = null; transfer = null; if (!closing) UpdateState();
+        sending = Work(); UpdateState(); await sending; sending = null; transfer = null;sendPercent = null; if (!closing) UpdateState();
     }
     private void SessionChanged(object sender, SessionSwitchEventArgs e)
     { if (e.Reason == SessionSwitchReason.SessionLock) Ui(Suspend); else if (e.Reason == SessionSwitchReason.SessionUnlock) Ui(Resume); }
@@ -561,7 +608,7 @@ internal sealed class LanForm : Form
     {
         if (finished) return; e.Cancel = true; if (closing) return; closing = true;
         timer.Stop(); clipboardRetry.Stop(); receiveProgress.Dispose(); capture?.Stop(); transfer?.Cancel(); lifetime.Cancel();
-        UpdateState(); fileWindow?.Close(); fileWindow = null;
+        UpdateState(); fileWindow?.Close(); fileWindow = null;fileWidget?.Close();fileWidget = null;
         SystemEvents.SessionSwitch -= SessionChanged; SystemEvents.PowerModeChanged -= PowerChanged;
         if (sending is not null) await sending;
         if (bluetoothOperation is not null) await bluetoothOperation;

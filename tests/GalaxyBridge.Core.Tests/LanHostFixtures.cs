@@ -8,6 +8,7 @@ namespace GalaxyBridge.Windows;
 internal sealed class Settings
 {
     public bool NativeReceiveEnabled => false;
+    public bool FileEdgeTransferEnabled => false;
     public string NativeReceiveFolder => "";
 }
 
