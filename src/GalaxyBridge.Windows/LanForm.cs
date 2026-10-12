@@ -57,7 +57,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.23"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.24"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -116,7 +116,7 @@ internal sealed class LanForm : Form
         fileEdge.Checked = settings.FileEdgeTransferEnabled;page.Controls.Add(fileEdge);
         fileEdge.CheckedChanged += (_, _) => {
             settings.FileEdgeTransferEnabled = fileEdge.Checked;session?.ConfigureFileEdge(fileEdge.Checked);SaveSettings();
-            connectionDetail.Text = fileEdge.Checked ? "Перенос через край включён. На телефоне нужен APK 0.7.23." : "Перенос через край выключен. Обычная отправка файлов доступна.";
+            connectionDetail.Text = fileEdge.Checked ? "Перенос через край включён. На телефоне нужен APK 0.7.24." : "Перенос через край выключен. Обычная отправка файлов доступна.";
         };
         showFileWidget.Checked = settings.FileWidgetVisible;page.Controls.Add(showFileWidget);
         showFileWidget.CheckedChanged += (_, _) => {
@@ -341,6 +341,9 @@ internal sealed class LanForm : Form
         candidate.ClipboardStatus += text => Ui(() => { if (session == candidate) clipboardState.Text = text; });
         candidate.NativeEdgeStatus += text => Ui(() => { if (session == candidate) bluetoothState.Text = text; });
         candidate.FileDragRequested += (batch, sample) => Ui(() => StartPhoneFileDrag(candidate, batch, sample));
+        candidate.ControlDisplayChanged += () => Ui(() => {
+            if(session==candidate) { capture?.Stop();armed=false;edgeSince=null;UpdateState(); }
+        });
         lastPushedSequence = Native.GetClipboardSequenceNumber(); clipboardRetry.Stop();
         candidate.ConfigureClipboard(share.Checked);
         candidate.ConfigureFileEdge(settings.FileEdgeTransferEnabled);
@@ -358,7 +361,7 @@ internal sealed class LanForm : Form
     }
     private void UpdateState()
     {
-        route.Update(nativeMouse, session);
+        route.Update(nativeMouse, session, session?.PreferWifiInput==true);
         toggle.Enabled = !fileDragging && !closing && !suspended && !paused && sending is null && InputReady && capture is not null;
         files.Enabled = !fileDragging && !closing && !suspended && !paused && sending is null && session?.IsAlive == true;
         UpdateFiles();
@@ -371,12 +374,12 @@ internal sealed class LanForm : Form
             return;
         }
         state.Text = paused ? "Подключение остановлено." : session?.IsAlive == true ? "Подключён: " + session.Name +
-            (session.InputReady ? ". Мышь: курсор приложения, по Wi-Fi." : ". Для управления разблокируйте экран и включите специальные возможности.") : "Ожидаем телефон по Wi-Fi или Bluetooth.";
+            (session.InputReady ? session.PreferWifiInput ? ". Экран DeX: курсор приложения, по Wi-Fi." : ". Мышь: курсор приложения, по Wi-Fi." : ". Для управления проверьте выбранный экран и специальные возможности.") : "Ожидаем телефон по Wi-Fi или Bluetooth.";
     }
     private void Toggle()
     {
         if (fileDragging) return;
-        route.Update(nativeMouse, session);
+        route.Update(nativeMouse, session, session?.PreferWifiInput==true);
         if (capture?.Active == true) { capture.Stop(); armed = false; return; }
         if (closing || suspended || paused || sending is not null || !InputReady || capture is null) return;
         if (nativeMouse is not null) nativeMouse.ClipboardSession = session;

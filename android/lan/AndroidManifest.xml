@@ -14,7 +14,7 @@
     <queries><package android:name="com.galaxybridge.files" /></queries>
     <application android:label="Galaxy Bridge Wi-Fi" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false"
-        android:usesCleartextTraffic="false" android:supportsRtl="true">
+        android:usesCleartextTraffic="false" android:supportsRtl="true" android:resizeableActivity="true">
         <activity android:name=".SetupActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>

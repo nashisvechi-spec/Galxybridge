@@ -48,6 +48,7 @@ public final class FilesActivity extends Activity {
     private final FilePointer nativePointer=new FilePointer();
     private long remoteDownTime;
     private long remoteHold;
+    private int registeredDisplay=-1;
     private final Messenger inbox=new Messenger(new Handler(Looper.getMainLooper(),message -> {
         if(!resumed || dialogOpen) return true;
         if(message.what==101) remote(message.getData());
@@ -264,7 +265,7 @@ public final class FilesActivity extends Activity {
     }
     private void mainMenu() {
         String[] labels={"Новая папка","Обновить",hidden?"Скрыть скрытые файлы":"Показать скрытые файлы","Доступ к файлам","Как передавать на ПК"};
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Galaxy Files · 0.2.2").setItems(labels,(d,index) -> main.post(() -> {
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Galaxy Files · 0.2.3").setItems(labels,(d,index) -> main.post(() -> {
             switch(index) { case 0:newFolder();break;case 1:reload();break;case 2:hidden=!hidden;reload();break;case 3:permission();break;case 4:help();break; }
         })).create();showDialog(dialog);
     }
@@ -287,7 +288,12 @@ public final class FilesActivity extends Activity {
             if(!view.startDragAndDrop(data,new View.DragShadowBuilder(view),null,View.DRAG_FLAG_GLOBAL|View.DRAG_FLAG_GLOBAL_URI_READ)) toast("Не удалось начать перетаскивание.");
         } catch(IOException e) { toast(e.getMessage()); }
     }
-    private void register() { if(resumed && !dialogOpen && bridge!=null) message(1,null); }
+    private void register() {
+        if(resumed && !dialogOpen && bridge!=null && getDisplay()!=null) {
+            registeredDisplay=getDisplay().getDisplayId();
+            Bundle data=new Bundle();data.putInt("display",registeredDisplay);message(1,data);
+        }
+    }
     private void message(int what,Bundle data) {
         if(bridge==null) return;
         try { Message m=Message.obtain(null,what);m.replyTo=inbox;if(data!=null) m.setData(data);bridge.send(m); }
@@ -299,6 +305,7 @@ public final class FilesActivity extends Activity {
     }
     private View row(File file) { if(home) { for(Map.Entry<View,File> item:recentViews.entrySet()) if(item.getValue().equals(file)) return item.getKey();return homeScroll; }int index=entries.indexOf(file)-browser().getFirstVisiblePosition();return index>=0 && index<browser().getChildCount()?browser().getChildAt(index):browser(); }
     private void remote(Bundle data) {
+        if(getDisplay()==null || data.getInt("display",0)!=getDisplay().getDisplayId()) { remotePointer.cancel();remoteTouch=false;return; }
         float x=data.getFloat("x"),y=data.getFloat("y");int next=data.getInt("buttons"),previous=data.getInt("previous"),wheel=data.getInt("wheel");
         if(wheel!=0 && next==0) { if(home) homeScroll.smoothScrollBy(0,-wheel*dp(64));else browser().smoothScrollBy(-wheel*dp(64),120); }
         if((next&2)!=0 && (previous&2)==0) { File target=under(x,y);if(target!=null && !busy) context(target,row(target));return; }
@@ -378,6 +385,13 @@ public final class FilesActivity extends Activity {
         register();
     }
     @Override protected void onPause() { resumed=false;message(2,null);remotePointer.cancel();remoteTouch=false;if(folder!=null) getPreferences(MODE_PRIVATE).edit().putString("folder",folder.getPath()).putBoolean("hidden",hidden).apply();super.onPause(); }
+    @Override public void onConfigurationChanged(android.content.res.Configuration config) {
+        super.onConfigurationChanged(config);remotePointer.cancel();remoteTouch=false;register();
+    }
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if(focused && getDisplay()!=null && registeredDisplay!=getDisplay().getDisplayId()) register();
+    }
     @Override protected void onSaveInstanceState(Bundle out) { out.putString("folder",folder==null?ops.root.getPath():folder.getPath());out.putBoolean("home",home);out.putBoolean("virtual",folder==null);out.putString("category",category==null?"":category.name());out.putString("section",sectionTitle);out.putBoolean("hidden",hidden);super.onSaveInstanceState(out); }
     @Override public void onBackPressed() { if(busy) return;if(!selected.isEmpty()) { selected.clear();selecting=false;adapter.notifyDataSetChanged();updateSelection(); }else if(selecting) { selecting=false;adapter.notifyDataSetChanged(); }else if(!home) up();else super.onBackPressed(); }
     @Override protected void onDestroy() { thumbnails.close();main.removeCallbacks(reloadSearch);++loadGeneration;if(bound) unbindService(connection);worker.shutdown();super.onDestroy(); }

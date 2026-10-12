@@ -27,6 +27,14 @@ static class PhoneControlRouteTests
         check(!route.Update(bluetooth, wifi), "Wi-Fi recovery keeps the ready system mouse selected");
         check(route.Update(null, wifi) && route.Current == wifi, "disabling Bluetooth returns to the app cursor");
         check(bluetooth.Releases == 2 && wifi.Releases == 2, "each old transport releases exactly on route changes");
+        route.Update(bluetooth, wifi);
+        check(route.Update(bluetooth, wifi, preferWifi: true) && route.Current == wifi,"external DeX target uses display-specific Wi-Fi even with ready Bluetooth");
+        check(!route.Update(bluetooth, wifi, preferWifi: true),"stable DeX route does not interrupt movement");
+        wifi.InputReady = false;
+        check(route.Update(bluetooth, wifi, preferWifi: true) && route.Current is null,"missing DeX/accessibility cannot silently fall back to phone Bluetooth cursor");
+        wifi.InputReady = true;
+        check(route.Update(bluetooth, wifi, preferWifi: true) && route.Current == wifi,"DeX readiness restores explicit Wi-Fi input");
+        check(route.Update(bluetooth, wifi) && route.Current == bluetooth,"phone mode restores original ready Bluetooth priority");
     }
     private sealed class FakeControl : IPhoneControl
     {

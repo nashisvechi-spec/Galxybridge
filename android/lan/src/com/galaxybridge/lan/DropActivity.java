@@ -58,9 +58,9 @@ public final class DropActivity extends Activity {
             } else if(!edgeBatch.isEmpty() && !ConnectionService.uploading()) {
                 cancelEdge(ConnectionService.fileStatus);
             }
-        } else if(pointer!=null && !edgeReceiver.matches(pointer)) {
+        } else if(!edgeReceiver.currentSelection() || pointer!=null && !edgeReceiver.matches(pointer)) {
             edgeContact.clear();edgeReceiver.close();
-            if(!edgeReceiver.install(pointer.side)) { stopEdge("Не удалось перестроить зону. Включите её снова после изменения экрана.");return; }
+            if(!edgeReceiver.install(pointer==null?0:pointer.side)) { stopEdge("Не удалось перестроить зону. Включите её снова после изменения экрана.");return; }
         } else if(ConnectionService.edgeFilesReady() && edgeContact.ready(pointer,edgeReceiver.bounds(),SystemClock.elapsedRealtime())) {
             EdgeStrip zone=edgeReceiver.bounds();
             // A LOCATION dwell alone is insufficient: wait for the completed
@@ -97,7 +97,7 @@ public final class DropActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(16*getResources().getDisplayMetrics().density);page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom);return i; });
-        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.23");title.setTextSize(22);page.addView(title);
+        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.24");title.setTextSize(22);page.addView(title);
         report=new TextView(this);report.setTextSize(16);report.setMaxLines(5);page.addView(report);
         report.setText(saved==null?"Ожидаем перетаскивание из файлового приложения.":"Окно было пересоздано. Перетащите файлы ещё раз: временное разрешение на чтение не сохраняется.");
         copy=new Button(this);copy.setText("Скопировать диагностику сброса");copy.setEnabled(false);
@@ -259,7 +259,7 @@ public final class DropActivity extends Activity {
         return true; // Edge mode prepares after validation; the normal receiver waits for its button.
     }
     private void showDiagnostic(String text) {
-        dropDiagnostic="Galaxy Bridge Android 0.7.23\n"+text.replace("Galaxy Bridge Android 0.7.23\n","");
+        dropDiagnostic="Galaxy Bridge Android 0.7.24\n"+text.replace("Galaxy Bridge Android 0.7.24\n","");
         format.setText("Формат сброса:\n"+dropDiagnostic);copy.setEnabled(true);
     }
     private DropProbe.Source open(Uri uri) throws IOException {

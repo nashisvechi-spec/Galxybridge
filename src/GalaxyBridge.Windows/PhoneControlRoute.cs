@@ -5,9 +5,10 @@ namespace GalaxyBridge.Windows;
 internal sealed class PhoneControlRoute(Action releaseCapture)
 {
     public IPhoneControl? Current { get; private set; }
-    public bool Update(IPhoneControl? bluetooth, IPhoneControl? wifi)
+    public bool Update(IPhoneControl? bluetooth, IPhoneControl? wifi, bool preferWifi = false)
     {
-        IPhoneControl? next = bluetooth?.InputReady == true ? bluetooth : wifi?.InputReady == true ? wifi : null;
+        IPhoneControl? next = preferWifi ? wifi?.InputReady == true ? wifi : null :
+            bluetooth?.InputReady == true ? bluetooth : wifi?.InputReady == true ? wifi : null;
         if (ReferenceEquals(Current, next)) return false;
         releaseCapture();
         Current = next;

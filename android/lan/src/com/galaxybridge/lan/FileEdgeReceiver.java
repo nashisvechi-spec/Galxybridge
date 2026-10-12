@@ -24,14 +24,15 @@ final class FileEdgeReceiver {
     private EdgeStrip zone,idleZone,targetZone,wanted;
     private WindowManager.LayoutParams params;
     private boolean showing;
-    private int side=-1,width,height;
+    private int side=-1,width,height,displayId=-1;
     FileEdgeReceiver(Activity owner,Sink sink) { this.owner=owner;this.sink=sink; }
     boolean install(int requestedSide) {
-        if(strip!=null && side==requestedSide) return true;
+        if(strip!=null && side==requestedSide && currentSelection()) return true;
         close();
         if(!Settings.canDrawOverlays(owner)) return false;
         try {
-            Context context=owner.createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null);
+            displayId=ControlDisplays.id(owner);if(displayId<0) return false;
+            Context context=ControlDisplays.overlay(owner,displayId,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
             windows=context.getSystemService(WindowManager.class);
             WindowMetrics metrics=windows.getMaximumWindowMetrics();Rect bounds=metrics.getBounds();
             width=bounds.width();height=bounds.height();
@@ -62,7 +63,11 @@ final class FileEdgeReceiver {
         } catch(RuntimeException e) { close();return false; }
     }
     boolean matches(EdgeFileDrag.Pointer pointer) {
-        return strip!=null && pointer!=null && pointer.side==side && pointer.width==width && pointer.height==height;
+        return strip!=null && pointer!=null && pointer.displayId==displayId && pointer.side==side && pointer.width==width && pointer.height==height;
+    }
+    boolean currentSelection() {
+        DisplayTarget.Screen target=ControlDisplays.target(owner);
+        return target!=null && target.id==displayId && target.width==width && target.height==height;
     }
     EdgeStrip bounds() { return showing?zone:null; }
     boolean showTarget(boolean active) {
@@ -79,7 +84,7 @@ final class FileEdgeReceiver {
     void highlight(boolean active) { if(strip!=null) strip.setBackgroundColor(showing?(active?0xff2eae60:0xff1976d2):0x00000000); }
     void status(String text) { if(strip!=null && showing) strip.setText(text); }
     void close() {
-        View old=strip;strip=null;zone=null;side=-1;showing=false;wanted=idleZone=targetZone=null;
+        View old=strip;strip=null;zone=null;side=-1;displayId=-1;showing=false;wanted=idleZone=targetZone=null;
         if(old!=null && windows!=null) try { windows.removeViewImmediate(old); } catch(RuntimeException ignored) { }
     }
 }

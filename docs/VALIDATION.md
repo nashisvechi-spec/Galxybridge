@@ -1,4 +1,57 @@
-# Validation — GalaxyBridge 0.7.23 / Galaxy Files 0.2.2
+# Validation — GalaxyBridge 0.7.24 / Galaxy Files 0.2.3
+
+## Explicit Android display routing for external Samsung DeX (0.7.24)
+
+Based on ad901dea590565ae8f25f7e591d54827f5ebd545. User confirmed that DeX is
+on a separate monitor/TV and the GalaxyBridge pointer remains on the phone.
+ControlService previously read the default phone display, created its overlay
+there and dispatched gestures without displayId. This change selects a display
+before capture, creates its typed window context and sends every touch, continued
+stroke, ending stroke and wheel/pinch with that displayId. It reads windows on
+all displays and resolves target nodes on the captured screen. The phone root
+is never used to click a secondary display. Screen metrics, density and slop
+come from the target. No Samsung-private APIs, ADB or hidden moved-display
+callback are used.
+
+Android setup provides a saved Auto/external/manual-phone choice and selected
+screen diagnostics. Auto favors a valid public active external presentation
+screen, without assuming DeX is ID 1, then other public external screens, then
+phone. Explicit missing targets have no phone fallback. Display removal or
+changes in ID, metrics, rotation or density cancel the capture before another
+can begin. The old touch-up remains bound to its old display. Input/overlay
+failure now stops input and reports a diagnostic rather than dropping file TLS.
+Locked devices still reject input; an active external screen may work while the
+unlocked phone's own screen is off.
+
+Pong carries optional display/revision/desktopInput metadata. Windows invalidates
+old edge samples on changes and chooses Wi-Fi for a secondary target, including
+when BLE HID is connected; an unavailable explicit secondary target cannot
+fall back to a phone Bluetooth cursor. Normal phone transport priority remains.
+File IPC binds registration and mouse packets to the activity's actual display.
+A signed Files press retains ownership while dragging outside its DeX window;
+release, unregister/reset or migration clears ownership. Edge overlays and file
+holds are also tied to the selected display. The earlier opt-in checkbox,
+Windows widget and ordinary transfers remain supported.
+
+- All companion and Files Java sources compile against public Android API 35.
+- 1,134 LAN JVM assertions pass, including 28 display selection, geometry identity,
+  non-default IDs, phone-off/external-on selection, explicit missing targets,
+  display-scoped IPC and file hold/dwell checks. These are not native displays.
+- 2,493 portable Core assertions pass. Real TLS tests cover legacy readiness,
+  external target/revision updates, stable captures, stale-sample rejection,
+  removal and return to phone, and malformed metadata. Route tests check DeX
+  Wi-Fi priority and no unintended Bluetooth fallback.
+- Full Windows production sources compile with .NET 8/Roslyn reference assemblies.
+- EXE/APK packaging, OEM accessibility overlay placement and touch delivery,
+  window focus/caption behavior, display hotplug/lock, keyboard/global navigation
+  and actual DeX file handoff require manual device validation. Robolectric Files
+  UI regressions remain required by the packaging workflow; Maven is not present
+  in this local runtime. Existing phone smoothing/input JVM tests pass.
+
+Android API references:
+https://developer.android.com/reference/android/accessibilityservice/GestureDescription.Builder#setDisplayId(int)
+https://developer.android.com/reference/android/accessibilityservice/AccessibilityService#getWindowsOnAllDisplays()
+https://developer.android.com/reference/android/accessibilityservice/AccessibilityService#createDisplayContext(android.view.Display)
 
 ## Opt-in edge files and standalone Windows send widget (0.7.23)
 

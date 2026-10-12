@@ -6,12 +6,16 @@ import java.util.Locale;
 final class EdgeFileDrag {
     static final long MAX_HOLD=300000;
     static final class Pointer {
-        final int epoch,side,width,height,buttons;
+        final int epoch,side,width,height,buttons,displayId;
         final float x,y;
         final boolean stroke;
         Pointer(int epoch,int side,int width,int height,float x,float y,int buttons,boolean stroke) {
+            this(epoch,side,width,height,x,y,buttons,stroke,0);
+        }
+        Pointer(int epoch,int side,int width,int height,float x,float y,int buttons,boolean stroke,int displayId) {
             this.epoch=epoch;this.side=side;this.width=width;this.height=height;
             this.x=x;this.y=y;this.buttons=buttons;this.stroke=stroke;
+            this.displayId=displayId;
         }
     }
     private Pointer origin;
@@ -30,7 +34,7 @@ final class EdgeFileDrag {
             default:return null;
         }
         if(!zone.contains(x,y)) return null;
-        return new Pointer(pointer.epoch,pointer.side,pointer.width,pointer.height,x,y,pointer.buttons,pointer.stroke);
+        return new Pointer(pointer.epoch,pointer.side,pointer.width,pointer.height,x,y,pointer.buttons,pointer.stroke,pointer.displayId);
     }
     Pointer clamp(Pointer pointer) { return project(pointer,zone); }
     boolean begin(Pointer pointer,EdgeStrip bounds,long now) {
@@ -41,6 +45,7 @@ final class EdgeFileDrag {
     boolean valid(Pointer pointer,long now) {
         return origin!=null && pointer!=null && now>=started && now-started<=MAX_HOLD &&
             pointer.epoch==origin.epoch && pointer.side==origin.side &&
+            pointer.displayId==origin.displayId &&
             pointer.width==origin.width && pointer.height==origin.height && pointer.buttons==1 &&
             zone.contains(pointer.x,pointer.y);
     }

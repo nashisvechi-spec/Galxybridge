@@ -2,6 +2,7 @@ package com.galaxybridge.lan;
 
 import android.app.*;
 import android.content.Intent;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.database.Cursor;
@@ -169,12 +170,12 @@ public final class ConnectionService extends Service {
                 Wire.write(out,Wire.message("saved"));
                 socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); active.fileDrag=welcome.optInt("fileDrag",0)==1;active.fileEdge=active.fileDrag && welcome.optInt("fileEdge",0)==1;active.fileDropZone=active.fileEdge && welcome.optInt("fileDropZone",0)==1;active.fileEdgeConfig=welcome.optInt("fileEdgeConfig",0)==1;active.fileEdgeEnabled=!active.fileEdgeConfig || welcome.optBoolean("fileEdgeEnabled",false);link=active; connecting=null;
                 main.post(() -> { if(link==active) { clipboardBridge.configure(false);clipboardStatus=active.automaticClipboard?"Общий буфер готов после включения на ПК.":"Для автоматического буфера обновите Windows до 0.7.3."; } });
-                status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();
+                status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();active.send(inputScreenMessage(this));
                 try(Downloads downloads=new Downloads(this)) {
                     while(running && !active.closed.get()) {
                         JSONObject command=Wire.read(in); String type=command.getString("type");
                         if("ping".equals(type)) {
-                            active.send(Wire.message("pong","ready",ControlService.ready(this)));
+                            active.send(inputScreenMessage(this));
                             main.post(() -> { if(link==active) { nativeEdge.heartbeat();if(ControlService.instance!=null) ControlService.instance.poll(); } });
                         } else if("fileEdgeConfig".equals(type)) {
                             if(!active.fileEdgeConfig) throw new IOException("File edge configuration not negotiated");
@@ -286,6 +287,14 @@ public final class ConnectionService extends Service {
         } catch(Exception e) { target.close(); }
     }
     static void send(JSONObject message) { ConnectionService current=instance; if(current!=null) { Link active=current.link; if(active!=null) active.send(message); } }
+    private static JSONObject inputScreenMessage(Context context) {
+        return Wire.message("pong","ready",ControlService.ready(context),"controlDisplay",ControlDisplays.id(context),
+            "controlRevision",ControlService.displayRevision(),"desktopInput",ControlDisplays.desktop(context));
+    }
+    static void reportInputScreen() { ConnectionService current=instance;if(current!=null) send(inputScreenMessage(current)); }
+    static void inputScreenChanged() {
+        ConnectionService current=instance;if(current!=null) { current.nativeEdge.stop();reportInputScreen(); }
+    }
     static boolean uploading() { ConnectionService current=instance; return current!=null && current.uploadBusy.get(); }
     static boolean edgeFilesReady() {
         ConnectionService current=instance;Link target=current==null?null:current.link;

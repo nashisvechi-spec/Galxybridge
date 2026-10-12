@@ -112,6 +112,11 @@ internal sealed class LanSession : IPhoneControl
     }
     public string Name { get; }
     public bool InputReady => inputReady && IsAlive;
+    private volatile bool preferWifiInput;
+    private int controlDisplay=-1;
+    private long controlRevision=-1;
+    public bool PreferWifiInput => preferWifiInput;
+    public event Action? ControlDisplayChanged;
     public bool IsAlive => Volatile.Read(ref closed) == 0;
     public PhoneEdgeSample? LatestEdge
     {
@@ -234,7 +239,22 @@ internal sealed class LanSession : IPhoneControl
                 JsonElement root = message.RootElement;
                 switch (root.GetProperty("type").GetString())
                 {
-                    case "pong": inputReady = root.GetProperty("ready").GetBoolean(); break;
+                    case "pong":
+                        inputReady = root.GetProperty("ready").GetBoolean();
+                        if (root.TryGetProperty("controlDisplay", out var displayValue))
+                        {
+                            int display = displayValue.GetInt32();long revision = root.GetProperty("controlRevision").GetInt64();
+                            if (display < -1 || revision < 0) throw new InvalidDataException("Invalid control display.");
+                            bool changed = controlRevision >= 0 && (controlDisplay != display || controlRevision != revision);
+                            controlDisplay = display;controlRevision = revision;
+                            preferWifiInput = root.GetProperty("desktopInput").GetBoolean() || display > 0;
+                            if (changed)
+                            {
+                                touchActive = false;edge = null;
+                                ControlDisplayChanged?.Invoke();
+                            }
+                        }
+                        break;
                     case "clipboardSetAck":
                         string setId = root.GetProperty("id").GetString() ?? "";
                         if (!AutomaticClipboard || !LanProtocol.Identifier(setId)) throw new InvalidDataException("Invalid clipboard reply.");

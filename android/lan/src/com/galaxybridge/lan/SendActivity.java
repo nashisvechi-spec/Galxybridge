@@ -51,7 +51,7 @@ public final class SendActivity extends Activity {
         LinearLayout page=new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         int p=(int)(20*getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
         page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.23"); title.setTextSize(24); page.addView(title);
+        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.24"); title.setTextSize(24); page.addView(title);
         TextView help=new TextView(this); help.setText("Файлы получит сохранённый ноутбук. Откройте на нём режим Wi-Fi без отладки. Оба устройства должны быть в одной сети. Папку приёма можно изменить в окне файлов Windows."); page.addView(help);
         selection=new TextView(this); selection.setTextSize(18); page.addView(selection);
         Button choose=new Button(this); choose.setText("Выбрать файлы…"); choose.setOnClickListener(v -> choose(false)); page.addView(choose);
@@ -124,7 +124,8 @@ public final class SendActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle out) { out.putParcelableArrayList("files",files); super.onSaveInstanceState(out); }
     static boolean remotePointer(float x,float y,int buttons,int previous,int side,int epoch,int width,int height) {
         SendActivity activity=visible;
-        return activity!=null && activity.pointer(x,y,buttons,previous,side,epoch,width,height);
+        return activity!=null && activity.getDisplay()!=null && activity.getDisplay().getDisplayId()==ControlService.pointerDisplay() &&
+            activity.pointer(x,y,buttons,previous,side,epoch,width,height);
     }
     private boolean pointer(float x,float y,int buttons,int previous,int side,int epoch,int width,int height) {
         if((buttons&1)!=0 && (previous&1)==0) {

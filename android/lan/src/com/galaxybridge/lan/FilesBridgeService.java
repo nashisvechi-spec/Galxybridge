@@ -13,9 +13,9 @@ public final class FilesBridgeService extends Service {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final Messenger endpoint=new Messenger(new Handler(Looper.getMainLooper(),this::receive));
     private Messenger client;
-    private int owner=-1;
+    private int owner=-1,clientDisplay;
     private String batch="",lastStatus="";
-    private boolean holding,handed;
+    private boolean holding,handed,ownsPress;
     private int buttons,epoch,side,width,height;
     private float x,y;
     private long holdSerial,holdStarted;
@@ -38,19 +38,23 @@ public final class FilesBridgeService extends Service {
         if(packages==null || !Arrays.asList(packages).contains("com.galaxybridge.files") ||
             getPackageManager().checkSignatures(getApplicationInfo().uid,message.sendingUid)!=PackageManager.SIGNATURE_MATCH) return true;
         if(message.what==1 && message.replyTo!=null) {
-            cancelDrag();client=message.replyTo;owner=message.sendingUid;lastStatus="";
+            cancelDrag();ownsPress=false;client=message.replyTo;owner=message.sendingUid;clientDisplay=message.getData().getInt("display",0);lastStatus="";
             main.removeCallbacks(tick);main.post(tick);return true;
         }
         if(message.sendingUid!=owner) return true;
         switch(message.what) {
-            case 2:cancelDrag();client=null;owner=-1;main.removeCallbacks(tick);break;
+            case 2:cancelDrag();ownsPress=false;client=null;owner=-1;main.removeCallbacks(tick);break;
             case 3:begin(message.getData());break;
             case 4:if(holding) ConnectionService.cancelFiles();cancelDrag();break;
         }
         return true;
     }
     private boolean foreground() {
-        ControlService control=ControlService.instance;return control!=null && control.filesForeground();
+        ControlService control=ControlService.instance;
+        // A DeX file window may be small. A press that started there still owns
+        // its drag when the pointer leaves the window on the way to the edge.
+        return DisplayTarget.matches(ControlService.pointerDisplay(),clientDisplay) && control!=null &&
+            (ownsPress && buttons==1 || control.filesForeground());
     }
     private void begin(Bundle data) {
         if(client==null || buttons!=1 || data.getLong("hold")!=holdSerial || !foreground()) return;
@@ -84,9 +88,11 @@ public final class FilesBridgeService extends Service {
         if(holding && (epoch!=id || side!=requestedSide || width!=w || height!=h)) cancelDrag();
         if(epoch!=id || side!=requestedSide || width!=w || height!=h) motion.reset();
         motion.update(dx,dy);
-        if(next==1 && previous!=1) { ++holdSerial;holdStarted=SystemClock.elapsedRealtime(); }
+        if(next==1 && previous!=1) { ownsPress=true;++holdSerial;holdStarted=SystemClock.elapsedRealtime(); }
+        if(next!=1) ownsPress=false;
         x=px;y=py;buttons=next;side=requestedSide;epoch=id;width=w;height=h;
         Bundle data=new Bundle();data.putFloat("x",x);data.putFloat("y",y);data.putInt("buttons",next);
+        data.putInt("display",ControlService.pointerDisplay());
         data.putInt("previous",previous);data.putInt("wheel",wheel);
         data.putLong("hold",holdSerial);
         if(!reply(101,data)) return false;
@@ -107,9 +113,9 @@ public final class FilesBridgeService extends Service {
         return instance!=null && instance.client!=null && instance.foreground() && instance.buttons==1;
     }
     static void resetPointer() {
-        if(instance!=null) { instance.cancelDrag();instance.motion.reset();instance.buttons=0;instance.reply(103,new Bundle()); }
+        if(instance!=null) { instance.cancelDrag();instance.ownsPress=false;instance.motion.reset();instance.buttons=0;instance.reply(103,new Bundle()); }
     }
     static void disableDrag() { if(instance!=null) instance.cancelDrag(); }
-    @Override public boolean onUnbind(Intent intent) { cancelDrag();client=null;owner=-1;main.removeCallbacks(tick);return false; }
+    @Override public boolean onUnbind(Intent intent) { cancelDrag();ownsPress=false;client=null;owner=-1;main.removeCallbacks(tick);return false; }
     @Override public void onDestroy() { cancelDrag();main.removeCallbacks(tick);if(instance==this) instance=null;super.onDestroy(); }
 }

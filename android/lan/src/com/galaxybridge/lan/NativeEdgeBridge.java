@@ -29,7 +29,7 @@ final class NativeEdgeBridge implements DisplayManager.DisplayListener {
     private WindowManager windows;
     private View strip;
     private Sink sink;
-    private int epoch,side,width,height,buttons;
+    private int epoch,side,width,height,buttons,displayId=-1;
     private long generation,sequence,heartbeat,layoutStarted;
     private EdgeStrip geometry;
     private float x,y;
@@ -60,13 +60,14 @@ final class NativeEdgeBridge implements DisplayManager.DisplayListener {
         if(epoch!=0) main.post(tick);
     }
     private boolean unlocked() {
-        return context.getSystemService(PowerManager.class).isInteractive() &&
+        return ControlDisplays.unlocked(context) &&
             !context.getSystemService(KeyguardManager.class).isKeyguardLocked();
     }
     private void install() {
         removeWindow();layoutStarted=SystemClock.elapsedRealtime();final long version=++generation;
         try {
-            Context windowContext=context.createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null);
+            displayId=ControlDisplays.id(context);if(displayId<0) { fail("display");return; }
+            Context windowContext=ControlDisplays.overlay(context,displayId,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
             windows=windowContext.getSystemService(WindowManager.class);
             WindowMetrics metrics=windows.getMaximumWindowMetrics();Rect bounds=metrics.getBounds();
             width=bounds.width();height=bounds.height();
@@ -127,8 +128,13 @@ final class NativeEdgeBridge implements DisplayManager.DisplayListener {
     void stop() { main.removeCallbacks(tick);removeWindow();epoch=0;sequence=0;sink=null; }
     void close() { stop();displays.unregisterDisplayListener(this); }
     @Override public void onDisplayChanged(int id) {
-        if(epoch!=0 && id==android.view.Display.DEFAULT_DISPLAY) { ack(false,"layout");install(); }
+        if(epoch!=0 && id==displayId) { ack(false,"layout");install(); }
     }
-    @Override public void onDisplayAdded(int id) { }
-    @Override public void onDisplayRemoved(int id) { if(id==android.view.Display.DEFAULT_DISPLAY && epoch!=0) fail("layout"); }
+    @Override public void onDisplayAdded(int id) {
+        if(epoch!=0 && ControlDisplays.id(context)!=displayId) fail("display");
+        ConnectionService.reportInputScreen();
+    }
+    @Override public void onDisplayRemoved(int id) {
+        if(id==displayId && epoch!=0) fail("display");ConnectionService.reportInputScreen();
+    }
 }

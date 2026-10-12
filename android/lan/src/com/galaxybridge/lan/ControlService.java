@@ -4,19 +4,28 @@ import android.accessibilityservice.*;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.graphics.*;
+import android.hardware.display.DisplayManager;
 import android.os.*;
 import android.util.DisplayMetrics;
 import android.view.*;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
+import java.util.List;
 import org.json.JSONObject;
 import java.util.ArrayDeque;
 import java.util.Locale;
 
-public final class ControlService extends AccessibilityService {
+public final class ControlService extends AccessibilityService implements DisplayManager.DisplayListener {
     static volatile ControlService instance;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private WindowManager windows;
+    private Context inputContext;
+    private DisplayManager displays;
+    private int displayId;
+    private DisplayTarget.Screen capturedScreen,observedScreen;
+    private volatile long displayRevision;
+    static volatile String controlStatus="";
     private Pointer pointer;
     private WindowManager.LayoutParams pointerLayout;
     private boolean active, gestureBusy, pointerAttached;
@@ -32,25 +41,49 @@ public final class ControlService extends AccessibilityService {
     private final Runnable touchIntent=new Runnable() { public void run() { advanceTouch(); } };
     private final Runnable feedback=new Runnable() { public void run() { if(active) { poll(); if(active) handler.postDelayed(this,100); } } };
     static boolean ready(Context context) {
-        KeyguardManager key=context.getSystemService(KeyguardManager.class);
-        PowerManager power=context.getSystemService(PowerManager.class);
-        return instance!=null && !key.isDeviceLocked() && power.isInteractive();
+        return instance!=null && ControlDisplays.unlocked(context);
     }
     @Override protected void onServiceConnected() {
-        super.onServiceConnected(); instance=this; windows=getSystemService(WindowManager.class);
+        super.onServiceConnected(); instance=this;displays=getSystemService(DisplayManager.class);
+        displays.registerDisplayListener(this,handler);refreshDisplay();
     }
     @Override public InputMethod onCreateInputMethod() { return new InputMethod(this); }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if(event.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getEventType()==AccessibilityEvent.TYPE_WINDOWS_CHANGED) filesForeground.invalidate();
+        int focusChanges=AccessibilityEvent.WINDOWS_CHANGE_ACTIVE|AccessibilityEvent.WINDOWS_CHANGE_FOCUSED|
+            AccessibilityEvent.WINDOWS_CHANGE_ADDED|AccessibilityEvent.WINDOWS_CHANGE_REMOVED;
+        if(event.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            event.getEventType()==AccessibilityEvent.TYPE_WINDOWS_CHANGED && (event.getWindowChanges()&focusChanges)!=0) filesForeground.invalidate();
         if(!ready(this)) { ConnectionService.cancelClipboardRead();if(active) reset(); }
     }
     @Override public void onInterrupt() { ConnectionService.cancelClipboardRead();reset(); }
-    @Override public void onDestroy() { ConnectionService.cancelClipboardRead();reset(); if(instance==this) instance=null; super.onDestroy(); }
-    private void dimensions() {
-        DisplayMetrics metrics=new DisplayMetrics(); windows.getDefaultDisplay().getRealMetrics(metrics);
-        width=metrics.widthPixels; height=metrics.heightPixels;
+    @Override public void onDestroy() { ConnectionService.cancelClipboardRead();reset();if(displays!=null) displays.unregisterDisplayListener(this); if(instance==this) instance=null; super.onDestroy(); }
+    private boolean dimensions() {
+        DisplayTarget.Screen screen=ControlDisplays.target(this);
+        if(screen==null || active && !DisplayTarget.same(screen,capturedScreen)) { refreshDisplay();return false; }
+        width=screen.width;height=screen.height;
         x=Math.max(0,Math.min(width-1,x)); y=Math.max(0,Math.min(height-1,y));
+        return true;
     }
+    private void refreshDisplay() {
+        DisplayTarget.Screen screen=ControlDisplays.target(this);
+        if(!DisplayTarget.same(screen,observedScreen)) {
+            reset();observedScreen=screen;displayRevision++;
+            controlStatus="";ConnectionService.inputScreenChanged();
+        }
+    }
+    static long displayRevision() { ControlService current=instance;return current==null?0:current.displayRevision; }
+    static int pointerDisplay() { ControlService current=instance;return current!=null && current.active?current.displayId:-1; }
+    static void preferenceChanged() {
+        ControlService current=instance;
+        if(current!=null) {
+            current.reset();current.observedScreen=ControlDisplays.target(current);current.displayRevision++;
+            controlStatus="";ConnectionService.inputScreenChanged();
+        }
+        else ConnectionService.inputScreenChanged();
+    }
+    @Override public void onDisplayAdded(int id) { refreshDisplay(); }
+    @Override public void onDisplayRemoved(int id) { refreshDisplay(); }
+    @Override public void onDisplayChanged(int id) { refreshDisplay(); }
     void accept(JSONObject command) {
         try {
             String type=command.getString("type");
@@ -59,15 +92,20 @@ public final class ControlService extends AccessibilityService {
                 reset(); if(!command.getBoolean("active") || !ready(this)) return;
                 epoch=command.getInt("epoch"); side=command.getInt("side");
                 if(epoch<1 || side<0 || side>3) return;
-                dimensions(); x=width/2f; y=height/2f;
+                DisplayTarget.Screen screen=ControlDisplays.target(this);if(screen==null) return;
+                capturedScreen=screen;displayId=screen.id;
+                Context cursorContext=ControlDisplays.overlay(this,displayId,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY);
+                inputContext=cursorContext;
+                windows=cursorContext.getSystemService(WindowManager.class);
+                if(!dimensions()) return;x=width/2f;y=height/2f;
                 // Enter from the edge facing the laptop, but far enough inside to avoid an immediate return.
                 if(side==0) x=32; else if(side==1) x=width-33; else if(side==2) y=height-33; else y=32;
-                pointer=new Pointer(this);
-                float unit=getResources().getDisplayMetrics().density;
+                pointer=new Pointer(cursorContext);
+                float unit=cursorContext.getResources().getDisplayMetrics().density;
                 pointerLayout=new WindowManager.LayoutParams((int)Math.ceil(20*unit),(int)Math.ceil(27*unit),WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,PixelFormat.TRANSLUCENT);
                 pointerLayout.gravity=Gravity.TOP|Gravity.LEFT; pointerLayout.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
-                active=true; showPointer(); sequence=0; handler.post(feedback); return;
+                controlStatus="";active=true;showPointer();sequence=0;handler.post(feedback);return;
             }
             if("nav".equals(type) && ready(this)) {
                 String nav=command.getString("action");
@@ -93,7 +131,11 @@ public final class ControlService extends AccessibilityService {
                     if(id>0 && input()!=null) input().performContextMenuAction(id); break;
                 default: throw new IllegalArgumentException();
             }
-        } catch(Exception e) { reset(); ConnectionService.disconnect(); }
+        } catch(Exception e) { inputFailed(e.getClass().getSimpleName()); }
+    }
+    private void inputFailed(String reason) {
+        reset();displayRevision++;controlStatus="Управление экраном остановлено: "+reason+". Проверьте выбранный экран и включите управление снова.";
+        ConnectionService.reportInputScreen();
     }
     private InputMethod.AccessibilityInputConnection input() { InputMethod method=getInputMethod(); return method==null?null:method.getCurrentInputConnection(); }
     boolean filesForeground() {
@@ -102,7 +144,7 @@ public final class ControlService extends AccessibilityService {
         // A synchronous tree read on every mouse packet can stall this main
         // thread while the Files app redraws, filling the input command queue.
         if(!filesForeground.refresh(now)) return filesForeground.check(null,true,now);
-        AccessibilityNodeInfo root=getRootInActiveWindow();
+        AccessibilityNodeInfo root=rootAt(x,y);
         if(root==null) return filesForeground.check(null,true,SystemClock.elapsedRealtime());
         try { return filesForeground.check(root.getPackageName()==null?null:root.getPackageName().toString(),true,SystemClock.elapsedRealtime()); }
         finally { root.recycle(); }
@@ -111,13 +153,14 @@ public final class ControlService extends AccessibilityService {
     private void mouse(JSONObject command) throws Exception {
         int dx=command.getInt("dx"),dy=command.getInt("dy"),next=command.getInt("buttons"),wheel=command.getInt("wheel");
         if(Math.abs((long)dx)>8192 || Math.abs((long)dy)>8192 || Math.abs((long)wheel)>32 || next<0 || next>7) throw new IllegalArgumentException();
-        dimensions(); x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
+        if(!dimensions()) return;x=Math.max(0,Math.min(width-1,x+dx));y=Math.max(0,Math.min(height-1,y+dy));
+        if(next!=buttons) filesForeground.invalidate(); // Verify the window at a new physical press.
         if(FilesBridgeService.route(x,y,next,buttons,wheel,side,epoch,width,height,dx,dy)) { buttons=next;poll();return; }
-        EdgeFileDrag.Pointer heldEdge=DropActivity.edgePointer(new EdgeFileDrag.Pointer(epoch,side,width,height,x,y,next,mouseStroke!=null));
+        EdgeFileDrag.Pointer heldEdge=DropActivity.edgePointer(new EdgeFileDrag.Pointer(epoch,side,width,height,x,y,next,mouseStroke!=null,displayId));
         if(heldEdge!=null) { x=heldEdge.x;y=heldEdge.y;buttons=next;poll();return; }
         if(SendActivity.remotePointer(x,y,next,buttons,side,epoch,width,height)) { buttons=next;poll();return; }
         if((next&1)!=0 && (buttons&1)==0) {
-            mouseStroke=new PointerStroke(ViewConfiguration.get(this).getScaledTouchSlop(),x,y,SystemClock.uptimeMillis());
+            mouseStroke=new PointerStroke(ViewConfiguration.get(inputContext).getScaledTouchSlop(),x,y,SystemClock.uptimeMillis());
             enqueue(new PendingGesture(mouseStroke));
         }
         if(mouseStroke!=null) {
@@ -144,12 +187,12 @@ public final class ControlService extends AccessibilityService {
     static EdgeFileDrag.Pointer filePointer() {
         ControlService current=instance;
         if(current==null || !current.active || !ready(current)) return null;
-        return new EdgeFileDrag.Pointer(current.epoch,current.side,current.width,current.height,current.x,current.y,current.buttons,current.mouseStroke!=null);
+        return new EdgeFileDrag.Pointer(current.epoch,current.side,current.width,current.height,current.x,current.y,current.buttons,current.mouseStroke!=null,current.displayId);
     }
     static boolean dropFileTouch(EdgeFileDrag.Pointer pointer,EdgeStrip zone) {
         ControlService current=instance;
         if(pointer==null || current==null || !current.active || current.epoch!=pointer.epoch || current.buttons!=1 ||
-            current.side!=pointer.side || current.width!=pointer.width || current.height!=pointer.height ||
+            current.side!=pointer.side || current.displayId!=pointer.displayId || current.width!=pointer.width || current.height!=pointer.height ||
             pointer.x<0 || pointer.y<0 || pointer.x>=current.width || pointer.y>=current.height ||
             current.mouseStroke==null || current.currentGesture==null || current.currentGesture.press!=current.mouseStroke ||
             current.touchDispatching || current.touchStroke==null || current.touchEnd==null || zone==null ||
@@ -183,12 +226,12 @@ public final class ControlService extends AccessibilityService {
                     touchReady=true;advanceTouch();
                     return;
                 }
-                if(!dispatchGesture(wheelDescription(pending.wheel),callback,handler)) finishGesture(pending);
-            } catch(RuntimeException e) { reset(); ConnectionService.disconnect(); }
+                if(!dispatchGesture(wheelDescription(pending.wheel),callback,handler)) inputFailed("Wheel gesture rejected");
+            } catch(RuntimeException e) { inputFailed(e.getClass().getSimpleName()); }
         },32);
     }
     private GestureDescription wheelDescription(WheelGesture wheel) {
-        GestureDescription.Builder builder=new GestureDescription.Builder();
+        GestureDescription.Builder builder=new GestureDescription.Builder().setDisplayId(displayId);
         if(wheel.zoom) {
             float[] p=wheel.pinch();
             for(int sign:new int[] {-1,1}) {
@@ -231,12 +274,12 @@ public final class ControlService extends AccessibilityService {
                     if(current==generation && currentGesture==pending) finishGesture(pending);
                 }
             };
-            if(dispatchGesture(new GestureDescription.Builder().addStroke(nextStroke).build(),callback,handler)) {
+            if(dispatchGesture(new GestureDescription.Builder().setDisplayId(displayId).addStroke(nextStroke).build(),callback,handler)) {
                 touchStroke=nextStroke;touchEnd=segment.points[segment.points.length-1];
             } else {
-                reset();ConnectionService.disconnect();
+                inputFailed("Gesture rejected");
             }
-        } catch(RuntimeException e) { reset();ConnectionService.disconnect(); }
+        } catch(RuntimeException e) { inputFailed(e.getClass().getSimpleName()); }
     }
     private void finishGesture(PendingGesture pending) {
         if(currentGesture!=pending) return;
@@ -248,10 +291,32 @@ public final class ControlService extends AccessibilityService {
     private boolean clickElement(float tapX,float tapY) {
         AccessibilityNodeInfo root=null;
         try {
-            root=getRootInActiveWindow();
+            root=rootAt(tapX,tapY);
             return root!=null && ClickTarget.click(new ClickNode(root),tapX,tapY);
         } catch(RuntimeException ignored) { return false; }
         finally { if(root!=null) root.recycle(); }
+    }
+    private AccessibilityNodeInfo rootAt(float px,float py) {
+        android.util.SparseArray<List<AccessibilityWindowInfo>> all=getWindowsOnAllDisplays();
+        try {
+            List<AccessibilityWindowInfo> list=all.get(displayId);
+            if(list!=null) for(AccessibilityWindowInfo window:list) {
+                if(window.getType()==AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) continue;
+                Rect bounds=new Rect();window.getBoundsInScreen(bounds);
+                if(bounds.contains((int)px,(int)py)) return window.getRoot();
+            }
+            // Never use the phone's globally active root for a secondary display.
+            if(displayId!=Display.DEFAULT_DISPLAY) return null;
+            AccessibilityNodeInfo root=getRootInActiveWindow();
+            if(root==null) return null;
+            AccessibilityWindowInfo owner=root.getWindow();
+            try {
+                if(owner!=null && owner.getDisplayId()==displayId) return root;
+                root.recycle();return null;
+            } finally { if(owner!=null) owner.recycle(); }
+        } finally {
+            for(int i=0;i<all.size();i++) for(AccessibilityWindowInfo window:all.valueAt(i)) window.recycle();
+        }
     }
     private static final class PendingGesture {
         final PointerStroke press;
@@ -294,7 +359,7 @@ public final class ControlService extends AccessibilityService {
     }
     void poll() {
         if(!active) return; if(!ready(this)) { reset(); ConnectionService.send(Wire.message("pong","ready",false)); return; }
-        dimensions(); showPointer();
+        if(!dimensions()) return;showPointer();
         if(FilesBridgeService.suppressEdge()) return;
         String line=String.format(Locale.ROOT,"GB_EDGE %d %d %d %d %.2f %.2f %d",epoch,++sequence,width,height,x,y,buttons);
         ConnectionService.send(Wire.message("edge","line",line));
@@ -308,12 +373,13 @@ public final class ControlService extends AccessibilityService {
         if(touchStroke!=null && touchStroke.willContinue() && touchEnd!=null) {
             try {
                 Path end=new Path();end.moveTo(touchEnd.x,touchEnd.y);
-                dispatchGesture(new GestureDescription.Builder().addStroke(touchStroke.continueStroke(end,0,1,false)).build(),null,handler);
+                dispatchGesture(new GestureDescription.Builder().setDisplayId(displayId).addStroke(touchStroke.continueStroke(end,0,1,false)).build(),null,handler);
             } catch(RuntimeException ignored) {}
         }
         active=false;generation++;gestures.clear();gestureBusy=false;mouseStroke=null;buttons=0;handler.removeCallbacks(feedback);handler.removeCallbacks(touchIntent);
         currentGesture=null;touchStroke=null;touchEnd=null;touchReady=false;touchDispatching=false;
         if(pointer!=null) { try { hidePointer(); } catch(RuntimeException ignored){} pointerAttached=false;pointer=null;pointerLayout=null; }
+        capturedScreen=null;
     }
     private final class Pointer extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);

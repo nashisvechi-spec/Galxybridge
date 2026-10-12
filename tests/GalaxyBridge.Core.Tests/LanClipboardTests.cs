@@ -59,11 +59,45 @@ static class LanClipboardTests
         check(!peer.Session.IsAlive, "malformed clipboard request closes protocol session");
         await AutomaticAsync(check);
         await NativeEdgeAsync(check);
+        await ControlDisplayAsync(check);
         await LegacyMouseAsync(check);
         await FileDragAsync(check);
         await FileEdgeConfigurationAsync(check);
         await SendProgressAsync(check);
         await InvalidDragRequestsAsync(check);
+    }
+    private static async Task ControlDisplayAsync(Action<bool, string> check)
+    {
+        await using var peer = await Peer.CreateAsync();
+        peer.Session.ClipboardWriter = (_, _) => Task.FromResult(true);peer.Session.ConfigureClipboard(true);
+        int changed = 0;peer.Session.ControlDisplayChanged += () => changed++;
+        async Task Deliver(object value)
+        {
+            await peer.Stream.WriteAsync(LanProtocol.Encode(value));
+            using var barrier = await peer.RequestAsync(Guid.NewGuid().ToString("N"), "display barrier");
+            check(barrier.RootElement.GetProperty("ok").GetBoolean(), "display metadata does not interrupt ordinary TLS requests");
+        }
+        await Deliver(new { type = "pong", ready = true });
+        check(peer.Session.InputReady && !peer.Session.PreferWifiInput && changed == 0,"legacy phone readiness preserves existing transport policy");
+        await Deliver(new { type = "pong", ready = true, controlDisplay = 9, controlRevision = 1, desktopInput = true });
+        check(peer.Session.PreferWifiInput && changed == 0,"first DeX metadata chooses Wi-Fi without a false display-switch event");
+        int epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);using var capture = await peer.NextAsync();
+        await Deliver(new { type = "edge", line = $"GB_EDGE {epoch} 1 1920 1080 0 500 0" });
+        check(peer.Session.LatestEdge is not null,"DeX geometry received inside a live capture");
+        await Deliver(new { type = "pong", ready = true, controlDisplay = 9, controlRevision = 1, desktopInput = true });
+        check(changed == 0 && peer.Session.LatestEdge is not null,"stable display does not cancel ongoing movement");
+        await Deliver(new { type = "pong", ready = true, controlDisplay = 2, controlRevision = 2, desktopInput = true });
+        check(changed == 1 && peer.Session.LatestEdge is null && peer.Session.IsAlive,"switching equal-sized monitors invalidates old capture without dropping TLS");
+        await Deliver(new { type = "edge", line = $"GB_EDGE {epoch} 2 1920 1080 0 500 0" });
+        check(peer.Session.LatestEdge is null,"stale geometry cannot revive display capture after switch");
+        epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);using var recapture = await peer.NextAsync();
+        await Deliver(new { type = "edge", line = $"GB_EDGE {epoch} 1 1920 1080 0 500 0" });
+        await Deliver(new { type = "pong", ready = true, controlDisplay = 2, controlRevision = 3, desktopInput = true });
+        check(changed == 2 && peer.Session.LatestEdge is null,"resolution/rotation/density revision stops existing capture on the same display");
+        await Deliver(new { type = "pong", ready = false, controlDisplay = -1, controlRevision = 4, desktopInput = true });
+        check(!peer.Session.InputReady && peer.Session.PreferWifiInput && changed == 3,"missing explicitly selected monitor cannot route to phone Bluetooth");
+        await Deliver(new { type = "pong", ready = true, controlDisplay = 0, controlRevision = 5, desktopInput = false });
+        check(peer.Session.InputReady && !peer.Session.PreferWifiInput && changed == 4,"returning to phone restores original policy without disconnect");
     }
     private static async Task FileEdgeConfigurationAsync(Action<bool, string> check)
     {
@@ -160,13 +194,15 @@ static class LanClipboardTests
         foreach (object command in new object[] {
             new { type = "dragPrepare", batch = Guid.NewGuid().ToString("N"), count = 1 },
             new { type = "dragCancel", id = (string?)null, batch = Guid.NewGuid().ToString("N") },
-            new { type = "dragCancel", batch = "../outside" }
+            new { type = "dragCancel", batch = "../outside" },
+            new { type = "pong", ready = true, controlDisplay = -2, controlRevision = 0, desktopInput = true },
+            new { type = "pong", ready = true, controlDisplay = 9, controlRevision = -1, desktopInput = true }
         })
         {
             await using var peer = await Peer.CreateAsync();
             await peer.Stream.WriteAsync(LanProtocol.Encode(command));
             await peer.Session.Completion.WaitAsync(TimeSpan.FromSeconds(5));
-            check(!peer.Session.IsAlive, "legacy cancel compatibility does not accept malformed preparation, null correlation or invalid batch");
+            check(!peer.Session.IsAlive, "malformed drag requests or invalid control display metadata are rejected");
         }
     }
     private static async Task FileDragAsync(Action<bool, string> check)

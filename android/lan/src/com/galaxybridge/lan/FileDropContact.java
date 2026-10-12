@@ -20,6 +20,7 @@ final class FileDropContact {
     }
     private boolean same(EdgeFileDrag.Pointer pointer,EdgeStrip bounds) {
         return origin!=null && pointer!=null && bounds!=null && pointer.epoch==origin.epoch && pointer.side==origin.side &&
+            pointer.displayId==origin.displayId &&
             pointer.width==origin.width && pointer.height==origin.height && bounds.x==zone.x && bounds.y==zone.y &&
             bounds.width==zone.width && bounds.height==zone.height;
     }
