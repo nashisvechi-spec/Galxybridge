@@ -7,6 +7,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.UUID;
 
 final class Wire {
     static final int PORT = 38271, DISCOVERY = 38272, MAX_FRAME = 65536, CHUNK = 32768;
@@ -27,6 +28,11 @@ final class Wire {
         try { out.put("type", type); for (int i = 0; i < pairs.length; i += 2) out.put((String)pairs[i], pairs[i + 1]); }
         catch (JSONException impossible) { throw new IllegalArgumentException(impossible); }
         return out;
+    }
+    static JSONObject dragCancel(String batch) {
+        if(!hex(batch,32)) throw new IllegalArgumentException("Invalid drag batch");
+        // Even fire-and-forget cancellation is a correlated protocol request.
+        return message("dragCancel","id",UUID.randomUUID().toString().replace("-",""),"batch",batch);
     }
     static String hex(byte[] data) { StringBuilder text = new StringBuilder(); for (byte b : data) text.append(String.format(java.util.Locale.ROOT, "%02x", b & 255)); return text.toString(); }
     static boolean hex(String s, int length) { return s != null && s.length() == length && s.matches("[0-9a-f]+" ); }

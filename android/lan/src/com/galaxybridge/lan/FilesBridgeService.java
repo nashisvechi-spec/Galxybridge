@@ -19,12 +19,14 @@ public final class FilesBridgeService extends Service {
     private int buttons,epoch,side,width,height;
     private float x,y;
     private long holdSerial,holdStarted;
+    private final FilesDragMotion motion=new FilesDragMotion();
     private final Runnable tick=new Runnable() { public void run() {
         if(client==null) return;
         if(holding && (buttons!=1 || !foreground() || SystemClock.elapsedRealtime()-holdStarted>300000)) cancelDrag();
-        if(holding && batch.equals(ConnectionService.dragReadyBatch) && atEdge()) handoff();
+        if(holding && batch.equals(ConnectionService.dragReadyBatch) && atEdge() && motion.outward(side)) handoff();
         if(holding && !ConnectionService.uploading() && !batch.equals(ConnectionService.dragReadyBatch)) holding=false;
         String status=ConnectionService.fileStatus;
+        if(holding && batch.equals(ConnectionService.dragReadyBatch)) status="Файлы подготовлены. Держите кнопку и продолжайте тянуть к краю со стороны ПК, затем отпустите в папке Windows.";
         if(!status.equals(lastStatus)) { lastStatus=status;Bundle data=new Bundle();data.putString("status",status);reply(102,data); }
         main.postDelayed(this,200);
     }};
@@ -77,8 +79,11 @@ public final class FilesBridgeService extends Service {
         }
         batch="";holding=false;handed=false;
     }
-    private boolean pointer(float px,float py,int next,int previous,int wheel,int requestedSide,int id,int w,int h) {
+    private boolean pointer(float px,float py,int next,int previous,int wheel,int requestedSide,int id,int w,int h,int dx,int dy) {
         if(client==null || !foreground()) return false;
+        if(holding && (epoch!=id || side!=requestedSide || width!=w || height!=h)) cancelDrag();
+        if(epoch!=id || side!=requestedSide || width!=w || height!=h) motion.reset();
+        motion.update(dx,dy);
         if(next==1 && previous!=1) { ++holdSerial;holdStarted=SystemClock.elapsedRealtime(); }
         x=px;y=py;buttons=next;side=requestedSide;epoch=id;width=w;height=h;
         Bundle data=new Bundle();data.putFloat("x",x);data.putFloat("y",y);data.putInt("buttons",next);
@@ -86,7 +91,7 @@ public final class FilesBridgeService extends Service {
         data.putLong("hold",holdSerial);
         if(!reply(101,data)) return false;
         if(next!=1 && holding) cancelDrag();
-        if(holding && atEdge() && batch.equals(ConnectionService.dragReadyBatch)) handoff();
+        if(holding && atEdge() && motion.outward(side) && batch.equals(ConnectionService.dragReadyBatch)) handoff();
         return true;
     }
     private boolean reply(int what,Bundle data) {
@@ -94,15 +99,15 @@ public final class FilesBridgeService extends Service {
         try { Message message=Message.obtain(null,what);message.setData(data);client.send(message);return true; }
         catch(RemoteException e) { cancelDrag();client=null;owner=-1;main.removeCallbacks(tick);return false; }
     }
-    static boolean route(float x,float y,int next,int previous,int wheel,int side,int epoch,int width,int height) {
-        return instance!=null && instance.pointer(x,y,next,previous,wheel,side,epoch,width,height);
+    static boolean route(float x,float y,int next,int previous,int wheel,int side,int epoch,int width,int height,int dx,int dy) {
+        return instance!=null && instance.pointer(x,y,next,previous,wheel,side,epoch,width,height,dx,dy);
     }
     static boolean suppressEdge() {
         // Never let the ordinary edge-return consume a held file before staging is ready.
         return instance!=null && instance.client!=null && instance.foreground() && instance.buttons==1;
     }
     static void resetPointer() {
-        if(instance!=null) { instance.cancelDrag();instance.buttons=0;instance.reply(103,new Bundle()); }
+        if(instance!=null) { instance.cancelDrag();instance.motion.reset();instance.buttons=0;instance.reply(103,new Bundle()); }
     }
     @Override public boolean onUnbind(Intent intent) { cancelDrag();client=null;owner=-1;main.removeCallbacks(tick);return false; }
     @Override public void onDestroy() { cancelDrag();main.removeCallbacks(tick);if(instance==this) instance=null;super.onDestroy(); }

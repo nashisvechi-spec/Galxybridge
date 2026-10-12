@@ -1,4 +1,51 @@
-# Validation — Windows / Android 0.7.20
+# Validation — GalaxyBridge 0.7.22 / Galaxy Files 0.2.1
+
+## Intermittent Galaxy Files edge-transfer disconnect (0.7.22 / Files 0.2.1)
+
+Based on 5cbe844ee042d070ecac8754cbff54751e426e16. The user reported native
+receive progress followed by no desktop copy and intermittent connection loss.
+A concrete protocol fault was found: discardEdgeFiles emitted dragCancel without
+an id, while LanSession required an id for every drag request. Physical release,
+foreground cancellation or reset could therefore close TLS rather than simply
+cancel one staged batch. Android now gives fire-and-forget cancellation a fresh
+request id. Windows also accepts the exact legacy id-less dragCancel shape for
+valid opaque batch IDs; other missing/null/invalid correlation remains invalid.
+Stale cancel cannot remove a newer batch.
+
+Foreground detection previously treated one null accessibility tree as app
+exit and queried it several times per mouse packet. The routing policy now
+allows up to one second of unknown tree state after a confirmed Galaxy Files
+window, caches reads for 100ms, and invalidates on actual window changes. A
+confirmed different app, lock/inactive capture or reset still cancels immediately.
+Files handoff mirrors the desktop's last nonzero mouse direction: a ready file
+at the edge waits for outward motion rather than sending a dragStart that the
+host will reject after inward/parallel jitter. Zero-motion button/heartbeat
+packets preserve direction. Capture side/display changes reset the intent and
+cancel a pending batch. The file manager now shows a preparation-specific status
+rather than instructions for the separate blue-card sender.
+
+- Regression using the previous production LanSession reproduces TLS EOF on
+  real loopback TLS when an id-less cancellation is followed by another packet.
+- The corrected production Core/session/host pass 2,441 portable assertions.
+  New tests check legacy stale and active cancellation during a partial receive,
+  correlated ACK, a subsequent complete drag on the same session, and continued
+  rejection of malformed preparation, null id and invalid legacy batch.
+- Production Android companion and Files sources compile with JDK 17, Java 8
+  bytecode, Android API 35 (and ZXing for the companion).
+- 1,106 LAN JVM assertions and 41 file-operation/pointer assertions pass. The
+  44 new transfer-policy assertions cover correlation IDs, bounded null-tree
+  grace, focus-query cadence, lock/app change/reset and all four handoff directions.
+- All Windows production sources compile with .NET 8/Roslyn reference assemblies.
+- EXE/APK packaging, Android lifecycle timing, real Samsung Wi-Fi pointer routing,
+  native progress presentation and final Explorer drop still require a new
+  manual workflow build and the user's phone/PC. These are not covered by the
+  Linux JVM/TLS tests. No reconnect/replay of an interrupted file was added.
+
+Manual device regression: update GalaxyBridge EXE/APK to 0.7.22 and Galaxy Files
+to 0.2.1 from the same new manual run. Test a small file and a large video while
+keeping left held until the Windows cursor takes over. Move outward again if
+preparation finishes after moving parallel/inward. Release early during another
+preparation: it must cancel without disconnect, and the next drag must succeed.
 
 ## Visible inset file drop target (0.7.20)
 

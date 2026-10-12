@@ -264,7 +264,7 @@ public final class FilesActivity extends Activity {
     }
     private void mainMenu() {
         String[] labels={"Новая папка","Обновить",hidden?"Скрыть скрытые файлы":"Показать скрытые файлы","Доступ к файлам","Как передавать на ПК"};
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Galaxy Files · 0.2.0").setItems(labels,(d,index) -> main.post(() -> {
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Galaxy Files · 0.2.1").setItems(labels,(d,index) -> main.post(() -> {
             switch(index) { case 0:newFolder();break;case 1:reload();break;case 2:hidden=!hidden;reload();break;case 3:permission();break;case 4:help();break; }
         })).create();showDialog(dialog);
     }

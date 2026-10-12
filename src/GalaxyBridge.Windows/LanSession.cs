@@ -341,8 +341,14 @@ internal sealed class LanSession : IPhoneControl
                         }
                         break;
                     case "dragPrepare": case "dragReady": case "dragCancel":
-                        string dragRequest = root.GetProperty("id").GetString() ?? "";
-                        if (!LanProtocol.Identifier(dragRequest)) throw new InvalidDataException("Invalid drag request.");
+                        // 0.7.20/0.7.21 emitted uncorrelated cancellation on release.
+                        // Accept only that legacy cancel; malformed preparation/ready
+                        // requests must still fail validation. Batch scoping is unchanged.
+                        bool correlatedDrag = root.TryGetProperty("id", out JsonElement dragId);
+                        string? dragRequest = correlatedDrag ? dragId.GetString() : null;
+                        if (correlatedDrag ? !LanProtocol.Identifier(dragRequest ?? "") :
+                            root.GetProperty("type").GetString() != "dragCancel" || !LanProtocol.Identifier(root.GetProperty("batch").GetString() ?? ""))
+                            throw new InvalidDataException("Invalid drag request.");
                         try
                         {
                             lock (receiveGate)
@@ -356,10 +362,10 @@ internal sealed class LanSession : IPhoneControl
                                     case "dragCancel": dragFiles.Cancel(batch); break;
                                 }
                             }
-                            Post(new { type = "uploadAck", id = dragRequest, ok = true });
+                            if (dragRequest is not null) Post(new { type = "uploadAck", id = dragRequest, ok = true });
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-                        { Post(new { type = "uploadAck", id = dragRequest, ok = false, error = ex.Message }); }
+                        { if (dragRequest is not null) Post(new { type = "uploadAck", id = dragRequest, ok = false, error = ex.Message }); }
                         break;
                     case "dragStart":
                         string dragBatch = root.GetProperty("batch").GetString() ?? "";

@@ -61,6 +61,21 @@ static class LanClipboardTests
         await NativeEdgeAsync(check);
         await LegacyMouseAsync(check);
         await FileDragAsync(check);
+        await InvalidDragRequestsAsync(check);
+    }
+    private static async Task InvalidDragRequestsAsync(Action<bool, string> check)
+    {
+        foreach (object command in new object[] {
+            new { type = "dragPrepare", batch = Guid.NewGuid().ToString("N"), count = 1 },
+            new { type = "dragCancel", id = (string?)null, batch = Guid.NewGuid().ToString("N") },
+            new { type = "dragCancel", batch = "../outside" }
+        })
+        {
+            await using var peer = await Peer.CreateAsync();
+            await peer.Stream.WriteAsync(LanProtocol.Encode(command));
+            await peer.Session.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+            check(!peer.Session.IsAlive, "legacy cancel compatibility does not accept malformed preparation, null correlation or invalid batch");
+        }
     }
     private static async Task FileDragAsync(Action<bool, string> check)
     {
@@ -81,6 +96,22 @@ static class LanClipboardTests
         {
             check(!await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "disabled receiving rejects drag preparation");
             peer.Session.ConfigureReceive(true, folder);
+            // Real legacy APK cancellation: no id was sent on physical release.
+            // It must not close TLS, and a stale cancellation cannot delete new data.
+            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "cancel regression prepares partial batch");
+            check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "partial.txt", size = 3 }), "cancel regression starts real staged receive");
+            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragCancel", batch = Id() }));
+            check(await Request(new { type = "uploadChunk", id = Id(), dragBatch = batch, transfer, seq = 0, data = "AQ==" }) && peer.Session.IsAlive,
+                "legacy stale cancel preserves staged data and TLS");
+            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragCancel", batch }));
+            check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }) && peer.Session.IsAlive,
+                "legacy active cancel removes partial receive without disconnect; next drag can start");
+            check(!peer.Session.ReceiveProgress.State.Busy && !File.Exists(Path.Combine(folder, "partial.txt")), "cancel publishes no partial file");
+            string cancelId = Id();
+            await peer.Stream.WriteAsync(LanProtocol.Encode(new { type = "dragCancel", id = cancelId, batch }));
+            using (var cancelReply = await peer.NextAsync())
+                check(cancelReply.RootElement.GetProperty("id").GetString() == cancelId && cancelReply.RootElement.GetProperty("ok").GetBoolean() && peer.Session.IsAlive,
+                    "new Android correlated cancellation receives matching ACK without disconnect");
             check(await Request(new { type = "dragPrepare", id = Id(), batch, count = 1 }), "enabled receiver prepares drag batch");
             check(!await Request(new { type = "dragReady", id = Id(), batch }), "partial batch rejected without disconnect");
             check(await Request(new { type = "uploadBegin", id = Id(), dragBatch = batch, transfer, name = "тест.txt", size = 3 }), "tagged file begin accepted");

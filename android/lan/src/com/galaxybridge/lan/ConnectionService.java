@@ -291,7 +291,7 @@ public final class ConnectionService extends Service {
     static void discardEdgeFiles(String batch) {
         if(!Wire.hex(batch,32)) return;
         if(batch.equals(dragReadyBatch)) dragReadyBatch="";
-        send(Wire.message("dragCancel","batch",batch));
+        send(Wire.dragCancel(batch));
     }
     static boolean sendingClipboard() { ConnectionService current=instance;return current!=null && current.clipboardBusy.get(); }
     static void sendClipboard(String text) {

@@ -40,7 +40,10 @@ public final class ControlService extends AccessibilityService {
         super.onServiceConnected(); instance=this; windows=getSystemService(WindowManager.class);
     }
     @Override public InputMethod onCreateInputMethod() { return new InputMethod(this); }
-    @Override public void onAccessibilityEvent(AccessibilityEvent event) { if(!ready(this)) { ConnectionService.cancelClipboardRead();if(active) reset(); } }
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) {
+        if(event.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getEventType()==AccessibilityEvent.TYPE_WINDOWS_CHANGED) filesForeground.invalidate();
+        if(!ready(this)) { ConnectionService.cancelClipboardRead();if(active) reset(); }
+    }
     @Override public void onInterrupt() { ConnectionService.cancelClipboardRead();reset(); }
     @Override public void onDestroy() { ConnectionService.cancelClipboardRead();reset(); if(instance==this) instance=null; super.onDestroy(); }
     private void dimensions() {
@@ -94,17 +97,22 @@ public final class ControlService extends AccessibilityService {
     }
     private InputMethod.AccessibilityInputConnection input() { InputMethod method=getInputMethod(); return method==null?null:method.getCurrentInputConnection(); }
     boolean filesForeground() {
-        if(!active || !ready(this)) return false;
+        long now=SystemClock.elapsedRealtime();
+        if(!active || !ready(this)) return filesForeground.check(null,false,now);
+        // A synchronous tree read on every mouse packet can stall this main
+        // thread while the Files app redraws, filling the input command queue.
+        if(!filesForeground.refresh(now)) return filesForeground.check(null,true,now);
         AccessibilityNodeInfo root=getRootInActiveWindow();
-        if(root==null) return false;
-        try { return "com.galaxybridge.files".contentEquals(root.getPackageName()==null?"":root.getPackageName()); }
+        if(root==null) return filesForeground.check(null,true,SystemClock.elapsedRealtime());
+        try { return filesForeground.check(root.getPackageName()==null?null:root.getPackageName().toString(),true,SystemClock.elapsedRealtime()); }
         finally { root.recycle(); }
     }
+    private final FilesForeground filesForeground=new FilesForeground();
     private void mouse(JSONObject command) throws Exception {
         int dx=command.getInt("dx"),dy=command.getInt("dy"),next=command.getInt("buttons"),wheel=command.getInt("wheel");
         if(Math.abs((long)dx)>8192 || Math.abs((long)dy)>8192 || Math.abs((long)wheel)>32 || next<0 || next>7) throw new IllegalArgumentException();
         dimensions(); x=Math.max(0,Math.min(width-1,x+dx)); y=Math.max(0,Math.min(height-1,y+dy));
-        if(FilesBridgeService.route(x,y,next,buttons,wheel,side,epoch,width,height)) { buttons=next;poll();return; }
+        if(FilesBridgeService.route(x,y,next,buttons,wheel,side,epoch,width,height,dx,dy)) { buttons=next;poll();return; }
         EdgeFileDrag.Pointer heldEdge=DropActivity.edgePointer(new EdgeFileDrag.Pointer(epoch,side,width,height,x,y,next,mouseStroke!=null));
         if(heldEdge!=null) { x=heldEdge.x;y=heldEdge.y;buttons=next;poll();return; }
         if(SendActivity.remotePointer(x,y,next,buttons,side,epoch,width,height)) { buttons=next;poll();return; }
@@ -292,6 +300,7 @@ public final class ControlService extends AccessibilityService {
         ConnectionService.send(Wire.message("edge","line",line));
     }
     void reset() {
+        filesForeground.reset();
         FilesBridgeService.resetPointer();
         SendActivity.cancelRemoteDrag();
         // Finish even an in-flight continuation on disconnect/lock/re-entry. Android
