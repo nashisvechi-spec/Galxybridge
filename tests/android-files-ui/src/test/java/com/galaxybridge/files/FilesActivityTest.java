@@ -48,8 +48,11 @@ public class FilesActivityTest {
     @Before public void setup() throws Exception {
         shadowOf(RuntimeEnvironment.getApplication()).declareComponentUnbindable(new ComponentName("com.galaxybridge.lan","com.galaxybridge.lan.FilesBridgeService"));
         shadowOf(MimeTypeMap.getSingleton()).addExtensionMimeTypeMapping("pdf","application/pdf");
-        root=Environment.getExternalStorageDirectory();root.mkdirs();
-        directory=new File(root,"Documents");directory.mkdir();document=new File(root,"example.pdf");Files.write(document.toPath(),new byte[]{1,2,3});
+        root=Environment.getExternalStorageDirectory().getCanonicalFile();root.mkdirs();
+        // Keep aliases in the fixtures so comparisons must normalize paths.
+        // Windows runners also supply 8.3 aliases such as RUNNER~1 in java.io.tmpdir.
+        directory=new File(root,"."+File.separator+"Documents");directory.mkdir();
+        document=new File(root,"."+File.separator+"example.pdf");Files.write(document.toPath(),new byte[]{1,2,3});
         controller=Robolectric.buildActivity(FilesActivity.class);controller.get().setTheme(android.R.style.Theme_Material_Light_NoActionBar);controller.setup().visible();activity=controller.get();
         list=(ListView)field("list");settle();
     }
@@ -62,9 +65,10 @@ public class FilesActivityTest {
         View decor=activity.getWindow().getDecorView();decor.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1920,View.MeasureSpec.EXACTLY));decor.layout(0,0,1080,1920);
         shadowOf(Looper.getMainLooper()).idle();
     }
-    private View row(File file) {
-        for(int i=0;i<list.getAdapter().getCount();i++) if(file.equals(list.getAdapter().getItem(i))) return list.getChildAt(i-list.getFirstVisiblePosition());
-        throw new AssertionError("Missing row: "+file);
+    private View row(File file) throws IOException {
+        File canonical=file.getCanonicalFile();
+        for(int i=0;i<list.getAdapter().getCount();i++) if(canonical.equals(list.getAdapter().getItem(i))) return list.getChildAt(i-list.getFirstVisiblePosition());
+        throw new AssertionError("Missing row: "+canonical+"; adapter items="+list.getAdapter().getCount());
     }
     private void tap(File file) throws Exception {
         tapView(row(file));
@@ -97,7 +101,7 @@ public class FilesActivityTest {
         tapView(((LinearLayout)row(document)).getChildAt(0));
         tap(directory);assertEquals(directory.getCanonicalFile(),field("folder"));
     }
-    @Test public void rowHasNoFocusableDescendantBlockingListClick() {
+    @Test public void rowHasNoFocusableDescendantBlockingListClick() throws Exception {
         assertFalse("Checkbox must not block the ListView click",row(directory).hasExplicitFocusable());
     }
     @Test public void sharedProviderReadsNestedUnicodeAndSpaceNames() throws Exception {
