@@ -74,29 +74,37 @@ static class LanClipboardTests
         async Task Deliver(object value)
         {
             await peer.Stream.WriteAsync(LanProtocol.Encode(value));
+            // A heartbeat may follow metadata before the request barrier. Repeat
+            // the simulated phone's current state, including display/revision.
+            await peer.ReplyToPingAsync(CancellationToken.None);
             using var barrier = await peer.RequestAsync(Guid.NewGuid().ToString("N"), "display barrier");
             check(barrier.RootElement.GetProperty("ok").GetBoolean(), "display metadata does not interrupt ordinary TLS requests");
         }
-        await Deliver(new { type = "pong", ready = true });
+        async Task Status(object value)
+        {
+            peer.Pong = value;
+            await Deliver(value);
+        }
+        await Status(new { type = "pong", ready = true });
         check(peer.Session.InputReady && !peer.Session.PreferWifiInput && changed == 0,"legacy phone readiness preserves existing transport policy");
-        await Deliver(new { type = "pong", ready = true, controlDisplay = 9, controlRevision = 1, desktopInput = true });
+        await Status(new { type = "pong", ready = true, controlDisplay = 9, controlRevision = 1, desktopInput = true });
         check(peer.Session.PreferWifiInput && changed == 0,"first DeX metadata chooses Wi-Fi without a false display-switch event");
         int epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);using var capture = await peer.NextAsync();
         await Deliver(new { type = "edge", line = $"GB_EDGE {epoch} 1 1920 1080 0 500 0" });
         check(peer.Session.LatestEdge is not null,"DeX geometry received inside a live capture");
-        await Deliver(new { type = "pong", ready = true, controlDisplay = 9, controlRevision = 1, desktopInput = true });
+        await Status(new { type = "pong", ready = true, controlDisplay = 9, controlRevision = 1, desktopInput = true });
         check(changed == 0 && peer.Session.LatestEdge is not null,"stable display does not cancel ongoing movement");
-        await Deliver(new { type = "pong", ready = true, controlDisplay = 2, controlRevision = 2, desktopInput = true });
+        await Status(new { type = "pong", ready = true, controlDisplay = 2, controlRevision = 2, desktopInput = true });
         check(changed == 1 && peer.Session.LatestEdge is null && peer.Session.IsAlive,"switching equal-sized monitors invalidates old capture without dropping TLS");
         await Deliver(new { type = "edge", line = $"GB_EDGE {epoch} 2 1920 1080 0 500 0" });
         check(peer.Session.LatestEdge is null,"stale geometry cannot revive display capture after switch");
         epoch = peer.Session.BeginEdgeReturn(PhoneSide.Right);using var recapture = await peer.NextAsync();
         await Deliver(new { type = "edge", line = $"GB_EDGE {epoch} 1 1920 1080 0 500 0" });
-        await Deliver(new { type = "pong", ready = true, controlDisplay = 2, controlRevision = 3, desktopInput = true });
+        await Status(new { type = "pong", ready = true, controlDisplay = 2, controlRevision = 3, desktopInput = true });
         check(changed == 2 && peer.Session.LatestEdge is null,"resolution/rotation/density revision stops existing capture on the same display");
-        await Deliver(new { type = "pong", ready = false, controlDisplay = -1, controlRevision = 4, desktopInput = true });
+        await Status(new { type = "pong", ready = false, controlDisplay = -1, controlRevision = 4, desktopInput = true });
         check(!peer.Session.InputReady && peer.Session.PreferWifiInput && changed == 3,"missing explicitly selected monitor cannot route to phone Bluetooth");
-        await Deliver(new { type = "pong", ready = true, controlDisplay = 0, controlRevision = 5, desktopInput = false });
+        await Status(new { type = "pong", ready = true, controlDisplay = 0, controlRevision = 5, desktopInput = false });
         check(peer.Session.InputReady && !peer.Session.PreferWifiInput && changed == 4,"returning to phone restores original policy without disconnect");
     }
     private static async Task FileEdgeConfigurationAsync(Action<bool, string> check)
@@ -573,6 +581,9 @@ static class LanClipboardTests
         private readonly SslStream server;
         public SslStream Stream { get; }
         public LanSession Session { get; }
+        public object Pong { get; set; } = new { type = "pong", ready = false };
+        public async Task ReplyToPingAsync(CancellationToken cancellationToken)
+            => await Stream.WriteAsync(LanProtocol.Encode(Pong), cancellationToken);
         private Peer(TcpClient client, SslStream stream, LanSession session, X509Certificate2 certificate, SslStream server)
         { this.client = client; Stream = stream; Session = session; this.certificate = certificate; this.server = server; }
         public static async Task<Peer> CreateAsync(bool automatic = false, bool nativeEdge = false, bool wheelZoom = false, bool fileEdgeConfig = false)
@@ -626,7 +637,7 @@ static class LanClipboardTests
             {
                 JsonDocument reply = await LanProtocol.ReadAsync(Stream, deadline.Token);
                 if (reply.RootElement.GetProperty("type").GetString() != "ping") return reply;
-                reply.Dispose(); await Stream.WriteAsync(LanProtocol.Encode(new { type = "pong", ready = false }), deadline.Token);
+                reply.Dispose(); await ReplyToPingAsync(deadline.Token);
             }
         }
         public async ValueTask DisposeAsync()

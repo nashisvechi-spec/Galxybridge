@@ -1,5 +1,23 @@
 # Validation — GalaxyBridge 0.7.24 / Galaxy Files 0.2.3
 
+## CI display-test heartbeat regression (0.7.24)
+
+Manual run 38227935380 on Windows failed in the portable protocol tests at
+`legacy phone readiness preserves existing transport policy`, before packaging.
+The simulated peer always answered ping with `ready=false`, overwriting a
+preceding display-status packet depending on scheduling. It now retains the
+scenario's current pong (including display, revision and desktop policy) and
+uses it for heartbeat replies. Each display test deliberately sends an extra
+heartbeat before its ordered request barrier, covering both readiness states
+and display changes without relying on runner timing. Production code and
+application versions are unchanged.
+
+All 2,493 portable assertions pass with real TLS. Replaying the old fixed-false
+heartbeat in a separate test assembly deterministically reproduces the exact CI
+failure. Source-package checks pass. Local compilation uses Roslyn; the SDK CLI
+cannot start in this runtime due to its process-information lookup. The full
+Windows packaging workflow still needs a new manual run from the corrected main.
+
 ## Explicit Android display routing for external Samsung DeX (0.7.24)
 
 Based on ad901dea590565ae8f25f7e591d54827f5ebd545. User confirmed that DeX is
