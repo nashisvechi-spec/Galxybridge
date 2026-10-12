@@ -9,6 +9,7 @@ internal sealed class Settings
     public double Sensitivity { get; set; } = 1.0;
     public bool ClipboardEnabled { get; set; } = true;
     public bool EdgeEntryEnabled { get; set; } = true;
+    public int EdgeEntryDelayMs { get; set; } = 350;
     public bool FileWidgetVisible { get; set; }
     public int? FileWidgetX { get; set; }
     public int? FileWidgetY { get; set; }
@@ -25,6 +26,7 @@ internal sealed class Settings
             Settings result = JsonSerializer.Deserialize<Settings>(File.ReadAllText(PathName)) ?? new();
             if (!Enum.IsDefined(result.PhoneSide)) result.PhoneSide = PhoneSide.Right;
             result.Sensitivity = double.IsFinite(result.Sensitivity) ? Math.Clamp(result.Sensitivity, .25, 4) : 1;
+            result.EdgeEntryDelayMs = Math.Clamp(result.EdgeEntryDelayMs, 0, 2000);
             if (string.IsNullOrWhiteSpace(result.NativeReceiveFolder) || !Path.IsPathFullyQualified(result.NativeReceiveFolder)) result.NativeReceiveFolder = DefaultReceiveFolder;
             return result;
         }

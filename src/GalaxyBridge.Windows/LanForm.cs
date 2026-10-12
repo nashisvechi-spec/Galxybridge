@@ -41,6 +41,7 @@ internal sealed class LanForm : Form
     private sealed record BluetoothPeer(string Id, string Name) { public override string ToString() => Name; }
     private LanReceiveState received = new(false, 0, 0, "Файлы с телефона ещё не получены.");
     private readonly NumericUpDown speed = new() { Minimum = .25M, Maximum = 4M, Increment = .05M, DecimalPlaces = 2, Width = 90 };
+    private readonly NumericUpDown transitionDelay = new() { Minimum = 0, Maximum = 2000, Increment = 50, Width = 90 };
     private FileDropForm? fileWindow;
     private FileTransferWidget? fileWidget;
     private int? sendPercent;
@@ -58,7 +59,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text = "Galaxy Bridge • без отладки • 0.7.25"; Font = new Font("Segoe UI", 10);
+        Text = "Galaxy Bridge • без отладки • 0.7.26"; Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen; Size = new Size(760, Math.Min(800, (Screen.PrimaryScreen?.WorkingArea.Height ?? 850) - 40)); MinimumSize = new Size(600, 450);
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         page.Controls.Add(new Label { Text = "Установите GalaxyBridgeLan.apk на S25. В приложении нажмите «Сканировать QR» и подтвердите ноутбук. Отладка не нужна. Оба устройства должны быть в одной локальной сети.", AutoSize = true, MaximumSize = new Size(660, 0) });
@@ -94,11 +95,19 @@ internal sealed class LanForm : Form
         page.Controls.Add(new Label { Text = "Если BLE-режим недоступен, используйте сенсорное управление через Wi-Fi. Для возврата Bluetooth-мыши через край подключите тот же телефон по QR и разрешите «Поверх других приложений». Быстрый возврат — Ctrl + Alt + F12.", AutoSize = true, MaximumSize = new Size(660, 0) });
         speed.Value = (decimal)settings.Sensitivity;
         FlowLayoutPanel mouse = new() { AutoSize = true };
-        mouse.Controls.Add(new Label { Text = "Скорость курсора телефона ×", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
+        mouse.Controls.Add(new Label { Text = "Скорость курсора телефона / DeX ×", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
         mouse.Controls.Add(speed);
         Button normalSpeed = new() { Text = "Сбросить на 1×", AutoSize = true }; normalSpeed.Click += (_, _) => speed.Value = 1;
         mouse.Controls.Add(normalSpeed); page.Controls.Add(mouse);
         page.Controls.Add(new Label { Text = "0,25× — медленнее; 1× — обычная; 4× — быстрее. Настройка сохраняется.", AutoSize = true });
+        transitionDelay.Value = settings.EdgeEntryDelayMs;
+        FlowLayoutPanel transition = new() { AutoSize = true };
+        transition.Controls.Add(new Label { Text = "Задержка перехода курсора, мс", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
+        transition.Controls.Add(transitionDelay);
+        Button normalDelay = new() { Text = "Сбросить на 350 мс", AutoSize = true };
+        normalDelay.Click += (_, _) => transitionDelay.Value = 350;
+        transition.Controls.Add(normalDelay); page.Controls.Add(transition);
+        page.Controls.Add(new Label { Text = "Время ожидания у края ПК перед переходом на телефон / DeX. 0 мс — без дополнительной задержки; 350 мс — по умолчанию.", AutoSize = true, MaximumSize = new Size(660, 0) });
         wheelZoom.Checked = settings.WheelZoomEnabled; page.Controls.Add(wheelZoom);
         page.Controls.Add(new Label { Text = "PDF и изображения: Ctrl + колёсико — масштабирование вокруг курсора. Включите настройку выше для масштабирования одним колёсиком. Нужен APK 0.7.13; просмотрщик должен поддерживать жест двумя пальцами. Без этой настройки колесо прокручивает страницу.", AutoSize = true, MaximumSize = new Size(660, 0) });
         wheelZoom.CheckedChanged += (_, _) =>
@@ -135,6 +144,12 @@ internal sealed class LanForm : Form
             try { settings.Save(); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             { connectionDetail.Text = "Скорость применена, но не удалось сохранить настройку. При следующем запуске задайте её повторно."; }
+        };
+        transitionDelay.ValueChanged += (_, _) =>
+        {
+            settings.EdgeEntryDelayMs = (int)transitionDelay.Value;
+            edgeSince = null; armed = false;
+            SaveSettings();
         };
         toggle.Click += (_, _) => Toggle(); files.Click += async (_, _) => await ChooseFilesAsync();
         host.Connected += candidate => Ui(() => Attach(candidate));
@@ -441,7 +456,7 @@ internal sealed class LanForm : Form
             PhoneSide.Top => new(p.X, b.Top - 1), _ => new(p.X, b.Bottom) };
         if (Screen.AllScreens.Any(s => s.DeviceName != screen.DeviceName && s.Bounds.Contains(outside))) { edgeSince = null; return; }
         edgeSince ??= Environment.TickCount64;
-        if (Environment.TickCount64 - edgeSince.Value >= 350) Toggle();
+        if (Environment.TickCount64 - edgeSince.Value >= settings.EdgeEntryDelayMs) Toggle();
     }
     private async Task ChooseFilesAsync()
     {

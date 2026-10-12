@@ -1,4 +1,24 @@
-# Validation — GalaxyBridge 0.7.25
+# Validation — Windows 0.7.26 / Android 0.7.25
+
+## Cursor speed and edge-entry delay settings (Windows 0.7.26)
+
+The Windows form labels the existing 0.25–4x speed setting for phone/DeX and
+adds a saved edge-entry delay editor (0–2000 ms in 50 ms steps, default 350 ms).
+Each editor has a default-reset button. EdgeEntryDelayMs replaces the fixed
+350 ms threshold in the PC-edge entry check. The existing 100 ms polling,
+held-input guards and adjacent-PC-monitor checks still apply. Changing delay
+clears the pending edge timer and requires leaving the edge before a new entry.
+Hotplug migration remains controlled by the DeX capture-switch policy.
+
+Old settings files keep their speed and default the missing delay to 350 ms.
+Out-of-range saved delays are clamped before constructing the numeric editor.
+Nine local smoke assertions compile the real Settings class and exercise actual
+Save/Load in an isolated application-data folder, including old-file migration,
+JSON persistence, limits and subsequent saves. All 2445 portable assertions pass
+and full Windows production sources compile with .NET 8/Roslyn reference
+assemblies. Source checks pass. Windows UI rendering and complete signed/portable
+packaging still require native validation and the manual workflow. Android
+runtime and its 0.7.25 version are unchanged by this Windows-only setting.
 
 ## Automatic external DeX and simplified package (0.7.25)
 
