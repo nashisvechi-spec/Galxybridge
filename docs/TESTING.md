@@ -1,5 +1,28 @@
 # Testing the no-debugging edition
 
+## Shared interface (0.7.31)
+
+Run the portable tests and the Android UI suite. The latter now has 58 cases,
+including theme, navigation/recreation, large-font, keyboard-inset and rendering
+checks. Set `-Dgalaxybridge.preview.dir=/absolute/path` when running Maven to
+write four Android native-rendered previews. The main shared icon is loaded from
+the real production asset for the resource-free test fixture.
+
+On Windows check every navigation section, QR open/reissue/address change/X/expiry,
+the main control button and hotkey, numeric and slider speed (including typed
+values between slider steps), delay, Bluetooth, file drop, verified-only history,
+receive settings and the independent widget. Change system/manual themes with
+file/QR windows open. Test 100/150/200% DPI, smaller work areas, moving between
+monitors, keyboard focus and screen-edge control while other sections are visible.
+
+On S25 check all bottom tabs, rotation, system/manual appearance, large fonts,
+back buttons, real QR/camera permission and pairing confirmation. Test manual
+file picking, clipboard input with the keyboard open, received-folder navigation,
+permissions/settings return and foreground/background file sharing. A theme change
+must preserve pairing. ShareActivity and WakeActivity must remain transparent
+and must not open the new main interface. Repeat on DeX and in split-screen.
+
+
 ## Phone wake on cursor entry (0.7.30)
 
 Run the portable suite and `mvn -B -f tests/android-display-ui/pom.xml test`.

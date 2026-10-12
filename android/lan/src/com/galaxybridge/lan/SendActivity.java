@@ -24,7 +24,7 @@ public final class SendActivity extends Activity {
         handler.postDelayed(this,500);
     }};
     @Override public void onCreate(Bundle saved) {
-        super.onCreate(saved);
+        BridgeUi.prepare(this);super.onCreate(saved);
         if(saved==null) {
             collect(getIntent());
             CharSequence shared=getIntent().getCharSequenceExtra(Intent.EXTRA_TEXT);
@@ -35,19 +35,18 @@ public final class SendActivity extends Activity {
                 } catch(IllegalArgumentException e) { ConnectionService.fileStatus=e.getMessage(); }
             }
         }
-        LinearLayout page=new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
-        int p=(int)(20*getResources().getDisplayMetrics().density); page.setPadding(p,p,p,p);
-        page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()); v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom); return i; });
-        TextView title=new TextView(this); title.setText("Отправить на ПК · 0.7.30"); title.setTextSize(24); page.addView(title);
-        TextView help=new TextView(this); help.setText("Файлы получит сохранённый ноутбук. Откройте на нём режим Wi-Fi без отладки. Оба устройства должны быть в одной сети. Папку приёма можно изменить в окне файлов Windows."); page.addView(help);
-        selection=new TextView(this); selection.setTextSize(18); page.addView(selection);
-        Button choose=new Button(this); choose.setText("Выбрать файлы…"); choose.setOnClickListener(v -> choose(false)); page.addView(choose);
-        Button other=new Button(this); other.setText("Выбрать через файловое приложение…"); other.setOnClickListener(v -> choose(true)); page.addView(other);
-        TextView hint=new TextView(this); hint.setText("Щёлкните по названию файла, чтобы выбрать его. Для нескольких файлов используйте режим выделения файлового приложения и подтвердите выбор в файловом окне. Через «Поделиться → Galaxy Bridge Wi-Fi» отправка проходит в фоне, без открытия окна приложения."); page.addView(hint);
-        send=new Button(this); send.setText("Отправить на ноутбук"); send.setOnClickListener(v -> send()); page.addView(send);
-        cancel=new Button(this); cancel.setText("Отменить отправку"); cancel.setOnClickListener(v -> ConnectionService.cancelFiles()); page.addView(cancel);
-        progress=new TextView(this); progress.setTextSize(16); page.addView(progress);
-        ScrollView scroll=new ScrollView(this); scroll.addView(page); setContentView(scroll);
+        LinearLayout root=BridgeUi.root(this);LinearLayout page=BridgeUi.scrollBody(root);
+        BridgeUi.header(page,"Отправить на ПК","Получатель: "+getSharedPreferences("lan",MODE_PRIVATE).getString("name","компьютер не сопряжён"),this::finish);
+        LinearLayout selected=BridgeUi.card(page,"Готово к отправке");
+        selection=BridgeUi.text(this,"",18,true);selected.addView(selection);
+        BridgeUi.button(selected,"Выбрать файлы",false,() -> choose(false));
+        BridgeUi.button(selected,"Выбрать через файловое приложение",false,() -> choose(true));
+        send=BridgeUi.button(selected,"Отправить на ноутбук",true,this::send);
+        cancel=BridgeUi.button(selected,"Отменить отправку",false,() -> ConnectionService.cancelFiles());
+        LinearLayout activity=BridgeUi.card(page,"Передача");progress=BridgeUi.text(this,"",16,false);activity.addView(progress);
+        LinearLayout help=BridgeUi.card(page,"Быстрая отправка");help.addView(BridgeUi.text(this,"Из «Моих файлов» или Галереи: Поделиться → Galaxy Bridge Wi-Fi. Файлы отправляются в фоне, без открытия окна приложения.",14,false));
+        page.addView(BridgeUi.text(this,"До 100 файлов, до 2 ГБ каждый. Для нескольких файлов подтвердите выбор в файловом окне. Папки не поддерживаются.",13,false));
+        BridgeUi.show(this,root);
         if(saved!=null) {
             ArrayList<Uri> restored=saved.getParcelableArrayList("files",Uri.class); if(restored!=null) files.addAll(restored);
         }

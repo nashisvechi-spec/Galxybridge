@@ -304,6 +304,7 @@ public final class ConnectionService extends Service {
     static void inputScreenChanged() {
         ConnectionService current=instance;if(current!=null) { current.nativeEdge.stop();reportInputScreen(); }
     }
+    static boolean connected() { ConnectionService current=instance;Link active=current==null?null:current.link;return active!=null && !active.closed.get(); }
     static boolean uploading() { ConnectionService current=instance; return current!=null && (current.uploadBusy.get() || !current.uploadQueue.isEmpty()); }
     static boolean sendingClipboard() { ConnectionService current=instance;return current!=null && current.clipboardBusy.get(); }
     static void sendClipboard(String text) {

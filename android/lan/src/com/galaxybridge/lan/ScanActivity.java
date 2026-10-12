@@ -31,13 +31,15 @@ public final class ScanActivity extends Activity implements SurfaceHolder.Callba
     private String pendingQr;
     private AlertDialog confirmation;
     @Override public void onCreate(Bundle saved) {
-        super.onCreate(saved);
+        BridgeUi.prepare(this);super.onCreate(saved);
         if(saved!=null) pendingQr=saved.getString("pendingQr");
         done=pendingQr!=null;
-        LinearLayout page = new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
-        message = new TextView(this); message.setText("Наведите камеру на QR из окна «Wi-Fi без отладки». Держите код полностью в кадре."); message.setPadding(24,48,24,24); page.addView(message);
-        preview = new SurfaceView(this); page.addView(preview,new LinearLayout.LayoutParams(-1,0,1));
-        preview.getHolder().addCallback(this); setContentView(page);
+        LinearLayout page=BridgeUi.root(this);int padding=BridgeUi.dp(this,20);
+        LinearLayout heading=BridgeUi.column(this);heading.setPadding(padding,padding,padding,0);
+        BridgeUi.header(heading,"Подключить компьютер","Сканируйте QR в Galaxy Bridge на Windows.",this::finish);
+        message=BridgeUi.text(this,"Держите QR полностью в кадре. Код на ПК действует 2 минуты.",16,false);heading.addView(message);page.addView(heading);
+        preview=new SurfaceView(this);LinearLayout.LayoutParams cameraLayout=new LinearLayout.LayoutParams(-1,0,1);cameraLayout.setMargins(padding,BridgeUi.dp(this,8),padding,padding);page.addView(preview,cameraLayout);
+        preview.getHolder().addCallback(this);BridgeUi.show(this,page);
         if (!done && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.CAMERA},1);
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {

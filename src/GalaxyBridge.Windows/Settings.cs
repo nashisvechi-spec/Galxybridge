@@ -14,6 +14,7 @@ internal sealed class Settings
     public int? FileWidgetX { get; set; }
     public int? FileWidgetY { get; set; }
     public bool WheelZoomEnabled { get; set; }
+    public string ThemeMode { get; set; } = "system";
     public bool NativeReceiveEnabled { get; set; } = true;
     public string NativeReceiveFolder { get; set; } = DefaultReceiveFolder;
     public static string DefaultReceiveFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "GalaxyBridge");
@@ -25,6 +26,7 @@ internal sealed class Settings
         {
             Settings result = JsonSerializer.Deserialize<Settings>(File.ReadAllText(PathName)) ?? new();
             if (!Enum.IsDefined(result.PhoneSide)) result.PhoneSide = PhoneSide.Right;
+            if (result.ThemeMode is not ("system" or "light" or "dark")) result.ThemeMode = "system";
             result.Sensitivity = double.IsFinite(result.Sensitivity) ? Math.Clamp(result.Sensitivity, .25, 4) : 1;
             result.EdgeEntryDelayMs = Math.Clamp(result.EdgeEntryDelayMs, 0, 2000);
             if (string.IsNullOrWhiteSpace(result.NativeReceiveFolder) || !Path.IsPathFullyQualified(result.NativeReceiveFolder)) result.NativeReceiveFolder = DefaultReceiveFolder;

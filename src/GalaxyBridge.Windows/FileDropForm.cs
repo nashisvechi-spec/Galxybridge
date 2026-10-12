@@ -9,16 +9,16 @@ internal sealed class FileDropForm : Form
     private readonly Label drop = new()
     {
         Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
-        BackColor = Color.FromArgb(235, 243, 255), ForeColor = Color.FromArgb(25, 65, 120),
+        BackColor = BridgeTheme.Background, ForeColor = BridgeTheme.Text,
         Text = "Перетащите файлы сюда\n\nНа телефон → Download/GalaxyBridge\nМожно выбрать несколько файлов. Папки не поддерживаются."
     };
-    private readonly Button choose = new() { Text = "Выбрать файлы…", AutoSize = true };
-    private readonly Button cancel = new() { Text = "Отменить отправку", AutoSize = true, Enabled = false };
+    private readonly Button choose = new BridgeButton { Text = "Выбрать файлы…", AutoSize = true };
+    private readonly Button cancel = new BridgeButton { Text = "Отменить отправку", AutoSize = true, Enabled = false };
     private readonly CheckBox receive = new() { Text = "Принимать файлы с сопряжённого телефона", AutoSize = true };
     private readonly TextBox folder = new() { ReadOnly = true, Dock = DockStyle.Top };
     private readonly Label incoming = new() { AutoSize = true, MaximumSize = new Size(440, 0), Dock = DockStyle.Top };
-    private readonly Button chooseFolder = new() { Text = "Изменить папку…", AutoSize = true };
-    private readonly Button cancelIncoming = new() { Text = "Отменить приём", AutoSize = true, Enabled = false };
+    private readonly Button chooseFolder = new BridgeButton { Text = "Изменить папку…", AutoSize = true };
+    private readonly Button cancelIncoming = new BridgeButton { Text = "Отменить приём", AutoSize = true, Enabled = false };
     private bool updating;
     private bool canSend;
 
@@ -27,29 +27,21 @@ internal sealed class FileDropForm : Form
     {
         Icon = AppIcon.Value;
         this.send = send;
-        Text = "Galaxy Bridge • Файлы"; Font = new Font("Segoe UI", 10);
-        StartPosition = FormStartPosition.CenterParent; Size = new Size(540, 540);
+        Text = "Galaxy Bridge • Файлы"; Font = new Font("Segoe UI", 10);AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
+        StartPosition = FormStartPosition.CenterParent; Size = new Size(640, 650);
         MinimumSize = new Size(470, 460); TopMost = true;
-        TableLayoutPanel page = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(14) };
-        page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        page.Controls.Add(connection, 0, 0); page.Controls.Add(drop, 0, 1); page.Controls.Add(progress, 0, 2);
-        FlowLayoutPanel actions = new() { AutoSize = true, Dock = DockStyle.Fill };
-        CheckBox onTop = new() { Text = "Поверх окон", AutoSize = true, Checked = true };
-        onTop.CheckedChanged += (_, _) => TopMost = onTop.Checked;
-        actions.Controls.Add(choose); actions.Controls.Add(cancel); actions.Controls.Add(onTop); page.Controls.Add(actions, 0, 3);
-        TableLayoutPanel received = new() { AutoSize = true, Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
-        received.Controls.Add(receive, 0, 0); received.Controls.Add(folder, 0, 1); received.Controls.Add(incoming, 0, 2);
-        FlowLayoutPanel receiveActions = new() { AutoSize = true, Dock = DockStyle.Fill };
-        Button open = new() { Text = "Открыть папку", AutoSize = true };
-        receiveActions.Controls.Add(chooseFolder); receiveActions.Controls.Add(open); receiveActions.Controls.Add(cancelIncoming);
-        received.Controls.Add(receiveActions, 0, 3); page.Controls.Add(received, 0, 4);
-        receive.CheckedChanged += (_, _) => { if (!updating) allowReceive(receive.Checked); };
-        chooseFolder.Click += (_, _) => selectFolder(); open.Click += (_, _) => openFolder(); cancelIncoming.Click += (_, _) => cancelReceive();
-        Controls.Add(page);
+        Shown+=(_,_)=>BridgeTheme.FitWindow(this);
+        TableLayoutPanel page=BridgeTheme.Page(this,"Файлы","Отправка и приём через Galaxy Bridge.");
+        BridgeCard sending=BridgeTheme.Card(page,"ПК → телефон");
+        connection.Dock=DockStyle.None;progress.Dock=DockStyle.None;drop.Dock=DockStyle.None;drop.Size=new Size(450,140);
+        sending.Controls.Add(connection);sending.Controls.Add(drop);sending.Controls.Add(progress);
+        CheckBox onTop=new() { Text="Поверх окон",AutoSize=true,Checked=true };onTop.CheckedChanged+=(_,_)=>TopMost=onTop.Checked;
+        sending.Controls.Add(BridgeTheme.Row(choose,cancel,onTop));
+        BridgeCard received=BridgeTheme.Card(page,"Телефон → ПК");
+        folder.Dock=DockStyle.None;incoming.Dock=DockStyle.None;received.Controls.Add(receive);received.Controls.Add(folder);received.Controls.Add(incoming);
+        BridgeButton open=BridgeTheme.Button("Открыть папку");received.Controls.Add(BridgeTheme.Row(chooseFolder,open,cancelIncoming));
+        receive.CheckedChanged+=(_,_)=> { if(!updating) allowReceive(receive.Checked); };
+        chooseFolder.Click+=(_,_)=>selectFolder();open.Click+=(_,_)=>openFolder();cancelIncoming.Click+=(_,_)=>cancelReceive();
         choose.Click += async (_, _) =>
         {
             if (!canSend) return;
@@ -57,7 +49,7 @@ internal sealed class FileDropForm : Form
             if (picker.ShowDialog(this) == DialogResult.OK) await send(picker.FileNames);
         };
         cancel.Click += (_, _) => cancelTransfer();
-        RegisterDrop(this);
+        BridgeTheme.Apply(this);RegisterDrop(this);
     }
     public void UpdateReceive(bool enabled, string destination, LanReceiveState state)
     {
@@ -76,7 +68,7 @@ internal sealed class FileDropForm : Form
         canSend = available; choose.Enabled = available; cancel.Enabled = busy;
         connection.Text = phone;
         if (progress.Text != message) progress.Text = message;
-        drop.BackColor = available ? Color.FromArgb(235, 243, 255) : SystemColors.Control;
+        drop.BackColor = available ? BridgeTheme.Background : BridgeTheme.Surface;
     }
     private void RegisterDrop(Control control)
     {

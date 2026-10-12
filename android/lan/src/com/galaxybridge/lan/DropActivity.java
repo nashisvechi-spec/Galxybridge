@@ -43,23 +43,22 @@ public final class DropActivity extends Activity {
         cancelProbe();
     };
     @Override public void onCreate(Bundle saved) {
-        super.onCreate(saved);
-        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
-        int p=(int)(16*getResources().getDisplayMetrics().density);page.setPadding(p,p,p,p);
-        page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom);return i; });
-        TextView title=new TextView(this);title.setText("Приём из «Моих файлов» · 0.7.30");title.setTextSize(22);page.addView(title);
-        report=new TextView(this);report.setTextSize(16);report.setMaxLines(5);page.addView(report);
+        BridgeUi.prepare(this);super.onCreate(saved);
+        LinearLayout root=BridgeUi.root(this);LinearLayout page=BridgeUi.scrollBody(root);
+        int p=BridgeUi.dp(this,16);
+        BridgeUi.header(page,"Приём из файлов","Перетащите файл из соседнего окна «Моих файлов».",this::finish);
+        report=BridgeUi.text(this,"",16,false);page.addView(report);
         report.setText(saved==null?"Ожидаем перетаскивание из файлового приложения.":"Окно было пересоздано. Перетащите файлы ещё раз: временное разрешение на чтение не сохраняется.");
-        copy=new Button(this);copy.setText("Скопировать диагностику сброса");copy.setEnabled(false);
-        copy.setOnClickListener(v -> { getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Galaxy Bridge drop",dropDiagnostic));Toast.makeText(this,"Диагностика скопирована",Toast.LENGTH_SHORT).show(); });page.addView(copy);
-        target=new TextView(this);target.setText("Перетащите файл сюда\nи отпустите кнопку");target.setTextSize(21);target.setGravity(Gravity.CENTER);
-        target.setMinHeight(p*9);target.setPadding(p,p,p,p);target.setBackgroundColor(0xffdcecff);page.addView(target);
+        copy=BridgeUi.button(page,"Скопировать диагностику сброса",false,() -> {});copy.setText("Скопировать диагностику сброса");copy.setEnabled(false);
+        copy.setOnClickListener(v -> { getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Galaxy Bridge drop",dropDiagnostic));Toast.makeText(this,"Диагностика скопирована",Toast.LENGTH_SHORT).show(); });
+        target=BridgeUi.text(this,"",21,true);target.setText("Перетащите файл сюда\nи отпустите кнопку");target.setTextSize(21);target.setGravity(Gravity.CENTER);
+        target.setMinHeight(p*9);target.setPadding(p,p,p,p);target.setBackground(BridgeUi.shape(this,BridgeUi.palette(this).selected,BridgeUi.palette(this).border,18));page.addView(target);
         target.setOnDragListener((v,event) -> drag(event));
-        prepare=new Button(this);prepare.setText("Открыть отправку на ПК");prepare.setEnabled(false);prepare.setOnClickListener(v -> forward());page.addView(prepare);
-        cancel=new Button(this);cancel.setText("Отменить проверку");cancel.setEnabled(false);cancel.setOnClickListener(v -> { cancellationText="Проверка отменена. Перетащите файлы ещё раз.";cancelProbe(); });page.addView(cancel);
-        format=new TextView(this);format.setTextSize(14);page.addView(format);
-        TextView help=new TextView(this);help.setText("Откройте Galaxy Bridge и «Мои файлы» рядом: через меню значка приложения в «Недавних» выберите разделение экрана или всплывающее окно. Зажмите файл, дождитесь начала перетаскивания и перенесите его в синюю область. Сначала проверьте пальцем, затем мышью по Wi-Fi.\n\nЕсли область не реагирует, файловое приложение могло не начать межприложное перетаскивание. Используйте «Поделиться → Galaxy Bridge Wi-Fi».\n\nПосле проверки откройте отправку и нажмите «Отправить на ноутбук». Оригиналы сохраняются.");page.addView(help);
-        ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
+        prepare=BridgeUi.button(page,"Открыть отправку на ПК",true,() -> {});prepare.setText("Открыть отправку на ПК");prepare.setEnabled(false);prepare.setOnClickListener(v -> forward());
+        cancel=BridgeUi.button(page,"Отменить проверку",false,() -> {});cancel.setText("Отменить проверку");cancel.setEnabled(false);cancel.setOnClickListener(v -> { cancellationText="Проверка отменена. Перетащите файлы ещё раз.";cancelProbe(); });
+        format=BridgeUi.text(this,"",14,false);page.addView(format);
+        TextView help=BridgeUi.text(this,"",14,false);help.setText("Откройте Galaxy Bridge и «Мои файлы» рядом: через меню значка приложения в «Недавних» выберите разделение экрана или всплывающее окно. Зажмите файл, дождитесь начала перетаскивания и перенесите его в синюю область. Сначала проверьте пальцем, затем мышью по Wi-Fi.\n\nЕсли область не реагирует, файловое приложение могло не начать межприложное перетаскивание. Используйте «Поделиться → Galaxy Bridge Wi-Fi».\n\nПосле проверки откройте отправку и нажмите «Отправить на ноутбук». Оригиналы сохраняются.");page.addView(help);
+        BridgeUi.show(this,root);
     }
     private boolean drag(DragEvent event) {
         switch(event.getAction()) {
@@ -68,14 +67,14 @@ public final class DropActivity extends Activity {
                 dropSeen=false;target.setText("Перетащите сюда\nи отпустите кнопку");
                 report.setText("Перетаскивание обнаружено. Ожидаем сброс файла.");return true;
             case DragEvent.ACTION_DRAG_ENTERED:
-                target.setBackgroundColor(0xffc9efd7);return true;
+                target.setBackground(BridgeUi.shape(this,BridgeUi.palette(this).selected,BridgeUi.palette(this).success,18));return true;
             case DragEvent.ACTION_DRAG_LOCATION: return true;
             case DragEvent.ACTION_DRAG_EXITED:
-                target.setBackgroundColor(0xffdcecff);return true;
+                target.setBackground(BridgeUi.shape(this,BridgeUi.palette(this).selected,BridgeUi.palette(this).border,18));return true;
             case DragEvent.ACTION_DROP:
                 dropSeen=true;return accept(event);
             case DragEvent.ACTION_DRAG_ENDED:
-                target.setBackgroundColor(0xffdcecff);
+                target.setBackground(BridgeUi.shape(this,BridgeUi.palette(this).selected,BridgeUi.palette(this).border,18));
                 if(!dropSeen) report.setText("Файл не сброшен в область приёма. Попробуйте ещё раз.");return true;
             default: return false;
         }
@@ -111,7 +110,7 @@ public final class DropActivity extends Activity {
         return true;
     }
     private void showDiagnostic(String text) {
-        dropDiagnostic="Galaxy Bridge Android 0.7.30\n"+text.replace("Galaxy Bridge Android 0.7.30\n","");
+        dropDiagnostic="Galaxy Bridge Android 0.7.31\n"+text.replace("Galaxy Bridge Android 0.7.31\n","");
         format.setText("Формат сброса:\n"+dropDiagnostic);copy.setEnabled(true);
     }
     private DropProbe.Source open(Uri uri) throws IOException {

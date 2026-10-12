@@ -7,16 +7,17 @@ internal sealed class FileTransferWidget : Form
     private readonly Label connection = new() { AutoSize = true, MaximumSize = new Size(310, 0) };
     private readonly Label status = new() { AutoSize = true, AutoEllipsis = true, MaximumSize = new Size(310, 48), Text = "На телефон → Download/GalaxyBridge" };
     private readonly Label target = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
-        Text = "Перетащите файлы сюда\nдля отправки на S25", BackColor = Color.FromArgb(235, 243, 255), ForeColor = Color.FromArgb(25, 65, 120) };
+        Text = "Перетащите файлы сюда\nдля отправки на S25", BackColor = BridgeTheme.Background, ForeColor = BridgeTheme.Text };
     private readonly ProgressBar progress = new() { Dock = DockStyle.Fill, Height = 10, Visible = false, MarqueeAnimationSpeed = 30 };
-    private readonly Button choose = new() { Text = "Выбрать…", AutoSize = true };
-    private readonly Button cancel = new() { Text = "Отмена", AutoSize = true, Enabled = false };
+    private readonly Button choose = new BridgeButton { Text = "Выбрать…", AutoSize = true };
+    private readonly Button cancel = new BridgeButton { Text = "Отмена", AutoSize = true, Enabled = false };
     public FileTransferWidget(Func<string[], Task> send, Action cancelTransfer)
     {
-        Text = "На S25 · Galaxy Bridge"; Icon = AppIcon.Value; Font = new Font("Segoe UI", 9);
+        Text = "На S25 · Galaxy Bridge"; Icon = AppIcon.Value; Font = new Font("Segoe UI", 10);AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
         FormBorderStyle = FormBorderStyle.SizableToolWindow; ShowInTaskbar = false;
         TopMost = true; StartPosition = FormStartPosition.Manual;
-        Size = new Size(330, 260); MinimumSize = new Size(290, 230);
+        Size = new Size(350, 290); MinimumSize = new Size(320, 260);
+        Shown+=(_,_)=>BridgeTheme.FitWindow(this);
         TableLayoutPanel page = new() { Dock = DockStyle.Fill, Padding = new Padding(10), ColumnCount = 1, RowCount = 5 };
         page.RowStyles.Add(new RowStyle(SizeType.AutoSize));page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.RowStyles.Add(new RowStyle(SizeType.AutoSize));page.RowStyles.Add(new RowStyle(SizeType.AutoSize));page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -39,7 +40,7 @@ internal sealed class FileTransferWidget : Form
             };
             foreach (Control child in control.Controls) Register(child);
         }
-        Register(this);
+        BridgeTheme.Apply(this);Register(this);
     }
     public void UpdateTransfer(bool canSend, bool busy, string phone, string message, int? percent)
     {
@@ -48,7 +49,7 @@ internal sealed class FileTransferWidget : Form
         if (connection.Text != phone) connection.Text = phone;
         string text = string.IsNullOrEmpty(message) ? "На телефон → Download/GalaxyBridge" : message;
         if (status.Text != text) status.Text = text;
-        target.BackColor = canSend ? Color.FromArgb(235, 243, 255) : SystemColors.Control;
+        target.BackColor = canSend ? BridgeTheme.Background : BridgeTheme.Surface;
         progress.Visible = busy;
         progress.Style = percent.HasValue ? ProgressBarStyle.Blocks : ProgressBarStyle.Marquee;
         if (percent.HasValue) progress.Value = Math.Clamp(percent.Value, 0, 100);

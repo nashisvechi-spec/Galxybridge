@@ -186,7 +186,7 @@ def main() -> None:
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
     java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java')) + list((ROOT / 'tests/android-drop-stubs').rglob('*.java'))
-    require(len(java) == 48, 'Expected active companion protocol/input/clipboard/wheel/drop/receive test sources')
+    require(len(java) == 49, 'Expected active companion protocol/input/clipboard/wheel/drop/receive test sources')
     files = ET.fromstring(read('android/files/AndroidManifest.xml'))
     require(files.get('package') == 'com.galaxybridge.files', 'File manager is a separate Android package')
     provider = files.find('.//provider')

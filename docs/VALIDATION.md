@@ -1,4 +1,37 @@
-# Validation — Windows 0.7.30 / Android 0.7.30
+# Validation — Windows 0.7.31 / Android 0.7.31
+
+## Shared native interface (0.7.31)
+
+Based on 6088188. The October 10 design concept is implemented in native Java
+Android views and C# WinForms. Shared palettes, rounded cards/buttons, device
+maps and system/light/dark appearance are used across the maintained apps.
+Windows navigation separates Devices, Control, Files and Settings. QR is a
+separate owned window; transfer history records only successful saved/ACKed files
+for the current app session. Existing input and transfer handlers remain.
+Android bottom navigation restores the selected tab across recreation. Appearance
+preferences are separate from pairing data. System/keyboard insets, scrollable
+content and 48 dp or larger navigation targets support large fonts.
+
+58 Android API 35 Robolectric tests pass, including ten new UI cases for tab
+restoration, file/text/folder intents, no connection/upload side effects from
+navigation, theme persistence with pairing intact, system night override,
+200% font layout, clipboard draft restoration, refreshed notification permission,
+keyboard insets and native graphics rendering. All prior wake, share, display and
+receipt tests pass. Four Android PNGs in docs/ui are native-rendered fixtures
+from the production views, with the real icon asset; they are not S25 screenshots
+and do not represent a live connection.
+
+All 2482 portable assertions pass. Full Windows production sources compile
+against .NET 8/Windows reference assemblies. Public Android API 35 compilation
+covers all 31 production Java sources, and resources/manifest link. Source checks
+pass. Direct Windows compilation retains the pre-existing QRCoder reference
+unification warnings. Signed EXE/APK packaging uses the manual workflow.
+
+WinForms rendering, keyboard focus and DPI 100/150/200%, live monitor changes,
+QR close/expiry, saved manual themes, widget placement and actual S25/DeX/insets
+still require physical Windows/Android verification. Local compiler checks do not
+establish native Windows rendering or signed packaging success.
+
 
 ## Phone wake on cursor entry (0.7.30)
 

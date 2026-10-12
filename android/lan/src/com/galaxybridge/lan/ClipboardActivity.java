@@ -20,21 +20,21 @@ public final class ClipboardActivity extends Activity {
         send.setEnabled(!ConnectionService.sendingClipboard());handler.postDelayed(this,300);
     }};
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
-        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
-        int p=(int)(20*getResources().getDisplayMetrics().density);page.setPadding(p,p,p,p);
-        page.setOnApplyWindowInsetsListener((v,i) -> { Insets b=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(p+b.left,p+b.top,p+b.right,p+b.bottom);return i; });
-        TextView title=new TextView(this);title.setText("Буфер → ПК · 0.7.30");title.setTextSize(24);page.addView(title);
-        TextView help=new TextView(this);help.setText("Ноутбук: "+getSharedPreferences("lan",MODE_PRIVATE).getString("name","не сопряжён")+"\n\nПроверьте текст или ссылку и нажмите «Отправить». После подтверждения доставки вставьте на ПК через Ctrl+V. Galaxy Bridge на ПК должен быть подключён, а общий текстовый буфер включён.");page.addView(help);
-        text=new EditText(this);text.setHint("Текст или ссылка");text.setMinLines(3);text.setMaxLines(8);text.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);page.addView(text);
-        Button read=new Button(this);read.setText("Вставить из буфера телефона");read.setOnClickListener(v -> readClipboard());page.addView(read);
-        send=new Button(this);send.setText("Отправить в буфер ПК");send.setOnClickListener(v -> {
+        BridgeUi.prepare(this);super.onCreate(state);
+        LinearLayout root=BridgeUi.root(this);LinearLayout page=BridgeUi.scrollBody(root);
+        BridgeUi.header(page,"Текст и ссылки","Ноутбук: "+getSharedPreferences("lan",MODE_PRIVATE).getString("name","не сопряжён"),this::finish);
+        LinearLayout draft=BridgeUi.card(page,"Подготовьте текст");
+        draft.addView(BridgeUi.text(this,"Проверьте текст или ссылку. После подтверждения доставки вставьте на ПК через Ctrl+V.",14,false));
+        text=new EditText(this);text.setHint("Текст или ссылка");text.setTextColor(BridgeUi.palette(this).text);text.setHintTextColor(BridgeUi.palette(this).muted);text.setTextSize(16);text.setMinLines(3);text.setMaxLines(8);
+        text.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);draft.addView(text);
+        BridgeUi.button(draft,"Вставить из буфера телефона",false,this::readClipboard);
+        send=BridgeUi.button(draft,"Отправить в буфер ПК",true,() -> {
             try { ConnectionService.sendClipboard(ClipText.validate(text.getText())); }
             catch(IllegalArgumentException e) { ConnectionService.clipboardStatus=e.getMessage(); }
             progress.setText(ConnectionService.status+"\n\n"+ConnectionService.clipboardStatus);
-        });page.addView(send);
-        progress=new TextView(this);progress.setTextSize(16);page.addView(progress);
-        ScrollView scroll=new ScrollView(this);scroll.addView(page);setContentView(scroll);
+        });
+        LinearLayout activity=BridgeUi.card(page,"Результат");progress=BridgeUi.text(this,"",16,false);activity.addView(progress);
+        page.addView(BridgeUi.text(this,"На ПК включите общий текстовый буфер. Приложения должны быть подключены по Wi-Fi.",13,false));BridgeUi.show(this,root);
         String shared=getIntent().getStringExtra("sharedText");
         if(state!=null) { text.setText(state.getString("text",""));readOnFocus=false; }
         else if(shared!=null) { text.setText(shared);readOnFocus=false; }

@@ -1,8 +1,17 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.30** / Android **0.7.30**. The application starts directly in its LAN
+Windows **0.7.31** / Android **0.7.31**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Version **0.7.31** applies the shared Galaxy Bridge design to native WinForms
+and Android screens: device cards, blue actions, teal connection cues and
+persisted system/light/dark appearance. Windows has Devices, Control, Files and
+Settings, a separate QR window, numeric/slider speed and the last ten verified
+session transfers. Android has bottom Connection, Files and Settings navigation,
+restyled send/clipboard/scan/drop screens, scrollable content and system/keyboard
+insets. Existing background shares, pairing, notification and wake paths remain.
+See [design notes and rendered Android screens](docs/UI_DESIGN.ru.md).
 
 Version **0.7.30** wakes a sleeping phone when the user enters control from the
 PC edge, button or Ctrl+Alt+F12. Both parts must be updated and the paired LAN
