@@ -22,6 +22,8 @@ import static org.robolectric.Shadows.shadowOf;
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 public class DesignUiTest {
     @Before public void setup() {
+        // These tests isolate navigation/layout after the onboarding permission.
+        shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS);
         RuntimeEnvironment.getApplication().getSharedPreferences("appearance",Context.MODE_PRIVATE).edit().clear().commit();
         RuntimeEnvironment.getApplication().getSharedPreferences("lan",Context.MODE_PRIVATE).edit().clear().commit();
         ControlService.instance=null;

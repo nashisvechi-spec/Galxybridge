@@ -1,8 +1,6 @@
 package com.galaxybridge.lan;
-import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -76,7 +74,8 @@ public final class SetupActivity extends Activity {
         clipboardStatus=BridgeUi.text(this,"",14,false);clipboardStatus.setPadding(0,BridgeUi.dp(this,12),0,0);access.addView(clipboardStatus);
         BridgeUi.button(access,"Переходы мыши и общий буфер",false,() -> startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()))));
         notificationStatus=BridgeUi.text(this,"",14,false);access.addView(notificationStatus);
-        BridgeUi.button(access,"Разрешить уведомления",false,() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},8));
+        BridgeUi.button(access,"Разрешить уведомления",false,() -> ReceivedFiles.enable(this,false));
+        BridgeUi.button(access,"Проверить уведомление",false,() -> ReceivedFiles.test(this));
         LinearLayout appearance=BridgeUi.card(body,"Оформление");Spinner theme=new Spinner(this);
         ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,new String[]{"Как в системе","Светлая","Тёмная"});adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);theme.setAdapter(adapter);
         String current=getSharedPreferences("appearance",MODE_PRIVATE).getString("theme","system");theme.setSelection("dark".equals(current)?2:"light".equals(current)?1:0);
@@ -97,7 +96,7 @@ public final class SetupActivity extends Activity {
         link.addView(BridgeUi.text(this,"При обрыве проверьте общую Wi-Fi сеть и влияние VPN. Для DeX экран управления выбирается автоматически.",14,false));
         BridgeUi.button(body,"Забыть компьютер",false,() -> new AlertDialog.Builder(this).setMessage("Удалить сопряжение с ноутбуком?").setNegativeButton("Отмена",null)
             .setPositiveButton("Забыть",(d,w) -> { stopService(new Intent(this,ConnectionService.class));prefs().edit().clear().commit();ConnectionService.status="Ноутбук забыт.";showTab(selectedTab); }).show());
-        body.addView(BridgeUi.text(this,"Galaxy Bridge · 0.7.31",13,false));
+        body.addView(BridgeUi.text(this,"Galaxy Bridge · 0.7.32",13,false));
     }
     private void refresh() {
         if(status!=null) status.setText(ConnectionService.status);
@@ -107,10 +106,10 @@ public final class SetupActivity extends Activity {
         if(inputStatus!=null) inputStatus.setText("Управление: "+(ControlService.instance==null?"включите специальные возможности":ControlService.ready(this)?"готово":"разблокируйте экран или проверьте экран DeX")+"\n"+ControlDisplays.description(this)+(ControlService.controlStatus.isEmpty()?"":"\n"+ControlService.controlStatus));
         if(clipboardStatus!=null) clipboardStatus.setText("Поверх других приложений: "+(Settings.canDrawOverlays(this)?"разрешено":"нужно разрешение")+"\n"+ConnectionService.clipboardStatus);
         if(fileStatus!=null) fileStatus.setText(ConnectionService.fileStatus);
-        if(notificationStatus!=null) notificationStatus.setText("Уведомления: "+(getSystemService(NotificationManager.class).areNotificationsEnabled()?"включены":"выключены"));
+        if(notificationStatus!=null) notificationStatus.setText(ReceivedFiles.status(this));
     }
     @Override protected void onSaveInstanceState(Bundle out) { out.putInt("tab",selectedTab);super.onSaveInstanceState(out); }
-    @Override protected void onResume() { super.onResume();handler.removeCallbacks(update);handler.post(update); }
+    @Override protected void onResume() { super.onResume();ReceivedFiles.enable(this,true);handler.removeCallbacks(update);handler.post(update); }
     @Override protected void onPause() { handler.removeCallbacks(update); super.onPause(); }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request,result,data);

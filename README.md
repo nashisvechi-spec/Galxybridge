@@ -1,8 +1,18 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.31** / Android **0.7.31**. The application starts directly in its LAN
+Windows **0.7.32** / Android **0.7.32**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Version **0.7.32** fixes file receipt notification handling. Windows uses a native
+non-activating corner card even with the main window hidden, with the exact
+receipt folder action and a timer reset for subsequent files. Android requests
+notification permission once from the visible setup screen, reports disabled
+file channels and links to system settings after denial. New file channels use
+high importance; existing user settings are preserved and may need heads-up
+enabled manually after an upgrade. Each receipt can alert again. Both apps offer
+a notification test in Settings; the test creates no file. Background sharing
+does not launch a permission prompt, and notification denial never fails receipt.
 
 Version **0.7.31** applies the shared Galaxy Bridge design to native WinForms
 and Android screens: device cards, blue actions, teal connection cues and

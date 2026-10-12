@@ -1,4 +1,42 @@
-# Validation — Windows 0.7.31 / Android 0.7.31
+# Validation — Windows 0.7.32 / Android 0.7.32
+
+## File receipt notifications (0.7.32)
+
+Based on afa7c3d. Receipt events and verified publication remain unchanged.
+The Windows receiver previously depended solely on a tray balloon with no
+reliable visibility acknowledgment. It now shows an unowned native corner
+card with ShowWithoutActivation/WS_EX_NOACTIVATE, exact receipt folder action,
+ten-second hover-aware dismissal, theme support, updates for subsequent files,
+and application-exit cleanup. A Settings test uses the same presentation path.
+This card does not create a Notification Center entry. Actual minimized/focus,
+multi-monitor/DPI and physical Windows rendering checks remain necessary.
+
+Android previously requested notification permission only from a settings
+button, did not report blocked channels, used default channel importance and
+suppressed alerts on replacement. Setup now requests POST_NOTIFICATIONS once
+from the visible activity; later manual requests open app/channel settings when
+appropriate. New receipt channels use HIGH importance, existing DEFAULT/NONE
+channels are preserved and explained in the status. A repeated receipt can alert
+again. A separate test ID (63) preserves actual receipt ID 62 and connection ID
+61. Permission denial or notification exceptions still cannot undo saved files.
+ShareActivity/background uploads do not trigger notification permission UI.
+
+Validation on this change:
+- Windows Release project build succeeds with zero warnings/errors.
+- All 2482 portable assertions pass, including real TLS receipt delivery and
+  the verified-file event path with notification subscriber failure.
+- All 65 Android API 35 Robolectric tests pass: seven new notification regressions
+  cover replacement alerts, blocked/default channels, first/reopened setup,
+  denial-to-app-settings, channel settings, and independent test notices. Design
+  tests explicitly grant the onboarding permission to isolate navigation.
+- All 31 production Java sources compile against Android 15 Robolectric reference
+  classes with generated R and ZXing. Source-package and whitespace checks pass.
+
+No signed APK, portable EXE packaging, actual Android permission dialog,
+Samsung heads-up or live desktop popup was tested here. Use the existing manual
+Windows Actions workflow and the device checks in TESTING.md. Existing channel
+importance requires the user's system settings change after an upgrade when
+heads-up is desired; the code does not delete/recreate or bypass blocked channels.
 
 ## Shared native interface (0.7.31)
 

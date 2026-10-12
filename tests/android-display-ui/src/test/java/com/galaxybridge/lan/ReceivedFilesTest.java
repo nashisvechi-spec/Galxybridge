@@ -43,6 +43,23 @@ public class ReceivedFilesTest {
     private void chunk() throws Exception { downloads.accept(command("fileChunk").put("seq",0).put("data",Base64.encodeToString(bytes,Base64.NO_WRAP))); }
     private String end() throws Exception { return downloads.accept(command("fileEnd").put("sha256",Wire.hex(MessageDigest.getInstance("SHA-256").digest(bytes)))); }
     private Notification notification() { return shadowOf(manager).getNotification(ReceivedFiles.NOTIFICATION); }
+    @Test public void repeatedReceiptsAlertAgain() {
+        ReceivedFiles.notifySaved(context,"first.pdf");ReceivedFiles.notifySaved(context,"second.pdf");
+        assertTrue(notification().extras.getString(Notification.EXTRA_TEXT).contains("second.pdf"));
+        assertEquals(0,notification().flags&Notification.FLAG_ONLY_ALERT_ONCE);
+    }
+    @Test public void blockedReceiptChannelStillCompletesVerifiedFile() throws Exception {
+        manager.createNotificationChannel(new NotificationChannel(ReceivedFiles.CHANNEL,"Полученные файлы",NotificationManager.IMPORTANCE_NONE));
+        begin();chunk();assertEquals("report.pdf",end());assertTrue(provider.published);assertNull(notification());
+        assertTrue(ReceivedFiles.status(context).contains("категория"));
+        assertEquals(NotificationManager.IMPORTANCE_NONE,manager.getNotificationChannel(ReceivedFiles.CHANNEL).getImportance());
+    }
+    @Test public void existingDefaultChannelRemainsUserControlledAndIsReported() {
+        manager.createNotificationChannel(new NotificationChannel(ReceivedFiles.CHANNEL,"Полученные файлы",NotificationManager.IMPORTANCE_DEFAULT));
+        ReceivedFiles.ensureChannel(context);
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT,manager.getNotificationChannel(ReceivedFiles.CHANNEL).getImportance());
+        assertTrue(ReceivedFiles.status(context).contains("без всплывающего окна"));
+    }
     @Test public void verifiedPublishedFileNotifiesWithProviderNameAndFolderTap() throws Exception {
         begin();assertNull(notification());chunk();assertNull(notification());
         provider.name="report (1).pdf";assertEquals("report (1).pdf",end());
@@ -50,7 +67,7 @@ public class ReceivedFilesTest {
         assertEquals("Файл получен с ПК",notice.extras.getString(Notification.EXTRA_TITLE));
         assertTrue(notice.extras.getString(Notification.EXTRA_TEXT).contains("report (1).pdf"));
         assertEquals(ReceivedFiles.CHANNEL,notice.getChannelId());
-        assertEquals(NotificationManager.IMPORTANCE_DEFAULT,manager.getNotificationChannel(ReceivedFiles.CHANNEL).getImportance());
+        assertEquals(NotificationManager.IMPORTANCE_HIGH,manager.getNotificationChannel(ReceivedFiles.CHANNEL).getImportance());
         assertTrue((notice.flags&Notification.FLAG_AUTO_CANCEL)!=0);assertTrue(notice.contentIntent.isImmutable());
         Intent tap=shadowOf(notice.contentIntent).getSavedIntent();
         assertEquals(ReceivedFolderActivity.class.getName(),tap.getComponent().getClassName());

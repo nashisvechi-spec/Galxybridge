@@ -1,5 +1,21 @@
 # Testing the no-debugging edition
 
+## Receipt notifications (0.7.32)
+
+Run the Android suite including `NotificationSettingsTest` and `ReceivedFilesTest`.
+Check first-open permission, reopening after denial, app/channel settings intents,
+preserved disabled/default channels, repeated alert flags, and a separate test
+notice that does not overwrite receipt or connection notices.
+
+On a real Android device test permission acceptance/denial, disabled application
+and receipt channel, heads-up presentation after upgrading from 0.7.31, two
+successive files and folder taps. Existing channel importance is user-controlled:
+use Settings → Allow notifications to enable heads-up if required. On Windows
+test the Settings notification button with the main window normal/minimized,
+two successive receipts into different folders, keyboard focus unchanged,
+hover/dismiss/X, DPI/monitor work areas, and cleanup on application exit. The
+Windows receipt card is an application window, not a Notification Center toast.
+
 ## Shared interface (0.7.31)
 
 Run the portable tests and the Android UI suite. The latter now has 58 cases,

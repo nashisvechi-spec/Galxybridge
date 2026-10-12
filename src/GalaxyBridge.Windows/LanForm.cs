@@ -10,7 +10,7 @@ namespace GalaxyBridge.Windows;
 internal sealed class LanForm : Form
 {
     private readonly NotifyIcon tray = new();
-    private string? receivedNoticeFolder;
+    private ReceiptNotice? receiptNotice;
     private readonly PhoneControlRoute route;
     private readonly Settings settings;
     private readonly LanHost host;
@@ -78,6 +78,7 @@ internal sealed class LanForm : Form
         if(fileWindow is not null) BridgeTheme.Apply(fileWindow);
         if(fileWidget is not null) BridgeTheme.Apply(fileWidget);
         if(pairingWindow is not null) BridgeTheme.Apply(pairingWindow);
+        if(receiptNotice is not null) BridgeTheme.Apply(receiptNotice);
     }
     private void ThemeChanged(object? sender,UserPreferenceChangedEventArgs e) { if(settings.ThemeMode=="system") Ui(ApplyDesign); }
 
@@ -86,7 +87,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text="Galaxy Bridge • 0.7.31";Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;
+        Text="Galaxy Bridge • 0.7.32";Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;
         AutoScaleDimensions=new SizeF(96,96);StartPosition=FormStartPosition.CenterScreen;
         Size=new Size(1000,Math.Min(740,(Screen.PrimaryScreen?.WorkingArea.Height??850)-40));MinimumSize=new Size(740,500);
         TableLayoutPanel shell=new() { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
@@ -101,7 +102,7 @@ internal sealed class LanForm : Form
             nav.Click+=(_,_)=>SelectSection(index);sidebar.Controls.Add(nav);sectionButtons.Add(nav);
             Panel panel=new() { Dock=DockStyle.Fill,Visible=i==0 };sections.Add(panel);screenHost.Controls.Add(panel);
         }
-        sidebar.Controls.Add(BridgeTheme.Label("Версия 0.7.31\nWi-Fi · без отладки"));sidebar.Controls.Add(sidebarStatus);
+        sidebar.Controls.Add(BridgeTheme.Label("Версия 0.7.32\nWi-Fi · без отладки"));sidebar.Controls.Add(sidebarStatus);
         shell.Controls.Add(sidebar,0,0);shell.Controls.Add(screenHost,1,0);Controls.Add(shell);
         TableLayoutPanel devices=BridgeTheme.Page(sections[0],"Устройства","Один мост между телефоном и компьютером.");
         BridgeCard device=BridgeTheme.Card(devices,"Ваше подключение");device.Controls.Add(deviceName);device.Controls.Add(state);
@@ -150,6 +151,11 @@ internal sealed class LanForm : Form
         theme.SelectedIndex=settings.ThemeMode=="dark"?2:settings.ThemeMode=="light"?1:0;
         theme.SelectedIndexChanged+=(_,_)=> { settings.ThemeMode=theme.SelectedIndex==2?"dark":theme.SelectedIndex==1?"light":"system";SaveSettings();ApplyDesign(); };
         appearance.Controls.Add(theme);appearance.Controls.Add(BridgeTheme.Label("Синий — действие. Бирюзовый — связь."));
+        BridgeCard notices=BridgeTheme.Card(preferences,"Уведомления о файлах");
+        notices.Controls.Add(BridgeTheme.Label("После сохранения файла появится карточка в углу экрана, даже если главное окно свёрнуто. Нажмите «Открыть папку», чтобы увидеть файл."));
+        BridgeButton testNotice=BridgeTheme.Button("Проверить уведомление");
+        testNotice.Click+=(_,_)=>ShowReceiptNotice("Проверка уведомлений","Galaxy Bridge · уведомления работают. Файл не создаётся.",settings.NativeReceiveFolder);
+        notices.Controls.Add(testNotice);
         BridgeCard native=BridgeTheme.Card(preferences,"Системная мышь Bluetooth");native.Controls.Add(BridgeTheme.Row(bluetooth,bluetoothStop));native.Controls.Add(bluetoothPeers);native.Controls.Add(bluetoothState);
         bluetoothState.Text="Готовая BLE HID-связь включает системную мышь Android. Если адаптер её не поддерживает, доступно управление через Wi-Fi.";
         native.Controls.Add(BridgeTheme.Label("Для возврата через край подключите телефон по QR и разрешите «Поверх других приложений»."));
@@ -218,7 +224,6 @@ internal sealed class LanForm : Form
         menu.Items.Add("Выход", null, (_, _) => Close());
         tray.Icon = AppIcon.Value; tray.Text = "Galaxy Bridge"; tray.ContextMenuStrip = menu; tray.Visible = true;
         tray.DoubleClick += (_, _) => OpenWindow();
-        tray.BalloonTipClicked += (_, _) => { if (receivedNoticeFolder is string folder) OpenReceiveFolder(folder); };
         Resize += (_, _) => { if (WindowState == FormWindowState.Minimized) Hide(); };
         RegisterDrop(this);
     }
@@ -644,11 +649,18 @@ internal sealed class LanForm : Form
     private void NotifyFileReceived(string phone, string path)
     {
         RecordTransfer("Телефон → ПК",Path.GetFileName(path));
-        receivedNoticeFolder = Path.GetDirectoryName(path);
-        string text = Path.GetFileName(path) + "\nОт: " + phone + "\nНажмите, чтобы открыть папку.";
-        try { tray.ShowBalloonTip(5000, "Файл получен с телефона", text, ToolTipIcon.Info); }
+        string folder=Path.GetDirectoryName(path)??settings.NativeReceiveFolder;
+        ShowReceiptNotice("Файл получен с телефона",Path.GetFileName(path)+"\nОт: "+phone,folder);
+    }
+    private void ShowReceiptNotice(string title,string text,string folder)
+    {
+        try
+        {
+            if(receiptNotice is null || receiptNotice.IsDisposed) receiptNotice=new ReceiptNotice();
+            receiptNotice.Present(title,text,Screen.FromControl(this).WorkingArea,()=>OpenReceiveFolder(folder));
+        }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or ArgumentException)
-        { connectionDetail.Text = "Файл получен: " + Path.GetFileName(path); }
+        { connectionDetail.Text = title+": "+text; }
     }
     private void OpenReceiveFolder(string folder)
     {
@@ -712,6 +724,7 @@ internal sealed class LanForm : Form
         timer.Stop(); clipboardRetry.Stop(); receiveProgress.Dispose(); StopControl(); transfer?.Cancel(); lifetime.Cancel();
         UpdateState(); fileWindow?.Close(); fileWindow = null;fileWidget?.Close();fileWidget = null;
         ClearQr();pairingWindow?.Close();pairingWindow=null;
+        receiptNotice?.Close();receiptNotice=null;
         SystemEvents.SessionSwitch -= SessionChanged; SystemEvents.PowerModeChanged -= PowerChanged;SystemEvents.UserPreferenceChanged-=ThemeChanged;
         if (sending is not null) await sending;
         if (bluetoothOperation is not null) await bluetoothOperation;
