@@ -1,5 +1,25 @@
 # Testing the no-debugging edition
 
+## Notification sound (Android 0.7.34)
+
+Run the full `tests/android-display-ui/pom.xml` suite. On a physical S25:
+- Install as an update. In Settings, check the notification status. Existing
+  silent/blocked categories must remain untouched until you tap Enable sound.
+- Tap **Включить звук уведомлений** with normal ringer mode and audible
+  notification volume. The test and the next verified received file should
+  use the system notification tone. Tapping the receipt still opens its folder.
+- Repeat with an old low-importance category and with notification permission
+  denied. The button must request permission or open the matching settings.
+- Mute/block the replacement category, restart, and tap the button again. It
+  must open that category’s settings without creating another category.
+- Check vibrate/silent, zero notification volume, and Do Not Disturb. Status
+  must explain the restriction; the app must not alter system sound settings.
+- Repeated transfers may be quieted by Android notification cooldown. Test
+  with individual files spaced apart. The connection service stays quiet.
+
+JVM tests verify category routing, sound metadata, settings and receipt behavior,
+not physical speaker output or One UI notification cooldown.
+
 ## Borderless file widget (Windows 0.7.33)
 
 On Windows at 100%, 150% and 200% DPI, show the widget from Files or the tray:

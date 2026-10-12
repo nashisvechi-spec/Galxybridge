@@ -110,7 +110,7 @@ public final class DropActivity extends Activity {
         return true;
     }
     private void showDiagnostic(String text) {
-        dropDiagnostic="Galaxy Bridge Android 0.7.32\n"+text.replace("Galaxy Bridge Android 0.7.32\n","");
+        dropDiagnostic="Galaxy Bridge Android 0.7.34\n"+text.replace("Galaxy Bridge Android 0.7.34\n","");
         format.setText("Формат сброса:\n"+dropDiagnostic);copy.setEnabled(true);
     }
     private DropProbe.Source open(Uri uri) throws IOException {

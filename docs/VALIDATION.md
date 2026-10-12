@@ -1,4 +1,23 @@
-# Validation — Windows 0.7.33 / Android 0.7.32
+# Validation — Windows 0.7.33 / Android 0.7.34
+
+## Notification sound (Android 0.7.34)
+
+Based on main a9ef3ff. Fresh receipt channels explicitly use the system
+notification URI with notification/sonification audio attributes. Existing
+channels and custom sounds remain unchanged on update. Settings reports silent
+categories, phone silent/vibrate mode, zero notification volume and DND.
+The explicit Enable sound action switches a silent legacy channel to one stable
+replacement channel and posts a test; later muting/blocking is respected and
+the button opens its settings. Global blocks open application settings.
+Foreground connection notifications remain low-importance.
+
+Validation: all 73 Android UI/display/sharing/receipt tests pass, including
+eight added checks for sound metadata, explicit repair, preservation, exact
+category routing, permission denial, global blocking and phone sound state.
+ReceivedFiles is explicitly included in the Maven compiler inputs so incremental
+builds recompile it. Source-package and whitespace validation pass.
+No APK was packaged, and physical S25 audio output was not tested here.
+See the notification sound checklist in TESTING.md.
 
 ## Borderless artwork file widget (Windows 0.7.33)
 

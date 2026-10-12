@@ -1,6 +1,6 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.33** / Android **0.7.32**. The application starts directly in its LAN
+Windows **0.7.33** / Android **0.7.34**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -10,7 +10,14 @@ chrome. Click the center to choose files, drop Explorer files there, drag the
 blue frame to move, or click the circular cross to close only the widget.
 Progress/cancel appear during sending; disconnected widgets reject files.
 Connection and the last result are in a tooltip. Position, tray behavior,
-keyboard actions and accessible named buttons are retained. Android stays at 0.7.32.
+keyboard actions and accessible named buttons are retained. Android was 0.7.32 at that release.
+
+Android **0.7.34** explicitly uses the system notification sound for new receipt
+channels. Settings reports silent categories and offers **Enable notification
+sound**: on a deliberate tap it replaces a silent legacy category once and
+posts a test. Later user changes remain authoritative; the button opens that
+category’s settings if it is muted again. Global notification blocks open app
+settings. Silent mode, notification volume and Do Not Disturb still apply.
 
 Version **0.7.32** fixes file receipt notification handling. Windows uses a native
 non-activating corner card even with the main window hidden, with the exact

@@ -74,6 +74,7 @@ public final class SetupActivity extends Activity {
         clipboardStatus=BridgeUi.text(this,"",14,false);clipboardStatus.setPadding(0,BridgeUi.dp(this,12),0,0);access.addView(clipboardStatus);
         BridgeUi.button(access,"Переходы мыши и общий буфер",false,() -> startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()))));
         notificationStatus=BridgeUi.text(this,"",14,false);access.addView(notificationStatus);
+        BridgeUi.button(access,"Включить звук уведомлений",false,() -> { ReceivedFiles.enableSound(this);refresh(); });
         BridgeUi.button(access,"Разрешить уведомления",false,() -> ReceivedFiles.enable(this,false));
         BridgeUi.button(access,"Проверить уведомление",false,() -> ReceivedFiles.test(this));
         LinearLayout appearance=BridgeUi.card(body,"Оформление");Spinner theme=new Spinner(this);
@@ -96,7 +97,7 @@ public final class SetupActivity extends Activity {
         link.addView(BridgeUi.text(this,"При обрыве проверьте общую Wi-Fi сеть и влияние VPN. Для DeX экран управления выбирается автоматически.",14,false));
         BridgeUi.button(body,"Забыть компьютер",false,() -> new AlertDialog.Builder(this).setMessage("Удалить сопряжение с ноутбуком?").setNegativeButton("Отмена",null)
             .setPositiveButton("Забыть",(d,w) -> { stopService(new Intent(this,ConnectionService.class));prefs().edit().clear().commit();ConnectionService.status="Ноутбук забыт.";showTab(selectedTab); }).show());
-        body.addView(BridgeUi.text(this,"Galaxy Bridge · 0.7.32",13,false));
+        body.addView(BridgeUi.text(this,"Galaxy Bridge · 0.7.34",13,false));
     }
     private void refresh() {
         if(status!=null) status.setText(ConnectionService.status);
