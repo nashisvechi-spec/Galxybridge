@@ -86,7 +86,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text="Galaxy Bridge • 0.7.33";Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;
+        Text="Galaxy Bridge • 0.7.35";Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;
         AutoScaleDimensions=new SizeF(96,96);StartPosition=FormStartPosition.CenterScreen;
         Size=new Size(1000,Math.Min(740,(Screen.PrimaryScreen?.WorkingArea.Height??850)-40));MinimumSize=new Size(740,500);
         TableLayoutPanel shell=new() { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
@@ -101,7 +101,7 @@ internal sealed class LanForm : Form
             nav.Click+=(_,_)=>SelectSection(index);sidebar.Controls.Add(nav);sectionButtons.Add(nav);
             Panel panel=new() { Dock=DockStyle.Fill,Visible=i==0 };sections.Add(panel);screenHost.Controls.Add(panel);
         }
-        sidebar.Controls.Add(BridgeTheme.Label("Версия 0.7.33\nWi-Fi · без отладки"));sidebar.Controls.Add(sidebarStatus);
+        sidebar.Controls.Add(BridgeTheme.Label("Версия 0.7.35\nWi-Fi · без отладки"));sidebar.Controls.Add(sidebarStatus);
         shell.Controls.Add(sidebar,0,0);shell.Controls.Add(screenHost,1,0);Controls.Add(shell);
         TableLayoutPanel devices=BridgeTheme.Page(sections[0],"Устройства","Один мост между телефоном и компьютером.");
         BridgeCard device=BridgeTheme.Card(devices,"Ваше подключение");device.Controls.Add(deviceName);device.Controls.Add(state);
@@ -150,6 +150,21 @@ internal sealed class LanForm : Form
         theme.SelectedIndex=settings.ThemeMode=="dark"?2:settings.ThemeMode=="light"?1:0;
         theme.SelectedIndexChanged+=(_,_)=> { settings.ThemeMode=theme.SelectedIndex==2?"dark":theme.SelectedIndex==1?"light":"system";SaveSettings();ApplyDesign(); };
         appearance.Controls.Add(theme);appearance.Controls.Add(BridgeTheme.Label("Синий — действие. Бирюзовый — связь."));
+        BridgeCard widgetSettings=BridgeTheme.Card(preferences,"Виджет передачи файлов");
+        widgetSettings.Controls.Add(BridgeTheme.Label("Прозрачность виджета"));
+        TrackBar widgetTransparency=new() { Minimum=0,Maximum=80,Value=settings.FileWidgetTransparency,
+            TickFrequency=20,SmallChange=1,LargeChange=10,Width=260,Height=40,AccessibleName="Прозрачность виджета, от 0 до 80 процентов" };
+        Label widgetTransparencyValue=BridgeTheme.Label($"{settings.FileWidgetTransparency}%");
+        widgetTransparency.ValueChanged+=(_,_)=> {
+            settings.FileWidgetTransparency=widgetTransparency.Value;
+            widgetTransparencyValue.Text=$"{settings.FileWidgetTransparency}%";
+            fileWidget?.SetTransparency(settings.FileWidgetTransparency);SaveSettings();
+        };
+        widgetSettings.Controls.Add(BridgeTheme.Row(widgetTransparency,widgetTransparencyValue));
+        widgetSettings.Controls.Add(BridgeTheme.Label("0% — обычная яркость, 80% — почти прозрачный. Изменения применяются сразу."));
+        BridgeButton previewWidget=BridgeTheme.Button("Показать виджет");
+        previewWidget.Click+=(_,_)=> { showFileWidget.Checked=true;OpenFileWidget(); };
+        widgetSettings.Controls.Add(previewWidget);
         BridgeCard notices=BridgeTheme.Card(preferences,"Уведомления о файлах");
         notices.Controls.Add(BridgeTheme.Label("После сохранения файла появится карточка в углу экрана, даже если главное окно свёрнуто. Нажмите «Открыть папку», чтобы увидеть файл."));
         BridgeButton testNotice=BridgeTheme.Button("Проверить уведомление");
@@ -596,6 +611,7 @@ internal sealed class LanForm : Form
         if (closing) return;
         if (fileWidget is { IsDisposed: false }) { fileWidget.Show();fileWidget.Activate();return; }
         FileTransferWidget widget = new(SendAsync, () => transfer?.Cancel());fileWidget = widget;
+        widget.SetTransparency(settings.FileWidgetTransparency);
         Rectangle area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1000, 700);
         Point wanted = settings.FileWidgetX is int x && settings.FileWidgetY is int y ? new Point(x, y) :
             new Point(area.Right-widget.Width-16, area.Bottom-widget.Height-16);

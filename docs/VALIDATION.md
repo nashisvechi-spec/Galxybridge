@@ -1,4 +1,20 @@
-# Validation — Windows 0.7.33 / Android 0.7.34
+# Validation — Windows 0.7.35 / Android 0.7.34
+
+## Widget transparency (Windows 0.7.35)
+
+Based on main a89ab0e. Settings has a live 0–80% transparency slider, a percent
+label and Show widget preview action. FileWidgetTransparency defaults to 0
+and clamps loaded/set values; it persists through the existing atomic JSON
+save and is applied before showing a newly opened widget. Rendering supplies
+the selected global alpha to UpdateLayeredWindow alongside per-pixel alpha,
+including hover/focus and transfer overlays. It never sets Form.Opacity.
+
+All Windows/Core production C# sources compile with C# 12 and .NET 8/Windows
+reference assemblies, with only the existing QRCoder 1701 reference warnings.
+All 2527 existing portable core assertions pass. Source-package and whitespace
+validation pass. Native Windows visuals, slider interaction and restart/DPI
+behavior need the physical checklist in TESTING.md. No EXE was packaged here.
+Android remains at 0.7.34.
 
 ## Notification sound (Android 0.7.34)
 

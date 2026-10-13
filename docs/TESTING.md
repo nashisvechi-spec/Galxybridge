@@ -1,5 +1,18 @@
 # Testing the no-debugging edition
 
+## Widget transparency (Windows 0.7.35)
+
+In Settings → File transfer widget, use Show widget, then drag the transparency
+slider between 0%, 40% and 80%. Check live appearance and the percent label,
+including keyboard arrow/Page Up/Page Down operation. Close/reopen the widget,
+then restart the app; the selected transparency must remain. Repeat changing
+the value while the widget is closed. Old settings without the property use
+0%; out-of-range saved values clamp to 0–80%. At 80%, test choosing/dropping
+files, moving and closing; the widget must remain visible and interactive.
+During a transfer check progress/cancel and hover/focus cues at each setting,
+including after DPI/theme changes. Outer transparent pixels remain transparent.
+
+
 ## Notification sound (Android 0.7.34)
 
 Run the full `tests/android-display-ui/pom.xml` suite. On a physical S25:

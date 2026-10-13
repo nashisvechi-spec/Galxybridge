@@ -14,6 +14,7 @@ internal sealed class FileTransferWidget : Form
     private bool available, busy, choosing, dropping, submitting, disposed;
     private int? percent;
     private int animationStep;
+    private byte opacity = 255;
     private string phone = "Ожидаем подключение S25…", message = "";
     private FileWidgetAction pressed, hover, keyboardAction = FileWidgetAction.Send;
 
@@ -82,6 +83,12 @@ internal sealed class FileTransferWidget : Form
         else if (action == FileWidgetAction.Send) await ChooseAsync();
     }
 
+    public void SetTransparency(int percent)
+    {
+        byte value = (byte)((255 * (100 - Math.Clamp(percent, 0, 80)) + 50) / 100);
+        if (opacity == value) return;
+        opacity = value;Render();
+    }
     public void UpdateTransfer(bool canSend, bool busy, string phone, string message, int? percent)
     {
         if (IsDisposed) return;
@@ -191,7 +198,7 @@ internal sealed class FileTransferWidget : Form
                 }
             }
         }
-        AlphaWidgetWindow.Present(Handle, frame, Location);
+        AlphaWidgetWindow.Present(Handle, frame, Location, opacity);
     }
 
     protected override AccessibleObject CreateAccessibilityInstance() => new WidgetAccessibleObject(this);

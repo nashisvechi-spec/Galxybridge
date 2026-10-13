@@ -7,7 +7,7 @@ namespace GalaxyBridge.Windows;
 // Per-pixel alpha preserves the rounded silhouette and glow, without a color key.
 internal static class AlphaWidgetWindow
 {
-    public static void Present(IntPtr window, Bitmap bitmap, Point location)
+    public static void Present(IntPtr window, Bitmap bitmap, Point location, byte opacity)
     {
         IntPtr screen = GetDC(IntPtr.Zero), memory = IntPtr.Zero, image = IntPtr.Zero, previous = IntPtr.Zero;
         try
@@ -18,7 +18,7 @@ internal static class AlphaWidgetWindow
             if (bitmap.PixelFormat != PixelFormat.Format32bppPArgb) throw new ArgumentException("Expected premultiplied bitmap.", nameof(bitmap));
             image = bitmap.GetHbitmap(Color.FromArgb(0));previous = SelectObject(memory, image);
             Point source = Point.Empty;Size size = bitmap.Size;
-            Blend blend = new() { SourceConstantAlpha = 255, AlphaFormat = 1 };
+            Blend blend = new() { SourceConstantAlpha = opacity, AlphaFormat = 1 };
             if (!UpdateLayeredWindow(window, screen, ref location, ref size, memory, ref source, 0, ref blend, 2))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
         }

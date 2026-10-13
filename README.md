@@ -1,8 +1,13 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.33** / Android **0.7.34**. The application starts directly in its LAN
+Windows **0.7.35** / Android **0.7.34**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
+
+Windows **0.7.35** adds a widget transparency slider in Settings (0–80%).
+Changes apply live and are saved for reopening/restart. Missing settings keep
+the original appearance. The preview button shows the widget. The alpha blend
+retains the artwork silhouette and enough visibility for mouse actions.
 
 Windows **0.7.33** replaces the file widget with the selected blue/teal artwork.
 A per-pixel alpha window preserves its transparent silhouette without system

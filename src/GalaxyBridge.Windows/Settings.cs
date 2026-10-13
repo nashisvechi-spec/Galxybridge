@@ -11,6 +11,12 @@ internal sealed class Settings
     public bool EdgeEntryEnabled { get; set; } = true;
     public int EdgeEntryDelayMs { get; set; } = 350;
     public bool FileWidgetVisible { get; set; }
+    private int fileWidgetTransparency;
+    public int FileWidgetTransparency
+    {
+        get => fileWidgetTransparency;
+        set => fileWidgetTransparency = Math.Clamp(value, 0, 80);
+    }
     public int? FileWidgetX { get; set; }
     public int? FileWidgetY { get; set; }
     public bool WheelZoomEnabled { get; set; }
