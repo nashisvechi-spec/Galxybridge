@@ -1,6 +1,6 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.35** / Android **0.7.34**. The application starts directly in its LAN
+Windows **0.7.36** / Android **0.7.34**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -148,9 +148,16 @@ The supplied Windows GlideX uses a separate Classic Bluetooth HID driver.
 BLE Peripheral support does not measure Classic HID compatibility; Galaxy Bridge
 does not yet include a Classic HID backend. See [the analysis](docs/GLIDEX_WINDOWS.ru.md).
 
-Builds run **manually only**: Actions → Build Windows portable → Run workflow.
-Two artifacts are published: **GalaxyBridge-win10-x64** and **GalaxyBridgeLan-android**.
-The ZIP contains GalaxyBridge.exe, GalaxyBridgeLan.apk, GalaxyFiles.apk, instructions and notices.
+Builds run **manually only**: Actions → Build Windows installer → Run workflow.
+Two artifacts are published: **GalaxyBridge-Windows-Setup** and **GalaxyBridgeLan-android**.
+The Windows artifact contains `GalaxyBridge-Setup-0.7.36-x64.exe`, an Inno Setup
+installer with Russian/English UI, Start menu and optional desktop shortcuts,
+and a registered uninstaller. It installs for the current user, with the .NET
+runtime included. Update by running the next installer after closing the app;
+pairing/settings and received files are preserved, including on uninstall.
+Android remains a separate APK; Galaxy Files is excluded. The GitHub artifact
+download is a ZIP wrapper: extract it and run the Setup EXE.
+See [Windows installation](docs/WINDOWS_INSTALLER.ru.md).
 No external connection backend or separate edge companion is bundled.
 
 Install the APK, put both devices on the same LAN, show a new QR in Windows,
@@ -165,7 +172,7 @@ Windows updates; APK updates require the existing persistent signing key.
 
 ## Build
 
-Use .NET 8, PowerShell 7, JDK 17, Android SDK platform 35 and build-tools 35.0.0.
+Use .NET 8, PowerShell 7, Inno Setup 6, JDK 17, Android SDK platform 35 and build-tools 35.0.0.
 See the manual workflow for the complete build and packaging sequence.
 
 ```powershell
@@ -175,6 +182,8 @@ dotnet run --project tests/GalaxyBridge.LanTls.Tests -c Release
 ./scripts/Test-LanProtocol.ps1
 dotnet publish src/GalaxyBridge.Windows -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/GalaxyBridge
 ./scripts/Build-LanCompanion.ps1 -Destination artifacts/GalaxyBridge -VersionCode 100500
+# Copy README.ru.md, LICENSE, THIRD_PARTY_NOTICES.md, licenses/ and docs/ into the publish directory.
+./scripts/Build-WindowsInstaller.ps1
 ```
 
 Set GALAXYBRIDGE_ANDROID_SIGNING_BUNDLE to the existing persistent signing bundle
@@ -186,8 +195,8 @@ MIT license; packaged dependencies retain [their notices](THIRD_PARTY_NOTICES.md
 
 This repository also contains **Galaxy Files 0.2.0**, an independently installed
 Android 13+ file manager (`android/files`, package `com.galaxybridge.files`).
-The manual Windows workflow builds `GalaxyFiles.apk` as `GalaxyFiles-android`
-and includes it beside the Wi-Fi companion in the portable ZIP.
+Galaxy Files sources remain in this repository, but the active Windows
+workflow and installer do not build or include `GalaxyFiles.apk`.
 The home screen offers recent files, six categories and storage usage.
 List/grid views use original type icons and background photo/video thumbnails.
 Local browsing and file operations work without a PC. Sending and Wi-Fi mouse

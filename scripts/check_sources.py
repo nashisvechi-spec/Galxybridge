@@ -126,7 +126,7 @@ def main() -> None:
                     'src/GalaxyBridge.Windows/PhoneSession.cs', 'src/GalaxyBridge.Core/ControlProtocol.cs'):
         require(not (ROOT / removed).exists(), f'Legacy debug component must be absent: {removed}')
     require(all(word not in workflow for word in ('Fetch-Backend', 'Build-EdgeHelper', 'GalaxyBridgeEdge', 'backend/')),
-            'Portable artifacts must contain only the application without debugging')
+            'Installer artifacts must contain only the application without debugging')
     for path in (ROOT / 'src').rglob('*.cs'):
         require(not re.search(r'\b(AdbClient|AdbEndpoint|AdbDevice|ControlProtocol|MainForm)\b', path.read_text(encoding='utf-8-sig')),
                 f'No legacy runtime dependency in {path.relative_to(ROOT)}')
@@ -148,7 +148,21 @@ def main() -> None:
     require('dotnet run --project tests/GalaxyBridge.LanTls.Tests/' in workflow,
             'Workflow must test the production certificate import with Windows TLS')
     require('--self-contained true' in workflow and '-r win-x64' in workflow,
-            'Portable Windows x64 publish configuration')
+            'Self-contained Windows x64 publish configuration')
+    installer = read('installer/GalaxyBridge.iss')
+    read('scripts/Build-WindowsInstaller.ps1')
+    read('scripts/Test-WindowsInstaller.ps1')
+    require('./scripts/Build-WindowsInstaller.ps1' in workflow and './scripts/Test-WindowsInstaller.ps1' in workflow,
+            'Workflow must compile and smoke-test the Windows installer')
+    require('name: GalaxyBridge-Windows-Setup' in workflow and 'artifacts/installer/GalaxyBridge-Setup-*-x64.exe' in workflow
+            and 'Compress-Archive' not in workflow, 'Publish the installer instead of a portable application ZIP')
+    require('name: GalaxyBridgeLan-android' in workflow, 'Android APK remains a separate artifact')
+    require('PrivilegesRequired=lowest' in installer and 'DefaultDirName={localappdata}\\Programs\\GalaxyBridge' in installer,
+            'Install per user outside the application settings folder')
+    require('AppMutex=GalaxyBridge.CurrentUser.{username}' in installer and 'UsePreviousAppDir=yes' in installer,
+            'Updates reuse the installation and require closing the running application')
+    require('[UninstallDelete]' not in installer and '[InstallDelete]' not in installer,
+            'Installer must not remove stored pairing, settings or received files')
     ns = '{http://schemas.android.com/apk/res/android}'
     lan = ET.fromstring(read('android/lan/AndroidManifest.xml'))
     require(lan.find('uses-sdk').get(ns + 'minSdkVersion') == '33', 'Native input needs Android 13+')

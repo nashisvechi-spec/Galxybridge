@@ -1,5 +1,22 @@
 # Testing the no-debugging edition
 
+## Windows installer (0.7.36)
+
+The manual Windows workflow builds the actual Setup EXE with Inno Setup and
+runs `Test-WindowsInstaller.ps1` on its empty CI account before upload. It checks
+silent installation, EXE/version/license, separate APK exclusion, Start menu
+shortcut, uninstall registration, repeated install without duplicate uninstallers,
+and uninstall while preserving a sentinel in the application's data directory.
+Never run this CI smoke test against a personal Windows account/installation.
+
+On Windows 10/11, also install through the Russian wizard with the default path
+and a path containing spaces/non-ASCII characters. Check desktop task selection
+and launch at finish. Set pairing, widget transparency and a custom receive folder;
+close via the tray and install a newer build. Verify all settings/files survive,
+and that the running-app check prompts if either the installed or portable copy
+is active. Uninstall through Windows Settings, verify shortcuts/program files
+are removed, then reinstall and verify pairing and saved settings are restored.
+
 ## Widget transparency (Windows 0.7.35)
 
 In Settings → File transfer widget, use Show widget, then drag the transparency

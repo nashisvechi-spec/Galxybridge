@@ -1,4 +1,4 @@
-name: Build Windows portable
+name: Build Windows installer
 
 # Building is deliberately manual. Uploading/pushing the source does not build an EXE.
 on:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  portable:
+  installer:
     runs-on: windows-2022
     timeout-minutes: 30
     defaults:
@@ -69,13 +69,18 @@ jobs:
           $names = @($apks.Name | Sort-Object)
           if ($apks.Count -ne 1 -or ($names -join ',') -ne 'GalaxyBridgeLan.apk') { throw 'Expected only the Galaxy Bridge LAN companion APK.' }
           if ($executables.Count -ne 1 -or $executables[0].Name -ne 'GalaxyBridge.exe') { throw 'Expected only the Galaxy Bridge executable.' }
-      - name: Package portable application
-        run: Compress-Archive -Path artifacts/GalaxyBridge/* -DestinationPath artifacts/GalaxyBridge-win10-x64.zip
-      - name: Upload portable ZIP
+      - name: Build Windows installer
+        run: ./scripts/Build-WindowsInstaller.ps1
+      - name: Test Windows installation, update and uninstall
+        run: |
+          $setups = @(Get-ChildItem artifacts/installer -File -Filter 'GalaxyBridge-Setup-*-x64.exe')
+          if ($setups.Count -ne 1) { throw 'Expected exactly one Windows installer.' }
+          ./scripts/Test-WindowsInstaller.ps1 -Installer $setups[0].FullName
+      - name: Upload Windows installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: GalaxyBridge-win10-x64
-          path: artifacts/GalaxyBridge-win10-x64.zip
+          name: GalaxyBridge-Windows-Setup
+          path: artifacts/installer/GalaxyBridge-Setup-*-x64.exe
           if-no-files-found: error
           retention-days: 14
       - name: Upload independent Wi-Fi APK

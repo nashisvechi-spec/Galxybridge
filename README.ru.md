@@ -1,12 +1,13 @@
 # Galaxy Bridge — только без отладки
 
-Windows **0.7.35**, Android **0.7.34**. При подключении Samsung DeX к монитору или
+Windows **0.7.36**, Android **0.7.34**. При подключении Samsung DeX к монитору или
 телевизору курсор и касания автоматически направляются на внешний дисплей.
 Ручной выбор экрана не нужен, старые настройки выбора телефона игнорируются.
 Если управление уже включено, оно возобновляется на DeX после отпускания
 кнопок и клавиш. Без монитора используется экран смартфона.
 
-В готовом пакете — **GalaxyBridge.exe** и **GalaxyBridgeLan.apk**.
+После сборки — установщик **GalaxyBridge-Setup-0.7.36-x64.exe** для Windows
+и отдельный **GalaxyBridgeLan.apk** для телефона.
 Galaxy Files исключён из сборки; перенос файлов через край экрана удалён.
 Обычная отправка, приём файлов и отдельный Windows-виджет доступны.
 Переход курсора через край и Ctrl+Alt+F12 сохраняются.
@@ -103,11 +104,13 @@ DeX также отменяют ожидание. Подключённый DeX �
 
 ## Подключение
 
-1. В GitHub Actions запустите **Build Windows portable → Run workflow**.
+1. В GitHub Actions запустите **Build Windows installer → Run workflow**.
    Сборка запускается только вручную.
-2. Скачайте **GalaxyBridge-win10-x64** и **GalaxyBridgeLan-android**.
-   Распакуйте ZIP, запустите GalaxyBridge.exe. Установите GalaxyBridgeLan.apk
+2. Скачайте **GalaxyBridge-Windows-Setup** и **GalaxyBridgeLan-android**.
+   Распакуйте архив артефакта Windows и запустите **GalaxyBridge-Setup-0.7.36-x64.exe**.
+   Установщик создаст ярлык и запись для удаления программы. APK установите
    на телефон и откройте **Galaxy Bridge Wi-Fi**.
+   [Установка и обновление Windows](docs/WINDOWS_INSTALLER.ru.md).
 3. Подключите оба устройства к одной локальной сети. В Windows нажмите
    **Показать новый QR (2 минуты)**; при необходимости выберите адрес Wi-Fi.
 4. На телефоне нажмите **Сканировать QR** внутри Galaxy Bridge, разрешите
@@ -227,9 +230,12 @@ dotnet run --project tests/GalaxyBridge.LanTls.Tests -c Release
 ./scripts/Test-LanProtocol.ps1
 dotnet publish src/GalaxyBridge.Windows -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/GalaxyBridge
 ./scripts/Build-LanCompanion.ps1 -Destination artifacts/GalaxyBridge -VersionCode 100500
+# Скопируйте инструкции, LICENSE, THIRD_PARTY_NOTICES.md, licenses/ и docs/ в папку публикации.
+./scripts/Build-WindowsInstaller.ps1
 ```
 
 Версию APK задавайте больше установленной. Готовая сборка содержит
-GalaxyBridge.exe и один Android APK — GalaxyBridgeLan.apk.
+установщик Windows и один отдельный Android APK — GalaxyBridgeLan.apk.
+Для локальной упаковки Windows нужен Inno Setup 6.
 Исходники Galaxy Files остаются в репозитории, но в активный workflow и пакет
 приложения не входят.

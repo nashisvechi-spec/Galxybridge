@@ -1,4 +1,26 @@
-# Validation — Windows 0.7.35 / Android 0.7.34
+# Validation — Windows 0.7.36 / Android 0.7.34
+
+## Windows installer (0.7.36)
+
+Based on main 5313976. The manual workflow now publishes a versioned Inno Setup
+EXE instead of the portable Windows ZIP, with the Wi-Fi APK as the second artifact.
+The installer uses a stable AppId, a per-user Programs directory, Russian/English
+UI, Start menu/optional desktop shortcuts, and Windows uninstall registration.
+It checks the existing per-user application mutex before install/uninstall.
+The packaged self-contained application needs no separate .NET installation.
+Settings/identity and received files are outside the installation payload and
+are not deleted. The build script reads the version from the Windows project,
+rejects missing publish output and failed/empty compilation, and deletes stale
+Setup output before compiling.
+
+Validation in this environment: PowerShell parsing and executable build-wrapper
+checks pass for success, failed compiler with stale output, missing compiler
+output, and missing application publish. Workflow YAML parsing, package checks
+and whitespace checks pass. These checks use a compiler fixture, not Inno Setup.
+Actual ISCC compilation, install, repeated install, shortcut/registration checks,
+uninstall and data preservation are enforced by Test-WindowsInstaller.ps1 in
+the Windows workflow before upload; they have not been run here. No Setup EXE
+was built locally and no Actions build was started. Android remains 0.7.34.
 
 ## Widget transparency (Windows 0.7.35)
 
