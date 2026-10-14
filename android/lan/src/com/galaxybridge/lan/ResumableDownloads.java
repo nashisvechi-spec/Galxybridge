@@ -6,6 +6,9 @@ import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
 import java.io.*;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import org.json.JSONObject;
@@ -79,7 +82,10 @@ final class ResumableDownloads implements AutoCloseable {
     private void writeMetadata() throws Exception {
         File pending=new File(cache,transfer+".json.tmp");
         try(FileOutputStream stream=new FileOutputStream(pending)) { stream.write(metadata.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));stream.getFD().sync(); }
-        if(!pending.renameTo(manifest())) throw new IOException("Cannot save resume metadata");
+        // File.renameTo cannot replace an existing target on the Windows test runner.
+        // Keep the old receipt intact until its complete replacement is ready.
+        try { Files.move(pending.toPath(),manifest().toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING); }
+        catch(AtomicMoveNotSupportedException e) { Files.move(pending.toPath(),manifest().toPath(),StandardCopyOption.REPLACE_EXISTING); }
     }
     private void prune() {
         File[] files=cache.listFiles((dir,n) -> n.endsWith(".json") && Wire.hex(n.substring(0,n.length()-5),32));if(files==null) return;

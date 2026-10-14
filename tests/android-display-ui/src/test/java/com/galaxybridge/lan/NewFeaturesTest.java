@@ -68,10 +68,13 @@ public class NewFeaturesTest {
             try(ResumableDownloads first=new ResumableDownloads(c)) { first.accept(begin);first.accept(Wire.message("fileChunk","transfer",id,"seq",0,"data",java.util.Base64.getEncoder().encodeToString(new byte[]{1,2}))); }
             try(ResumableDownloads second=new ResumableDownloads(c)) {
                 second.accept(begin);assertEquals(2,second.offset);assertNull(provider.file);
+                File cache=new File(c.getCacheDir(),"resume-paired");
+                assertTrue(new File(cache,id+".json").isFile());assertFalse(new File(cache,id+".json.tmp").exists());
                 second.accept(Wire.message("fileChunk","transfer",id,"seq",0,"data",java.util.Base64.getEncoder().encodeToString(new byte[]{3,4})));
                 assertEquals("resumed (1).pdf",second.accept(Wire.message("fileEnd","transfer",id,"sha256",hash)));assertTrue(provider.published);
             }
             File saved=provider.file;try(ResumableDownloads third=new ResumableDownloads(c)) { assertEquals("resumed (1).pdf",third.accept(begin));assertTrue(third.done);assertSame(saved,provider.file); }
+            assertFalse(new File(c.getCacheDir(),"resume-paired/"+id+".json.tmp").exists());
         } finally { if(provider.file!=null) provider.file.delete(); }
     }
     @Test public void historyPersistsErrorsAndClearingDoesNotLaunchActivities() throws Exception {

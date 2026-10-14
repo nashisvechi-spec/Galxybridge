@@ -1,5 +1,24 @@
 # Validation — Windows 0.8.0 / Android 0.8.0
 
+## Windows CI metadata replacement fix (2026-10-14)
+
+Run 38602394075 successfully passed source checks, 2559 portable assertions,
+16 Windows TLS assertions and Windows x64 publish. Android tests stopped on
+`partialDownloadSurvivesDisconnectAndPublishesOnce`: `File.renameTo` could not
+replace an existing resume manifest on the Windows runner. Use `Files.move`
+with replacement and atomic move where supported, preserving the old manifest
+until the pending file is fully written and flushed. The regression now also
+checks that reconnect/final receipt updates leave no pending metadata file.
+
+The SDK setup log also reported an older Java runtime. Select the runner's
+JDK 17 before Android SDK installation and persist both JAVA_HOME and PATH
+for subsequent steps. The workflow remains manually triggered.
+
+After the fix, all 96 Android tests pass locally on JDK 17, including compilation
+of all companion Java sources. Source-package and whitespace checks pass.
+This fix has not yet completed a new Windows installer/APK workflow run.
+Start a new manual run against main; rerunning run 38602394075 retains its old SHA.
+
 ## Five new features (0.8.0)
 
 Based on main 2efc78a. Implemented resumable transfers in both directions,
