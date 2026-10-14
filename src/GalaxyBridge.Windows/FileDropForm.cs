@@ -54,7 +54,7 @@ internal sealed class FileDropForm : Form
     public void UpdateReceive(bool enabled, string destination, LanReceiveState state)
     {
         if (IsDisposed) return;
-        updating = true; receive.Checked = enabled; updating = false;
+        updating = true; receive.Checked = enabled;receive.Enabled=!state.Busy; updating = false;
         if (folder.Text != destination) folder.Text = destination;
         string progress = state.Busy ? "\n" + (state.Size > 0 ? $"{state.Bytes * 100 / state.Size}% · " : "") +
             $"{state.Bytes / 1048576d:N1} МБ" : "";

@@ -119,6 +119,57 @@ public final class ControlService extends AccessibilityService implements Displa
             }
         } catch(Exception e) { inputFailed(e.getClass().getSimpleName()); }
     }
+    private final ArrayDeque<GestureDescription> screenGestures=new ArrayDeque<>();
+    private boolean screenGestureBusy;
+    void screenGesture(JSONObject command) {
+        try {
+            Display phone=getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY);
+            if(phone==null || phone.getState()!=Display.STATE_ON || getSystemService(android.app.KeyguardManager.class).isDeviceLocked() || !getSystemService(PowerManager.class).isInteractive()) return;
+            double x1=command.getDouble("x1"),y1=command.getDouble("y1"),x2=command.getDouble("x2"),y2=command.getDouble("y2");
+            for(double value:new double[]{x1,y1,x2,y2}) if(!Double.isFinite(value) || value<0 || value>1) return;
+            int duration=command.getInt("duration");if(duration<1 || duration>1000 || screenGestures.size()>=8) return;
+            Point size=new Point();phone.getRealSize(size);Path path=new Path();path.moveTo((float)(x1*(size.x-1)),(float)(y1*(size.y-1)));
+            path.lineTo((float)(x2*(size.x-1)),(float)(y2*(size.y-1)));
+            screenGestures.add(new GestureDescription.Builder().setDisplayId(Display.DEFAULT_DISPLAY).addStroke(new GestureDescription.StrokeDescription(path,0,duration)).build());drainScreenGesture();
+        } catch(Exception ignored) { }
+    }
+    void stopScreenGestures() { screenGestures.clear(); }
+    boolean screenEdit(JSONObject command) {
+        Display phoneDisplay=getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY);
+        if(phoneDisplay==null || phoneDisplay.getState()!=Display.STATE_ON || !getSystemService(PowerManager.class).isInteractive() || getSystemService(android.app.KeyguardManager.class).isDeviceLocked()) return false;
+        android.util.SparseArray<List<AccessibilityWindowInfo>> all=getWindowsOnAllDisplays();
+        List<AccessibilityWindowInfo> phone=all.get(Display.DEFAULT_DISPLAY);if(phone==null) return false;
+        for(AccessibilityWindowInfo window:phone) {
+            AccessibilityNodeInfo root=window.getRoot();if(root==null) continue;
+            AccessibilityNodeInfo focus=root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);if(focus!=root) root.recycle();
+            if(focus==null) continue;
+            try {
+                if(!focus.isEditable() || focus.isPassword()) continue;
+                String kind=command.optString("kind"),key="key".equals(kind)?command.optString("key"):"";
+                String inserted="text".equals(kind)?ClipText.validate(command.optString("text")):null;
+                if("enter".equals(key) && focus.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId())) return true;
+                if("enter".equals(key) && !focus.isMultiLine()) return false;
+                String original=focus.getText()==null?"":focus.getText().toString();if(original.length()>1000000) return false;
+                ScreenEditing.Result result=ScreenEditing.apply(original,focus.getTextSelectionStart(),focus.getTextSelectionEnd(),inserted,key);if(result==null) return false;
+                if(!result.text.equals(original)) {
+                    Bundle args=new Bundle();args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,result.text);
+                    if(!focus.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)) return false;
+                }
+                Bundle selection=new Bundle();selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT,result.start);selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT,result.end);
+                focus.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION,selection);return true;
+            } catch(Exception ignored) { return false; }
+            finally { focus.recycle(); }
+        }
+        return false;
+    }
+    private void drainScreenGesture() {
+        if(screenGestureBusy || screenGestures.isEmpty()) return;screenGestureBusy=true;
+        boolean accepted=dispatchGesture(screenGestures.removeFirst(),new GestureResultCallback() {
+            @Override public void onCompleted(GestureDescription gesture) { screenGestureBusy=false;drainScreenGesture(); }
+            @Override public void onCancelled(GestureDescription gesture) { screenGestureBusy=false;screenGestures.clear(); }
+        },handler);
+        if(!accepted) { screenGestureBusy=false;screenGestures.clear(); }
+    }
     private void inputFailed(String reason) {
         reset();displayRevision++;controlStatus="Управление экраном остановлено: "+reason+". Проверьте выбранный экран и включите управление снова.";
         ConnectionService.reportInputScreen();

@@ -50,6 +50,10 @@ Source: "{#AppSource}\*"; DestDir: "{app}"; Excludes: "*.apk,*.pdb"; Flags: igno
 Name: "{autoprograms}\Galaxy Bridge\Galaxy Bridge"; Filename: "{app}\GalaxyBridge.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\Galaxy Bridge"; Filename: "{app}\GalaxyBridge.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
+[Registry]
+; Only remove this application-owned autostart value when uninstalling.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "GalaxyBridge"; Flags: uninsdeletevalue
+
 [Run]
 Filename: "{app}\GalaxyBridge.exe"; Description: "{cm:LaunchProgram,Galaxy Bridge}"; Flags: nowait postinstall skipifsilent
 

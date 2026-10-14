@@ -16,12 +16,42 @@ internal sealed class LanSession : IPhoneControl
     private readonly CancellationTokenSource lifetime = new();
     private readonly Channel<byte[]> outgoing = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(512)
     { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> replies = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> replies = new();
+    public event Action<ScreenFrame>? ScreenFrameReceived;
+    public event Action<string>? ScreenStatus;
+    private ScreenFrames? screenFrames;
+    private string? screenRequest;
+    public bool StartScreen(string request)
+    {
+        if(!ScreenSupported || !LanProtocol.Identifier(request)) return false;
+        screenRequest=request;screenFrames=new(request);return Post(new {type="screenStart",request});
+    }
+    public void StopScreen() { string? request=screenRequest;screenRequest=null;screenFrames=null;if(request is not null) Post(new {type="screenStop",request}); }
+    public void ScreenGesture(double x1,double y1,double x2,double y2,int duration,int revision)
+    {
+        string? request=screenRequest;if(request is not null) Post(new {type="screenInput",request,x1,y1,x2,y2,duration,revision});
+    }
+    public void ScreenText(string text,int revision)
+    {
+        string? request=screenRequest;if(request is null || string.IsNullOrEmpty(text)) return;
+        if(text.Contains('\0') || Encoding.UTF8.GetByteCount(text)>LanProtocol.MaxClipboardBytes) { ScreenStatus?.Invoke("Вставка ограничена 16 КБ обычного текста.");return; }
+        Post(new {type="screenInput",kind="text",request,text,revision});
+    }
+    public void ScreenKey(string key,int revision)
+    {
+        string? request=screenRequest;if(request is not null) Post(new {type="screenInput",kind="key",request,key,revision});
+    }
     private readonly HashSet<byte> held = [];
     private sealed record ReceiveConfiguration(bool Enabled, string Folder);
     private volatile ReceiveConfiguration receiving = new(false, "");
     private readonly object receiveGate = new();
     private readonly LanFileReceiver incoming = new();
+    private readonly ResumeFileReceiver? resumable;
+    private bool resumeReceiving;
+    public bool FileResumeSupported { get; }
+    public string? PeerId { get; }
+    public bool ScreenSupported { get; }
+    private LanReceiveState CurrentReceive => resumeReceiving && resumable is not null ? resumable.State : incoming.State;
     public event Action<string>? FileReceived;
     public bool FileEdgeConfigurationSupported { get; }
     public bool FileEdgeEnabled => false;
@@ -29,27 +59,28 @@ internal sealed class LanSession : IPhoneControl
     {
         if (FileEdgeConfigurationSupported) Post(new { type = "fileEdgeConfig", enabled = false });
     }
-    public LanReceiveState ReceiveState { get { lock (receiveGate) return incoming.State; } }
+    public LanReceiveState ReceiveState { get { lock (receiveGate) return CurrentReceive; } }
     public (LanReceiveState State, bool Staging) ReceiveProgress
-    { get { lock (receiveGate) return (incoming.State, false); } }
+    { get { lock (receiveGate) return (CurrentReceive, false); } }
     public void ConfigureReceive(bool enabled, string folder)
     {
         lock (receiveGate)
         {
-            if (!enabled || receiving.Folder != folder) { incoming.Cancel(); }
+            if (!enabled || receiving.Folder != folder) { incoming.Cancel(); if(resumable?.State.Busy==true) resumable.Cancel(); }
             receiving = new(enabled, folder);
         }
     }
-    public void CancelReceive() { lock (receiveGate) { incoming.Cancel(); } }
+    public void CancelReceive() { if(resumeReceiving && resumable?.State.Busy==true) { resumable.RequestCancel();return; }lock (receiveGate) incoming.Cancel(); }
     public void CancelReceive(string transfer, bool staging)
     {
+        if(!staging && resumeReceiving && resumable?.State is {Busy:true} state && state.OperationId==transfer) { resumable.RequestCancel();return; }
         lock (receiveGate)
         {
             if (staging) return;
-            LanReceiveState active = incoming.State;
+            LanReceiveState active = CurrentReceive;
             // A delayed Cancel from an old dialog must not affect the next file.
             if (!active.Busy || active.OperationId != transfer) return;
-            incoming.Cancel();
+            incoming.Cancel(); if(resumable?.State.Busy==true) resumable.Cancel();
         }
     }
     private PhoneEdgeSample? edge;
@@ -67,6 +98,8 @@ internal sealed class LanSession : IPhoneControl
         sample.CaptureId == nativeEpoch ? sample : null; } }
     public event Action<string>? NativeEdgeStatus;
     private int epoch, closed;
+    private int activeFileSends;
+    private int waitingFileCommit;
     private volatile bool inputReady;
     private volatile bool clipboardEnabled;
     public bool AutomaticClipboard { get; }
@@ -137,8 +170,8 @@ internal sealed class LanSession : IPhoneControl
     }
     public Task Completion { get; private set; } = Task.CompletedTask;
     public event Action? Lost;
-    public LanSession(TcpClient socket, SslStream stream, string name, bool automaticClipboard = false, bool nativeEdgeSupported = false, bool wheelZoomSupported = false, bool fileEdgeConfigurationSupported = false)
-    { this.socket = socket; this.stream = stream; Name = name; AutomaticClipboard = automaticClipboard; NativeEdgeSupported = nativeEdgeSupported; WheelZoomSupported = wheelZoomSupported; FileEdgeConfigurationSupported = fileEdgeConfigurationSupported; }
+    public LanSession(TcpClient socket, SslStream stream, string name, bool automaticClipboard = false, bool nativeEdgeSupported = false, bool wheelZoomSupported = false, bool fileEdgeConfigurationSupported = false, bool fileResumeSupported = false, string? resumeCache = null, bool screenSupported = false, string? peerId = null)
+    { this.socket = socket; this.stream = stream; Name = name; AutomaticClipboard = automaticClipboard; NativeEdgeSupported = nativeEdgeSupported; WheelZoomSupported = wheelZoomSupported; FileEdgeConfigurationSupported = fileEdgeConfigurationSupported; FileResumeSupported = fileResumeSupported; ScreenSupported = screenSupported; PeerId=peerId; if(fileResumeSupported && resumeCache is not null) resumable = new(resumeCache); }
     public void Start() => Completion = RunAsync();
     public bool Post(object value)
     {
@@ -243,7 +276,7 @@ internal sealed class LanSession : IPhoneControl
             while (!lifetime.IsCancellationRequested)
             {
                 using CancellationTokenSource read = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-                read.CancelAfter(TimeSpan.FromSeconds(12));
+                read.CancelAfter(TimeSpan.FromSeconds(CurrentReceive.Busy || Volatile.Read(ref waitingFileCommit)>0?120:12));
                 using JsonDocument message = await LanProtocol.ReadAsync(stream, read.Token);
                 JsonElement root = message.RootElement;
                 switch (root.GetProperty("type").GetString())
@@ -380,12 +413,25 @@ internal sealed class LanSession : IPhoneControl
                             { nativeSequence = leaveSequence; nativeEdge = null; }
                         }
                         break;
+                    case "screenStatus":
+                        if(root.GetProperty("request").GetString()==screenRequest) {
+                            string screenText=root.GetProperty("text").GetString()??"";if(screenText.Length>1200) throw new InvalidDataException("Invalid screen status.");
+                            ScreenStatus?.Invoke(screenText);
+                        }
+                        break;
+                    case "screenBegin":case "screenChunk":case "screenEnd":
+                        string? currentScreen=screenRequest;ScreenFrames? assembler=screenFrames;
+                        if(currentScreen is not null && assembler?.Accept(root) is ScreenFrame frame && screenRequest==currentScreen) {
+                            Post(new {type="screenFrameAck",request=currentScreen,frame=root.GetProperty("frame").GetString()});
+                            ScreenFrameReceived?.Invoke(frame);
+                        }
+                        break;
                     case "ack":
                         string id = root.GetProperty("id").GetString() ?? "";
                         if (replies.TryRemove(id, out var completion))
                         {
-                            if (root.GetProperty("ok").GetBoolean()) completion.TrySetResult(root.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "");
-                            else completion.TrySetException(new IOException("Телефон не сохранил файл. Проверьте свободное место и повторите отправку."));
+                            if (root.GetProperty("ok").GetBoolean()) completion.TrySetResult(root.Clone());
+                            else completion.TrySetException(root.TryGetProperty("retry",out var retry) && retry.GetBoolean()?new ResumeFileBusyException("Завершается предыдущая попытка приёма."):new IOException("Телефон не сохранил файл. Проверьте свободное место и повторите отправку."));
                         }
                         break;
                     case "dragPrepare": case "dragReady": case "dragCancel":
@@ -414,14 +460,23 @@ internal sealed class LanSession : IPhoneControl
                         {
                             string saved;
                             string? savedPath;
+                            bool resume = root.TryGetProperty("resume", out var resumeFlag) && resumeFlag.GetBoolean();
+                            long offset = 0; bool done = false;
                             lock (receiveGate)
                             {
                                 ReceiveConfiguration options = receiving;
                                 if (root.TryGetProperty("dragBatch", out _)) throw new IOException("Перенос файлов через край удалён.");
-                                saved = incoming.Accept(root, options.Folder, options.Enabled);
-                                savedPath = saved.Length > 0 ? incoming.State.SavedPath : null;
+                                if(resume) {
+                                    if(!FileResumeSupported || resumable is null) throw new IOException("Докачка не согласована.");
+                                    resumeReceiving = true; saved = resumable.Accept(root, options.Folder, options.Enabled);
+                                    offset = resumable.Offset; done = resumable.AlreadySaved;
+                                    savedPath = saved.Length > 0 && !done ? resumable.State.SavedPath : null;
+                                } else {
+                                    resumeReceiving = false; saved = incoming.Accept(root, options.Folder, options.Enabled);
+                                    savedPath = saved.Length > 0 ? incoming.State.SavedPath : null;
+                                }
                             }
-                            Post(new { type = "uploadAck", id = request, ok = true, name = saved });
+                            Post(new { type = "uploadAck", id = request, ok = true, name = saved, offset, done });
                             if (savedPath is not null)
                             {
                                 // Notification failures must not turn a published file into a failed transfer.
@@ -429,9 +484,9 @@ internal sealed class LanSession : IPhoneControl
                             }
                         }
                         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
-                            FormatException or JsonException or InvalidOperationException or KeyNotFoundException)
+                            FormatException or JsonException or InvalidOperationException or KeyNotFoundException or OperationCanceledException)
                         {
-                            Post(new { type = "uploadAck", id = request, ok = false,
+                            Post(new { type = "uploadAck", id = request, ok = false, retry=ex is ResumeFileBusyException,
                                 error = receiving.Enabled ? "ПК не принял файл. Проверьте папку, место на диске или отмену приёма." : "Приём файлов на ПК выключен." });
                         }
                         break;
@@ -443,7 +498,7 @@ internal sealed class LanSession : IPhoneControl
             JsonException or KeyNotFoundException or InvalidOperationException) { }
         finally
         {
-            Close(); await Task.WhenAll(writer, ping); incoming.Dispose();
+            Close(); await Task.WhenAll(writer, ping); incoming.Dispose(); resumable?.Dispose();
             foreach (var reply in replies.Values) reply.TrySetException(new IOException("Связь прервалась. Отправка не повторяется автоматически."));
             replies.Clear(); lifetime.Dispose(); Lost?.Invoke();
         }
@@ -455,17 +510,22 @@ internal sealed class LanSession : IPhoneControl
     }
     private async Task PingAsync()
     {
-        try { while (!lifetime.IsCancellationRequested) { lock (receiveGate) { incoming.Expire(Environment.TickCount64); } Post(new { type = "ping" }); await Task.Delay(3000, lifetime.Token); } }
+        try { while (!lifetime.IsCancellationRequested) { lock (receiveGate) { incoming.Expire(Environment.TickCount64); resumable?.Expire(Environment.TickCount64); } Post(new { type = "ping" }); await Task.Delay(3000, lifetime.Token); } }
         catch (OperationCanceledException) { }
     }
     private async Task<string> RequestAsync(Func<string, object> build, CancellationToken ct)
     {
+        JsonElement reply = await RequestFileAsync(build, ct);
+        return reply.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "";
+    }
+    public async Task<JsonElement> RequestFileAsync(Func<string, object> build, CancellationToken ct, bool commit = false)
+    {
         string id = Guid.NewGuid().ToString("N");
-        TaskCompletionSource<string> result = new(TaskCreationOptions.RunContinuationsAsynchronously); replies[id] = result;
+        TaskCompletionSource<JsonElement> result = new(TaskCreationOptions.RunContinuationsAsynchronously); replies[id] = result;
         try
         {
             if (!Post(build(id))) throw new IOException("Телефон отключён.");
-            return await result.Task.WaitAsync(TimeSpan.FromSeconds(20), ct);
+            return await result.Task.WaitAsync(TimeSpan.FromSeconds(commit?120:20), ct);
         }
         finally { replies.TryRemove(id, out _); }
     }
@@ -509,9 +569,39 @@ internal sealed class LanSession : IPhoneControl
             }
         }
     }
+    public async Task<string> SendResumableFileAsync(string path, string transfer, string sha256, CancellationToken ct, IProgress<(long Sent, long Total)>? progress)
+    {
+        if(!FileResumeSupported) return await SendFileAsync(path, ct, progress);
+        using FileStream file = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, LanProtocol.ChunkSize, true);
+        long size = file.Length; string name = Path.GetFileName(path);
+        if(size > LanProtocol.MaxFile || !LanProtocol.SafeName(name) || !LanProtocol.Identifier(transfer) || !LanProtocol.HexSecret(sha256)) throw new ArgumentException("Недопустимый файл.");
+        Interlocked.Increment(ref activeFileSends);Interlocked.Exchange(ref waitingFileCommit,1);
+        try {
+            JsonElement reply = await RequestFileAsync(id => new { type="fileBegin", id, transfer, name, size, sha256, resume=true }, ct);
+            long offset=reply.GetProperty("offset").GetInt64();
+            if(offset<0 || offset>size) throw new InvalidDataException("Invalid resume offset.");
+            if(reply.GetProperty("done").GetBoolean()) return reply.GetProperty("name").GetString() ?? name;
+            if(offset<size) Interlocked.Exchange(ref waitingFileCommit,0);
+            file.Position=offset; progress?.Report((offset,size)); int seq=0; byte[] buffer=new byte[LanProtocol.ChunkSize];int length;
+            while((length=await file.ReadAsync(buffer,ct))>0) {
+                if(file.Position>size) throw new IOException("Файл изменился.");if(file.Position==size) Interlocked.Exchange(ref waitingFileCommit,1);
+                string data=Convert.ToBase64String(buffer,0,length);
+                await RequestFileAsync(id => new { type="fileChunk",id,transfer,seq,data,resume=true },ct);seq++;
+                progress?.Report((file.Position,size));
+            }
+            if(file.Position!=size) throw new IOException("Файл изменился.");
+            JsonElement saved=await RequestFileAsync(id => new { type="fileEnd",id,transfer,sha256,resume=true },ct,commit:true);
+            return saved.GetProperty("name").GetString() ?? name;
+        } catch(OperationCanceledException) {
+            using CancellationTokenSource cleanup=new(TimeSpan.FromSeconds(2));
+            try { await RequestFileAsync(id => new { type="fileAbort",id,transfer,resume=true },cleanup.Token); } catch(Exception e) when(e is IOException or TimeoutException or OperationCanceledException) { }
+            throw;
+        } finally { Interlocked.Decrement(ref activeFileSends);Interlocked.Exchange(ref waitingFileCommit,0); }
+    }
     public void Close()
     {
         if (Interlocked.Exchange(ref closed, 1) != 0) return;
+        screenRequest=null;screenFrames=null;ScreenStatus?.Invoke("Связь прервалась. Закройте окно и начните показ после подключения.");
         CancelClipboardPull();
         incoming.Cancel("Связь прервалась. Незавершённая передача не повторяется.");
         inputReady = false; outgoing.Writer.TryComplete(); lifetime.Cancel(); socket.Dispose();

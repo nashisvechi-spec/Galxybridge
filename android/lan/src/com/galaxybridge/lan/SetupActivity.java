@@ -69,6 +69,7 @@ public final class SetupActivity extends Activity {
         BridgeUi.button(send,"Выбрать файлы",true,() -> startActivity(new Intent(this,SendActivity.class)));
         fileStatus=BridgeUi.text(this,"",14,false);fileStatus.setPadding(0,BridgeUi.dp(this,12),0,0);send.addView(fileStatus);
         send.addView(BridgeUi.text(this,"Из Галереи или «Моих файлов»: Поделиться → Galaxy Bridge Wi-Fi. Отправка проходит в фоне.",14,false));
+        BridgeUi.button(send,"История передач",false,() -> startActivity(new Intent(this,HistoryActivity.class)));
         LinearLayout receive=BridgeUi.card(body,"Полученные с ПК");receive.addView(BridgeUi.text(this,"Файлы сохраняются в Download/GalaxyBridge.",14,false));
         BridgeUi.button(receive,"Открыть папку",false,() -> startActivity(new Intent(this,ReceivedFolderActivity.class)));
         LinearLayout more=BridgeUi.card(body,"Текст и другие способы");
@@ -90,6 +91,9 @@ public final class SetupActivity extends Activity {
         BridgeUi.button(notifications,"Включить звук уведомлений",false,() -> { ReceivedFiles.enableSound(this);refresh(); });
         BridgeUi.button(notifications,"Разрешить уведомления",false,() -> ReceivedFiles.enable(this,false));
         BridgeUi.button(notifications,"Проверить уведомление",false,() -> ReceivedFiles.test(this));
+        LinearLayout screen=BridgeUi.card(body,"Экран телефона на ПК");
+        screen.addView(BridgeUi.text(this,"На ПК нажмите «Экран телефона на ПК», затем подтвердите показ системным окном Android. Показывается экран телефона; внешний экран DeX управляется прежним способом.",14,false));
+        BridgeUi.button(screen,"Разрешить показ экрана",false,() -> startActivity(new Intent(this,ScreenShareActivity.class)));
         LinearLayout appearance=BridgeUi.card(body,"Оформление");Spinner theme=new Spinner(this);
         ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,new String[]{"Как в системе","Светлая","Тёмная"});adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);theme.setAdapter(adapter);
         String current=getSharedPreferences("appearance",MODE_PRIVATE).getString("theme","system");theme.setSelection("dark".equals(current)?2:"light".equals(current)?1:0);
@@ -109,9 +113,10 @@ public final class SetupActivity extends Activity {
         BridgeUi.button(link,"Настройки фоновой работы",false,() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));
         link.addView(BridgeUi.text(this,"При обрыве проверьте общую Wi-Fi сеть и влияние VPN. Для DeX экран управления выбирается автоматически.",14,false));
         BridgeUi.button(link,"Помощь с подключением",false,this::connectionHelp);
+        BridgeUi.button(link,"Проверить подключение",false,() -> Diagnostics.show(this));
         BridgeUi.button(body,"Забыть компьютер",false,() -> new AlertDialog.Builder(this).setTitle("Забыть компьютер?").setMessage("Для следующего подключения потребуется новый QR. Полученные файлы сохранятся.").setNegativeButton("Отмена",null)
             .setPositiveButton("Забыть",(d,w) -> { stopService(new Intent(this,ConnectionService.class));prefs().edit().clear().commit();ConnectionService.status="Компьютер забыт.";showTab(selectedTab); }).show());
-        body.addView(BridgeUi.text(this,"Galaxy Bridge · 0.7.37",13,false));
+        body.addView(BridgeUi.text(this,"Galaxy Bridge · 0.8.0",13,false));
     }
     private boolean paired() { return Wire.hex(prefs().getString("token",""),64); }
     private void reconnect() {
@@ -140,6 +145,7 @@ public final class SetupActivity extends Activity {
         BridgeUi.updateText(inputStatus,"Управление: "+(ControlService.instance==null?"включите специальные возможности":ControlService.ready(this)?"готово":"разблокируйте экран или проверьте экран DeX")+(selectedTab==2?"\n"+ControlDisplays.description(this):"")+(ControlService.controlStatus.isEmpty()?"":"\n"+ControlService.controlStatus));
         BridgeUi.updateText(clipboardStatus,"Поверх других приложений: "+(Settings.canDrawOverlays(this)?"разрешено":"нужно разрешение")+"\n"+ConnectionService.clipboardStatus);
         BridgeUi.updateText(fileStatus,ConnectionService.fileStatus);
+        if(fileStatus!=null) fileStatus.setVisibility(ConnectionService.READY_FILES.equals(ConnectionService.fileStatus)?android.view.View.GONE:android.view.View.VISIBLE);
         BridgeUi.updateText(notificationStatus,ReceivedFiles.status(this));
     }
     @Override protected void onSaveInstanceState(Bundle out) {

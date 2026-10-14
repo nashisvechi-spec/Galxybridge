@@ -73,7 +73,11 @@ public final class SendActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
-        if(request==11 && result==RESULT_OK && data!=null) { collect(data); describe();updateActions(); }
+        if(request==11 && result==RESULT_OK && data!=null) {
+            collect(data);
+            if((data.getFlags()&Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)!=0) for(Uri uri:files) try { getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch(SecurityException ignored) { }
+            describe();updateActions();
+        }
     }
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putParcelableArrayList("files",files);super.onSaveInstanceState(out);

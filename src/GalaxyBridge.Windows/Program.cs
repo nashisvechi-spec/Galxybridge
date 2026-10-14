@@ -6,6 +6,7 @@ internal static class Program
     private static void Main()
     {
         using Mutex instance = new(true, "GalaxyBridge.CurrentUser." + Environment.UserName, out bool owner);
+        if (!owner && Environment.GetCommandLineArgs().Contains("--minimized",StringComparer.OrdinalIgnoreCase)) return;
         if (!owner) { MessageBox.Show("Galaxy Bridge уже запущен. Откройте его из области уведомлений."); return; }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();

@@ -47,6 +47,7 @@ Reject(() => Hid.MouseReports(32, 1, 2).ToArray(), "undefined sixth mouse button
 await NativeMouseTests.RunAsync(Check);
 PhoneControlRouteTests.Run(Check);
 FileWidgetLayoutTests.Run(Check);
+NewFeatureTests.Run(Check);
 
 DesktopBounds bounds = new(-1920, -100, 1920, 1080);
 Check(EdgePolicy.AtEdge(bounds, -1, 0, PhoneSide.Right), "edge on negative monitor coordinates");

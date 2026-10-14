@@ -7,6 +7,7 @@ namespace GalaxyBridge.Windows;
 // GalaxyBridge.LanTls.Tests on Windows. Never include this file in the app.
 internal sealed class Settings
 {
+    public static string Folder => Path.Combine(Path.GetTempPath(),"GalaxyBridge-HostTests");
     public bool NativeReceiveEnabled => false;
     public string NativeReceiveFolder => "";
 }

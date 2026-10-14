@@ -22,7 +22,8 @@ import javax.net.ssl.*;
 
 public final class ConnectionService extends Service {
     public static volatile String status="Подключение выключено.";
-    public static volatile String fileStatus="Выберите файлы или используйте «Поделиться» → Galaxy Bridge Wi-Fi.";
+    static final String READY_FILES="Выберите файлы или используйте «Поделиться» → Galaxy Bridge Wi-Fi.";
+    public static volatile String fileStatus=READY_FILES;
     public static volatile String clipboardStatus="Общий буфер: копируйте на ПК или на телефоне и возвращайте курсор на ПК.";
     private static volatile ConnectionService instance;
     private final Handler main=new Handler(Looper.getMainLooper());
@@ -157,7 +158,7 @@ public final class ConnectionService extends Service {
                 SharedPreferences prefs=prefs(); String device=prefs.getString("device","");
                 if(!Wire.hex(device,32)) { device=UUID.randomUUID().toString().replace("-",""); if(!prefs.edit().putString("device",device).commit()) throw new IOException("Cannot save identity"); }
                 DataInputStream in=new DataInputStream(socket.getInputStream()); DataOutputStream out=new DataOutputStream(socket.getOutputStream());
-                JSONObject hello=Wire.message(pair!=null?"pair":"hello","v",1,"device",device,"name",Build.MODEL,"clipboardSync",1,"nativeEdge",1,"wheelZoom",1,"fileEdgeConfig",1);
+                JSONObject hello=Wire.message(pair!=null?"pair":"hello","v",1,"device",device,"name",Build.MODEL,"clipboardSync",1,"nativeEdge",1,"wheelZoom",1,"fileEdgeConfig",1,"fileResume",1,"screen",1);
                 if(pair!=null) hello.put("ticket",pair.ticket); else hello.put("token",prefs.getString("token",""));
                 Wire.write(out,hello); JSONObject welcome=Wire.read(in);
                 if(!"welcome".equals(welcome.getString("type")) || welcome.getInt("v")!=1 || !hostId.equals(welcome.getString("host"))) throw new IOException("Invalid welcome");
@@ -167,11 +168,11 @@ public final class ConnectionService extends Service {
                     pending.compareAndSet(pair,null);
                 } else prefs.edit().putString("host",host).apply();
                 Wire.write(out,Wire.message("saved"));
-                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); active.fileEdgeConfig=welcome.optInt("fileEdgeConfig",0)==1;link=active; connecting=null;
+                socket.setSoTimeout(12000); Link active=new Link(socket,out,welcome.optBoolean("upload",false),welcome.optBoolean("clipboard",false),welcome.optInt("clipboardSync",0)==1,welcome.optInt("nativeEdge",0)==1); active.fileEdgeConfig=welcome.optInt("fileEdgeConfig",0)==1;active.resume=welcome.optInt("fileResume",0)==1;active.screen=welcome.optInt("screen",0)==1;link=active; connecting=null;
                 main.post(() -> { if(link==active) { clipboardBridge.configure(false);clipboardStatus=active.automaticClipboard?"Общий буфер готов после включения на ПК.":"Для автоматического буфера обновите Windows до 0.7.3."; } });
                 status="Подключён: "+prefs.getString("name","ноутбук"); active.writer.start();
                 main.post(() -> { if(link==active) active.send(inputScreenMessage(this)); });
-                try(Downloads downloads=new Downloads(this)) {
+                try(Downloads downloads=new Downloads(this);ResumableDownloads resumable=new ResumableDownloads(this)) {
                     while(running && !active.closed.get()) {
                         JSONObject command=Wire.read(in); String type=command.getString("type");
                         if("ping".equals(type)) {
@@ -212,10 +213,27 @@ public final class ConnectionService extends Service {
                                     }
                                 } finally { active.commands.release(); }
                             });
+                        } else if(Arrays.asList("screenStart","screenStop","screenFrameAck","screenInput").contains(type)) {
+                            String screenRequest=command.getString("request");if(!active.screen || !Wire.hex(screenRequest,32)) throw new IOException("Invalid screen request");
+                            if(!active.commands.tryAcquire()) throw new IOException("Screen command queue full");
+                            main.post(() -> {
+                                try { if(link==active && !active.closed.get()) {
+                                    if("screenStart".equals(type)) ScreenShareService.request(this,active,screenRequest);
+                                    else if("screenStop".equals(type)) ScreenShareService.stop(this,active,screenRequest);
+                                    else if("screenFrameAck".equals(type)) ScreenShareService.ack(active,screenRequest,command.optString("frame"));
+                                    else ScreenShareService.input(active,command);
+                                } } finally { active.commands.release(); }
+                            });
                         } else if(type.startsWith("file")) {
                             String request=command.getString("id"); if(!Wire.hex(request,32)) throw new IOException("Invalid request");
-                            try { String name=downloads.accept(command); active.send(Wire.message("ack","id",request,"ok",true,"name",name)); }
-                            catch(Exception e) { downloads.close(); active.send(Wire.message("ack","id",request,"ok",false)); }
+                            try {
+                                boolean resume=command.optBoolean("resume",false);
+                                if("fileBegin".equals(type)) active.downloading=true;
+                                if(resume && !active.resume) throw new IOException("Resume not negotiated");
+                                String name=resume?resumable.accept(command):downloads.accept(command);
+                                if("fileEnd".equals(type) || "fileAbort".equals(type) || resume && resumable.done) active.downloading=false;
+                                active.send(Wire.message("ack","id",request,"ok",true,"name",name,"offset",resume?resumable.offset:0,"done",resume && resumable.done));
+                            } catch(Exception e) { active.downloading=false;downloads.close();active.send(Wire.message("ack","id",request,"ok",false)); }
                         } else {
                             if(!Arrays.asList("capture","release","mouse","text","key","edit","nav").contains(type)) throw new IOException("Unknown command");
                             if(!active.commands.tryAcquire()) throw new IOException("Input queue full");
@@ -232,6 +250,7 @@ public final class ConnectionService extends Service {
                         }
                     }
                 } finally {
+                    main.post(() -> ScreenShareService.lost(this,active));
                     if(link==active) link=null; active.close(); active.writer.join(1000);
                     main.post(() -> { if(ConnectionService.instance==this && link==null) { nativeEdge.stop();clipboardBridge.configure(false);if(ControlService.instance!=null) ControlService.instance.reset(); } });
                 }
@@ -351,7 +370,7 @@ public final class ConnectionService extends Service {
         AtomicBoolean cancel=new AtomicBoolean(); uploadCancel=cancel;
         fileStatus="Ожидаем подключение к ноутбуку…";
         uploadWorker=new Thread(() -> {
-            int completed=0; Link destination=null;
+            int completed=0;String activeName="Файлы",activeUri="";String expectedHost=prefs().getString("hostId",""); Link destination=null;
             try {
                 long deadline=SystemClock.elapsedRealtime()+30000; Link target;
                 while((target=link)==null) {
@@ -363,7 +382,7 @@ public final class ConnectionService extends Service {
                 destination=target; final Link uploadTarget=target;
                 for(Uri uri:files) {
                     Upload.check(cancel);
-                    if(link!=destination || destination.closed.get()) throw new IOException("Связь прервалась. Очередь не повторяется автоматически.");
+
                     String name="file-"+System.currentTimeMillis()+".bin"; long size=-1;
                     try(Cursor cursor=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME,OpenableColumns.SIZE},null,null,null)) {
                         if(cursor!=null && cursor.moveToFirst()) {
@@ -376,20 +395,39 @@ public final class ConnectionService extends Service {
                     if(size<0) size=-1;
                     final String display=name; final int number=completed+1;
                     fileStatus="Отправка "+number+" из "+files.size()+": "+display;
-                    try(InputStream input=getContentResolver().openInputStream(uri)) {
-                        if(input==null) throw new IOException("Не удалось открыть файл.");
-                        uploadInput.set(input); Upload.check(cancel);
-                        Upload.send(input,name,size,(message,timeout,cancellation) -> {
-                            return uploadTarget.request(message,timeout,cancellation);
-                        },cancel,(sent,total) -> {
-                            fileStatus="Отправка "+number+" из "+files.size()+": "+display+"\n"+
-                                (total>0?Math.min(100,sent*100/total)+"% · ":"")+sent/1024+" КБ";
-                        });
+                    activeName=name;activeUri=uri.toString();
+                    final ResumableUpload.Source source=() -> { Upload.check(cancel);InputStream input=getContentResolver().openInputStream(uri);uploadInput.set(input);return input; };
+                    final Upload.Progress progress=(sent,total) -> fileStatus="Отправка "+number+" из "+files.size()+": "+display+"\n"+(total>0?Math.min(100,sent*100/total)+"% · ":"")+sent/1024+" КБ";
+                    try {
+                        if(uploadTarget.resume) {
+                            fileStatus="Подготовка к отправке: "+display;
+                            ResumableUpload.Identity identity=ResumableUpload.identify(source,cancel);
+                            String operation=UUID.randomUUID().toString().replace("-","");long until=Long.MAX_VALUE,busySince=0;int attempts=0;
+                            while(true) {
+                                Upload.check(cancel);if(!expectedHost.equals(prefs().getString("hostId",""))) throw new IOException("Компьютер изменился. Выберите получателя и повторите файл из истории.");Link candidate=link;
+                                if(candidate==null || candidate.closed.get()) {
+                                    if(until==Long.MAX_VALUE) until=SystemClock.elapsedRealtime()+120000;
+                                    if(SystemClock.elapsedRealtime()>until) throw new IOException("Время ожидания связи истекло. Повторите файл из истории.");
+                                    fileStatus="Связь прервалась. Ожидаем докачку: "+display;synchronized(ConnectionService.this) { ConnectionService.this.wait(250); }continue;
+                                }
+                                if(!candidate.resume) throw new IOException("Для докачки обновите приложение на ПК.");
+                                until=Long.MAX_VALUE;
+                                try { ResumableUpload.send(source,display,identity,operation,candidate::requestReply,cancel,progress);break; }
+                                catch(Exception error) {
+                                    Upload.check(cancel);if(error instanceof ResumableUpload.BusyException) { if(busySince==0) busySince=SystemClock.elapsedRealtime();if(SystemClock.elapsedRealtime()-busySince>120000) throw error;Thread.sleep(250);continue; }
+                                    busySince=0;if(error instanceof java.net.SocketTimeoutException) candidate.close();until=SystemClock.elapsedRealtime()+120000;if(++attempts>=5 || SystemClock.elapsedRealtime()>until || (!candidate.closed.get() && link==candidate)) throw error;
+                                }
+                            }
+                        } else try(InputStream input=source.open()) {
+                            if(input==null) throw new IOException("Не удалось открыть файл.");Upload.send(input,name,size,uploadTarget::request,cancel,progress);
+                        }
+                        TransferHistory.add(this,"Телефон → ПК",display,"Отправлен",uri.toString(),"");
                     } finally { uploadInput.set(null); }
                     completed++;
                 }
                 fileStatus="Отправлено файлов: "+completed+". Папка приёма указана в окне файлов Windows.";
             } catch(Exception e) {
+                TransferHistory.add(this,"Телефон → ПК",activeName,cancel.get()?"Отменён":"Ошибка",activeUri,e instanceof IOException?String.valueOf(e.getMessage()):"Передачу не удалось завершить");
                 fileStatus=(cancel.get()?"Отправка отменена.":"Отправка остановлена: "+
                     (e instanceof IOException?e.getMessage():"Проверьте доступ к файлу и соединение."))+"\nОтправлено: "+completed+".";
             } finally {
@@ -399,24 +437,38 @@ public final class ConnectionService extends Service {
         },"GalaxyBridge-upload");
         uploadWorker.start();
     }
+    static boolean screenOwner(Object owner) {
+        ConnectionService current=instance;Link active=current==null?null:current.link;return owner!=null && active==owner && active.screen && !active.closed.get();
+    }
+    static boolean screenTransferBusy(Object owner) { return owner instanceof Link && (((Link)owner).downloading || uploading()); }
+    static boolean screenPackets(Object owner,List<JSONObject> packets) {
+        if(!screenOwner(owner)) return false;Link target=(Link)owner;
+        synchronized(target.queue) {
+            if(target.closed.get() || target.queue.remainingCapacity()<packets.size()+16) return false;
+            for(JSONObject packet:packets) if(!target.queue.offer(packet)) return false;
+            return true;
+        }
+    }
     private static final class Link {
         final Socket socket; final DataOutputStream out;
         final AtomicBoolean closed=new AtomicBoolean(); final ArrayBlockingQueue<JSONObject> queue=new ArrayBlockingQueue<>(256);
         final Semaphore commands=new Semaphore(128); final Thread writer;
         final boolean upload,clipboard,automaticClipboard,nativeEdge;
-        boolean fileEdgeConfig;
+        boolean fileEdgeConfig,resume,screen;
+        volatile boolean downloading;
         volatile boolean clipboardEnabled;
         volatile String clipboardRequest;
         final ConcurrentHashMap<String,CompletableFuture<JSONObject>> replies=new ConcurrentHashMap<>();
         Link(Socket socket,DataOutputStream out,boolean upload,boolean clipboard,boolean automaticClipboard,boolean nativeEdge) { this.socket=socket; this.out=out; this.upload=upload;this.clipboard=clipboard;this.automaticClipboard=automaticClipboard;this.nativeEdge=nativeEdge; writer=new Thread(() -> {
             try { while(!closed.get()) Wire.write(out,queue.take()); } catch(Exception e) { close(); }
         },"GalaxyBridge-send"); }
-        void send(JSONObject message) { if(!closed.get() && !queue.offer(message)) close(); }
+        void send(JSONObject message) { synchronized(queue) { if(!closed.get() && !queue.offer(message)) close(); } }
         void ack(JSONObject message) throws Exception {
             String id=message.getString("id"); if(!Wire.hex(id,32)) throw new IOException("Invalid upload reply");
             CompletableFuture<JSONObject> result=replies.remove(id); if(result!=null) result.complete(message);
         }
-        String request(JSONObject message,int timeout,AtomicBoolean cancel) throws Exception {
+        String request(JSONObject message,int timeout,AtomicBoolean cancel) throws Exception { return requestReply(message,timeout,cancel).optString("name",""); }
+        JSONObject requestReply(JSONObject message,int timeout,AtomicBoolean cancel) throws Exception {
             boolean clipboardRequest="clipboard".equals(message.optString("type"));
             Upload.check(cancel); if(closed.get()) throw new IOException("Ноутбук отключён.");
             String id=UUID.randomUUID().toString().replace("-",""); message.put("id",id);
@@ -426,11 +478,12 @@ public final class ConnectionService extends Service {
                 while(true) {
                     Upload.check(cancel);
                     if(closed.get()) throw new IOException("Связь прервалась.");
-                    long remaining=deadline-System.nanoTime(); if(remaining<=0) throw new IOException(clipboardRequest?"ПК не подтвердил запись в буфер. Проверьте буфер и соединение; отправка автоматически не повторяется.":"ПК не подтвердил приём файла.");
+                    long remaining=deadline-System.nanoTime(); if(remaining<=0) throw new java.net.SocketTimeoutException(clipboardRequest?"ПК не подтвердил запись в буфер. Проверьте буфер и соединение; отправка автоматически не повторяется.":"ПК не подтвердил приём файла.");
                     try {
                         JSONObject reply=result.get(Math.min(remaining,TimeUnit.MILLISECONDS.toNanos(200)),TimeUnit.NANOSECONDS);
+                        if(!reply.getBoolean("ok") && reply.optBoolean("retry",false)) throw new ResumableUpload.BusyException();
                         if(!reply.getBoolean("ok")) throw new IOException(reply.optString("error",clipboardRequest?"ПК не принял текст в буфер.":"ПК не принял файл."));
-                        return reply.optString("name","");
+                        return reply;
                     } catch(TimeoutException again) { }
                 }
             } finally { replies.remove(id); }

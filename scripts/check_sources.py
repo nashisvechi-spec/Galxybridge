@@ -180,11 +180,13 @@ def main() -> None:
     lan_permissions = {e.get(ns + 'name') for e in lan.findall('uses-permission')}
     require(lan_permissions == {'android.permission.INTERNET', 'android.permission.ACCESS_NETWORK_STATE',
         'android.permission.CHANGE_NETWORK_STATE', 'android.permission.FOREGROUND_SERVICE',
-        'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE', 'android.permission.POST_NOTIFICATIONS',
+        'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE', 'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION', 'android.permission.POST_NOTIFICATIONS',
         'android.permission.CAMERA', 'android.permission.SYSTEM_ALERT_WINDOW'}, 'Native companion permission scope')
     control = lan.find('.//service[@' + ns + 'name=".ControlService"]')
     require(control is not None and control.get(ns + 'permission') == 'android.permission.BIND_ACCESSIBILITY_SERVICE',
         'Control service must require Android accessibility binding')
+    screen = lan.find('.//service[@' + ns + 'name=".ScreenShareService"]')
+    require(screen is not None and screen.get(ns + 'foregroundServiceType') == 'mediaProjection' and screen.get(ns + 'exported') == 'false', 'Screen projection must be a private foreground service')
     connection = lan.find('.//service[@' + ns + 'name=".ConnectionService"]')
     require(connection is not None and connection.get(ns + 'exported') == 'false', 'LAN service must not be exported')
     share = lan.find('.//activity[@' + ns + 'name=".ShareActivity"]')
@@ -211,7 +213,7 @@ def main() -> None:
     read('scripts/Test-LanProtocol.ps1')
     read('licenses/ZXing-APACHE-2.0.txt')
     java = list((ROOT / 'android/lan/src').rglob('*.java')) + list((ROOT / 'tests/android-protocol').rglob('*.java')) + list((ROOT / 'tests/android-drop-stubs').rglob('*.java'))
-    require(len(java) == 49, 'Expected active companion protocol/input/clipboard/wheel/drop/receive test sources')
+    require(len(java) == 57, 'Expected active companion protocol/input/clipboard/wheel/drop/receive test sources')
     files = ET.fromstring(read('android/files/AndroidManifest.xml'))
     require(files.get('package') == 'com.galaxybridge.files', 'File manager is a separate Android package')
     provider = files.find('.//provider')

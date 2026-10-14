@@ -58,6 +58,7 @@ final class Downloads implements AutoCloseable {
             }
             ContentValues values=new ContentValues(); values.put(MediaStore.Downloads.IS_PENDING,0);
             if(context.getContentResolver().update(row,values,null,null)!=1) throw new IOException("Cannot publish file");
+            TransferHistory.add(context,"ПК → телефон",name,"Получен",row.toString(),"");
             row=null; transfer=null; requestedName=null;
             ReceivedFiles.notifySaved(context,name); return name;
         }

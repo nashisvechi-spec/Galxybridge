@@ -65,6 +65,7 @@ static class LanClipboardTests
         await ReceivedNoticesAsync(check);
         await SendProgressAsync(check);
         await InvalidDragRequestsAsync(check);
+        await ResumeAndScreenAsync(check);
     }
     private static async Task ControlDisplayAsync(Action<bool, string> check)
     {
@@ -530,6 +531,60 @@ static class LanClipboardTests
         catch (OperationCanceledException) { expired = true; }
         check(expired && aborted, "TLS deadline aborts even a handshake that ignores cancellation");
     }
+    private static async Task ResumeAndScreenAsync(Action<bool,string> check)
+    {
+        string root=Path.Combine(Path.GetTempPath(),"GalaxyBridge-resume-tls-"+Guid.NewGuid().ToString("N"));string cache=Path.Combine(root,"partial"),folder=Path.Combine(root,"received");Directory.CreateDirectory(root);
+        byte[] data=[1,2,3,4];string hash=Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant(),transfer=Guid.NewGuid().ToString("N");
+        async Task<JsonElement> Request(Peer peer,string type,object fields) {
+            var props=JsonSerializer.SerializeToElement(fields).EnumerateObject().ToDictionary(p=>p.Name,p=>(object)p.Value.Clone());
+            props["type"]=type;props["id"]=Guid.NewGuid().ToString("N");props["transfer"]=transfer;props["resume"]=true;
+            await peer.Stream.WriteAsync(LanProtocol.Encode(props));using var reply=await peer.NextAsync();return reply.RootElement.Clone();
+        }
+        try {
+            await using(var first=await Peer.CreateAsync(resumeCache:cache)) {
+                first.Session.ConfigureReceive(true,folder);
+                var begin=await Request(first,"uploadBegin",new{name="tls.bin",size=data.Length,sha256=hash});check(begin.GetProperty("offset").GetInt64()==0,"TLS resume begins with zero offset");
+                await Request(first,"uploadChunk",new{seq=0,data="AQI="});
+            }
+            await using(var second=await Peer.CreateAsync(resumeCache:cache,screen:true)) {
+                second.Session.ConfigureReceive(true,folder);int notices=0;second.Session.FileReceived+=_=>notices++;
+                var begin=await Request(second,"uploadBegin",new{name="tls.bin",size=data.Length,sha256=hash});check(begin.GetProperty("offset").GetInt64()==2,"TLS reconnect resumes exact acknowledged offset");
+                await Request(second,"uploadChunk",new{seq=0,data="AwQ="});var end=await Request(second,"uploadEnd",new{size=data.Length,sha256=hash});
+                check(end.GetProperty("ok").GetBoolean() && File.ReadAllBytes(Path.Combine(folder,"tls.bin")).SequenceEqual(data),"TLS resumed upload publishes verified bytes");
+                var duplicate=await Request(second,"uploadBegin",new{name="tls.bin",size=data.Length,sha256=hash});
+                check(duplicate.GetProperty("done").GetBoolean() && notices==1 && Directory.GetFiles(folder).Length==1,"TLS lost final ACK is idempotent and does not notify twice");
+                transfer=Guid.NewGuid().ToString("N");
+                using(var finishing=new ResumeFileReceiver(cache)) {
+                    finishing.Accept(JsonSerializer.SerializeToElement(new{type="uploadBegin",transfer,name="busy.bin",size=data.Length,sha256=hash}),folder,true);
+                    var busy=await Request(second,"uploadBegin",new{name="busy.bin",size=data.Length,sha256=hash});
+                    check(!busy.GetProperty("ok").GetBoolean() && busy.GetProperty("retry").GetBoolean() && second.Session.IsAlive,"TLS busy receipt requests retry while preserving connection");
+                }
+                string source=Path.Combine(root,"source.bin");await File.WriteAllBytesAsync(source,data);using CancellationTokenSource deadline=new(TimeSpan.FromSeconds(8));
+                Task<string> sending=second.Session.SendResumableFileAsync(source,Guid.NewGuid().ToString("N"),hash,deadline.Token,null);
+                using(var command=await second.NextAsync()) {
+                    check(command.RootElement.GetProperty("resume").GetBoolean(),"Windows sender negotiates resumable file begin");
+                    await second.Stream.WriteAsync(LanProtocol.Encode(new{type="ack",id=command.RootElement.GetProperty("id").GetString(),ok=true,offset=2,done=false,name=""}));
+                }
+                using(var command=await second.NextAsync()) {
+                    check(command.RootElement.GetProperty("data").GetString()=="AwQ=","Windows resumes without resending confirmed prefix");
+                    await second.Stream.WriteAsync(LanProtocol.Encode(new{type="ack",id=command.RootElement.GetProperty("id").GetString(),ok=true,name=""}));
+                }
+                using(var command=await second.NextAsync()) await second.Stream.WriteAsync(LanProtocol.Encode(new{type="ack",id=command.RootElement.GetProperty("id").GetString(),ok=true,name="source.bin"}));
+                check(await sending=="source.bin","Windows resumable sender waits for final saved ACK");
+                string request=Guid.NewGuid().ToString("N"),frame=Guid.NewGuid().ToString("N");byte[] jpeg=[255,216,255,192,0,8,8,0,3,0,2,0,255,217];
+                TaskCompletionSource<ScreenFrame> shown=new(TaskCreationOptions.RunContinuationsAsynchronously);second.Session.ScreenFrameReceived+=value=>shown.TrySetResult(value);
+                second.Session.StartScreen(request);using(var command=await second.NextAsync()) check(command.RootElement.GetProperty("type").GetString()=="screenStart","screen starts only after explicit Windows request");
+                await second.Stream.WriteAsync(LanProtocol.Encode(new{type="screenBegin",request,frame,width=2,height=3,size=jpeg.Length,revision=1}));
+                await second.Stream.WriteAsync(LanProtocol.Encode(new{type="screenChunk",request,frame,seq=0,data=Convert.ToBase64String(jpeg)}));
+                await second.Stream.WriteAsync(LanProtocol.Encode(new{type="screenEnd",request,frame}));
+                check((await shown.Task.WaitAsync(deadline.Token)).Jpeg.SequenceEqual(jpeg),"authenticated TLS screen frame reaches viewer callback");
+                using(var ack=await second.NextAsync()) check(ack.RootElement.GetProperty("type").GetString()=="screenFrameAck","screen backpressure acknowledges complete frames");
+                second.Session.ScreenText("Привет 🌍",1);using(var input=await second.NextAsync()) check(input.RootElement.GetProperty("kind").GetString()=="text" && input.RootElement.GetProperty("text").GetString()=="Привет 🌍","screen typing preserves Unicode over authenticated TLS");
+                second.Session.ScreenKey("backspace",1);using(var input=await second.NextAsync()) check(input.RootElement.GetProperty("kind").GetString()=="key" && input.RootElement.GetProperty("key").GetString()=="backspace","screen editing keys use the active screen request");
+                second.Session.StopScreen();using(var command=await second.NextAsync()) check(command.RootElement.GetProperty("type").GetString()=="screenStop","closing screen sends explicit stop");
+            }
+        } finally { if(Directory.Exists(root)) Directory.Delete(root,true); }
+    }
     private sealed class Peer : IAsyncDisposable
     {
         private readonly TcpClient client;
@@ -542,7 +597,7 @@ static class LanClipboardTests
             => await Stream.WriteAsync(LanProtocol.Encode(Pong), cancellationToken);
         private Peer(TcpClient client, SslStream stream, LanSession session, X509Certificate2 certificate, SslStream server)
         { this.client = client; Stream = stream; Session = session; this.certificate = certificate; this.server = server; }
-        public static async Task<Peer> CreateAsync(bool automatic = false, bool nativeEdge = false, bool wheelZoom = false, bool fileEdgeConfig = false)
+        public static async Task<Peer> CreateAsync(bool automatic = false, bool nativeEdge = false, bool wheelZoom = false, bool fileEdgeConfig = false, string? resumeCache = null, bool screen = false)
         {
             using RSA rsa = RSA.Create(2048);
             CertificateRequest request = new("CN=Galaxy Bridge clipboard test", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -571,7 +626,7 @@ static class LanClipboardTests
                     ct => server.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate, EnabledSslProtocols = SslProtocols.Tls12 }, ct),
                     ct => stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost", EnabledSslProtocols = SslProtocols.Tls12 }, ct),
                     deadline.Token, () => { accepted.Dispose(); client.Dispose(); });
-                LanSession session = new(accepted, server, "clipboard test", automatic, nativeEdge, wheelZoom, fileEdgeConfig); session.Start();
+                LanSession session = new(accepted, server, "clipboard test", automatic, nativeEdge, wheelZoom, fileEdgeConfig, fileResumeSupported: resumeCache is not null, resumeCache: resumeCache, screenSupported: screen); session.Start();
                 return new(client, stream, session, certificate, server);
             }
             catch (Exception ex)

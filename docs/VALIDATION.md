@@ -1,4 +1,55 @@
-# Validation — Windows 0.7.37 / Android 0.7.37
+# Validation — Windows 0.8.0 / Android 0.8.0
+
+## Five new features (0.8.0)
+
+Based on main 2efc78a. Implemented resumable transfers in both directions,
+persistent 100-entry histories with retry, connection diagnostics, opt-in
+per-user Windows tray autostart, and a consent-gated phone-screen window.
+The window supports gestures, typing, paste and editing keys on the phone's
+focused editable field. Password fields remain on the phone. Screenshot input
+is scoped to the active request, frame revision and default display.
+
+Resume negotiation preserves old peers. Stable operation IDs and a full source
+hash allow byte-offset continuation and idempotent final ACKs. Retry waits for
+the original paired peer, not a newly paired device. A previous commit holding
+the spool returns a transient retry response. Explicit receive cancellation
+uses a flag checked during verification/copy, avoiding UI waits on that work.
+Partial spools and completion receipts are bounded and expire after 24 hours
+when later transfers prune the cache. Histories preserve successes/failures and
+source references; retry starts a new transfer and may require reselection if
+an Android provider no longer grants URI access.
+
+Screen capture uses a private mediaProjection foreground service and one fresh
+Android grant per session. A Windows request posts a consent notification with
+a manual in-app entry point. Rejection, an expired/closed request and a replaced
+connection do not start capture. Closing the viewer, stopping on the phone,
+locking the device or losing its owner ends the session. Frames are rate-limited
+to 4/s, long edge 960px, max 512KB, with one acknowledged frame in flight. Large
+file transfers pause frames and screen input. No audio or DeX video is captured.
+
+Validation:
+- 2559 portable assertions pass, including real certificate-pinned TLS resume
+  on a new session, exact continuation bytes, idempotent final receipt, transient
+  busy retry, screen framing/ACK/stop, Unicode text and editing-key transport.
+- 96 Android tests pass, including partial download continuation/publication,
+  upload offsets, history, diagnostics, consent request/decline/accept/late reply,
+  duplicate-result protection, and Unicode selection/deletion behavior.
+- All Windows/Core production C# compiles against .NET 8/Windows references;
+  existing QRCoder 1701/1702 reference warnings are the only excluded warnings.
+- All Android LAN sources compile against Android 35 references. The Maven
+  fixture now includes every companion source so incremental changes are tested.
+- Source-package and whitespace checks pass. Android light/dark/main-tab
+  previews are native Robolectric renders, inspected and updated under docs/ui.
+
+The installer smoke test now checks autostart choice preservation on update
+and removal on uninstall, in addition to its previous checks. It requires an
+empty CI account, including no existing GalaxyBridge Run entry. That Windows
+smoke test and actual login behavior were not executed in this Linux workspace.
+
+No new Setup/APK was packaged or Actions build started. Real MediaProjection
+frames, Samsung accessibility editing/gestures, rotation/DeX, Windows UI/DPI,
+native install/uninstall and device performance require the checklist below.
+0.8.0 remains a release candidate until those hardware/package checks pass.
 
 ## Release preparation (0.7.37)
 

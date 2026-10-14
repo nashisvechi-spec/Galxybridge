@@ -115,12 +115,12 @@ internal sealed class LanHost : IAsyncDisposable
                     // 0.7.9/0.7.10 advertise the same wheel feature as touchInput.
                     wheelZoom |= root.TryGetProperty("touchInput", out var oldTouch) && oldTouch.ValueKind == System.Text.Json.JsonValueKind.Number && oldTouch.TryGetInt32(out int oldVersion) && oldVersion == 1;
                     bool fileEdgeConfig = root.TryGetProperty("fileEdgeConfig", out var fileCapability) && fileCapability.ValueKind == System.Text.Json.JsonValueKind.Number && fileCapability.TryGetInt32(out int fileVersion) && fileVersion == 1;
-                    session = new LanSession(client, stream, name, autoClipboard, nativeEdge, wheelZoom, fileEdgeConfig);
+                    session = new LanSession(client, stream, name, autoClipboard, nativeEdge, wheelZoom, fileEdgeConfig, fileResumeSupported: root.TryGetProperty("fileResume", out var resumeVersion) && resumeVersion.GetInt32()==1, resumeCache: Path.Combine(Settings.Folder,"partial",phone), screenSupported: root.TryGetProperty("screen",out var screenVersion) && screenVersion.GetInt32()==1, peerId:phone);
                     session.FileReceived += path => FileReceived?.Invoke(name, path);
                     session.ConfigureReceive(settings.NativeReceiveEnabled, settings.NativeReceiveFolder);
                     session.ConfigureFileEdge(false);
                 }
-                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, fileDrag = 0, fileEdge = 0, fileDropZone = 0, fileEdgeConfig = session.FileEdgeConfigurationSupported ? 1 : 0, fileEdgeEnabled = session.FileEdgeEnabled, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0, wheelZoom = session.WheelZoomSupported ? 1 : 0 }), hello.Token);
+                await stream.WriteAsync(LanProtocol.Encode(new { type = "welcome", v = LanProtocol.Version, token, host = identity.HostId, upload = true, fileResume = session.FileResumeSupported ? 1 : 0, screen = session.ScreenSupported ? 1 : 0, fileDrag = 0, fileEdge = 0, fileDropZone = 0, fileEdgeConfig = session.FileEdgeConfigurationSupported ? 1 : 0, fileEdgeEnabled = session.FileEdgeEnabled, clipboard = true, clipboardSync = session.AutomaticClipboard ? 1 : 0, nativeEdge = session.NativeEdgeSupported ? 1 : 0, wheelZoom = session.WheelZoomSupported ? 1 : 0 }), hello.Token);
                 // Explicit acknowledgement proves the phone saved its new token before any control session is accepted.
                 stage = "подтверждение телефона";
                 PendingState("Ожидаем подтверждение сохранения сопряжения…");

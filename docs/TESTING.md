@@ -1,5 +1,51 @@
 # Testing the no-debugging edition
 
+## Five new features (0.8.0)
+
+Run source checks, the portable suite (2559 assertions), full Android suite
+(96 cases), Windows TLS tests and the manual installer workflow.
+
+On the actual devices:
+- Upgrade both apps. Send a large file each way, interrupt Wi-Fi/VPN, reconnect
+  and verify continuation from received bytes plus exact file content. Interrupt
+  during final verification/publication and final ACK; verify one saved file and
+  receipt. Leave a file running for over two minutes before interruption: retry
+  grace must begin at the outage. Test empty files, duplicate names, changed
+  sources, unavailable URI grants, full disk, explicit cancel and receive disabled.
+- Pair another device during retry: the old queue must stop. Retry must not
+  silently redirect files. Check 24-hour pruning and a busy old receiver.
+- Restart both apps and inspect success/failure/cancel history. Open received
+  files/folders, retry existing and removed sources, and clear history. Files must
+  survive history clearing. Android may ask for reselection after provider access
+  expires; document grants should persist when the provider supports them.
+- Run diagnostics with/without a working link, Wi-Fi, VPN, input/overlay and
+  notification permissions. Deny folder writes. The report must explain findings
+  without pairing tokens/QR pins and must not change firewall/VPN settings.
+- Toggle Windows autostart, sign out/in, verify tray launch, open from tray and
+  exit. Disable and repeat. Update with the option set, then uninstall and verify
+  its Run value is removed while other Run values and application data remain.
+- Request the phone screen from Windows; accept, decline and dismiss Android's
+  dialog. Repeat with notifications blocked using the manual Android settings
+  action. Close Windows before accepting: capture must not start. Rotate while
+  the consent dialog is open and after capture starts; never reuse an old grant.
+- Test actual picture/rotation, letterboxing, clicks, swipes, wheel, Unicode
+  typing, selection, Ctrl+V/A, Backspace/Delete/Enter and unsupported fields.
+  Test a password field and a locked/off phone. Gestures/text must address the
+  phone display rather than DeX. Confirm the regular DeX control route remains.
+- Stop via Windows close, Android notification/system chip, screen lock, network
+  loss and app exit. No later consent or reconnect may revive an old capture.
+  Check a new session requests fresh consent. Minimize the main PC window and
+  keep the viewer usable. The viewer must suppress automatic edge capture while
+  focused. Check 100/150/200% DPI and actual keyboard/focus behavior.
+- Transfer a large file with the viewer open: frames/input pause and recover,
+  file throughput remains usable, and there is no unbounded frame queue. Observe
+  phone temperature/battery and CPU. Current 4fps JPEG mode is for UI/documents,
+  not video/audio; protected surfaces follow Android capture rules.
+
+Robolectric validates lifecycle/protocol/layout behavior, not Samsung hardware
+capture or real accessibility action execution. Native Windows installer/startup,
+frame drawing and these physical checks are required before calling it stable.
+
 ## Release candidate 0.7.37
 
 Run the full Android UI/display suite (82 tests), portable core suite, source
