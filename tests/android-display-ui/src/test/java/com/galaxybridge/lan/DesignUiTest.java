@@ -140,4 +140,60 @@ public class DesignUiTest {
         RuntimeEnvironment.getApplication().getSharedPreferences("appearance",Context.MODE_PRIVATE).edit().putString("theme","dark").commit();
         try(ActivityController<SetupActivity> controller=Robolectric.buildActivity(SetupActivity.class).setup()) { preview(controller.get(),"android-connection-dark"); }
     }
+    @Test public void unpairedReconnectIsUnavailableAndExplainsTheQrStep() {
+        try(ActivityController<SetupActivity> controller=Robolectric.buildActivity(SetupActivity.class).setup()) {
+            SetupActivity activity=controller.get();assertFalse(button(activity,"Подключиться к сохранённому ПК").isEnabled());
+            boolean help=false;for(View view:views(root(activity))) if(view instanceof TextView && ((TextView)view).getText().toString().contains("На ПК откройте QR")) help=true;
+            assertTrue(help);assertNull(shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
+            assertTrue(button(activity,"Сканировать QR").isEnabled());
+        }
+    }
+    @Test public void savedPairingCanReconnectWithoutScanningAnotherQr() {
+        Context context=RuntimeEnvironment.getApplication();context.getSharedPreferences("lan",Context.MODE_PRIVATE).edit().putString("token",String.join("",Collections.nCopies(64,"a"))).commit();
+        try(ActivityController<SetupActivity> controller=Robolectric.buildActivity(SetupActivity.class).setup()) {
+            Button reconnect=button(controller.get(),"Подключиться к сохранённому ПК");assertTrue(reconnect.isEnabled());reconnect.performClick();
+            Intent started=shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService();assertNotNull(started);
+            assertEquals(ConnectionService.class.getName(),started.getComponent().getClassName());assertFalse(started.hasExtra("qr"));
+        }
+    }
+    @Test public void qrResultWhileFilesTabIsVisibleDoesNotDereferenceMissingStatusView() {
+        try(ActivityController<SetupActivity> controller=Robolectric.buildActivity(SetupActivity.class).setup()) {
+            SetupActivity activity=controller.get();button(activity,"Файлы").performClick();
+            activity.onActivityResult(7,Activity.RESULT_OK,new Intent().putExtra("qr","invalid"));
+            assertTrue(ConnectionService.status.contains("не QR"));assertTrue(button(activity,"Файлы").isSelected());
+            assertNull(shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
+        }
+    }
+    @Test public void settingsScrollPositionSurvivesSwitchingTabsAndRotation() {
+        Bundle saved=new Bundle();
+        try(ActivityController<SetupActivity> controller=Robolectric.buildActivity(SetupActivity.class).setup()) {
+            SetupActivity activity=controller.get();button(activity,"Настройки").performClick();layout(activity,420,650);shadowOf(android.os.Looper.getMainLooper()).idle();
+            ScrollView scroll=null;for(View view:views(root(activity))) if(view instanceof ScrollView) scroll=(ScrollView)view;
+            assertNotNull(scroll);scroll.scrollTo(0,260);assertEquals(260,scroll.getScrollY());
+            button(activity,"Файлы").performClick();button(activity,"Настройки").performClick();layout(activity,420,650);shadowOf(android.os.Looper.getMainLooper()).idle();
+            for(View view:views(root(activity))) if(view instanceof ScrollView) assertEquals(260,view.getScrollY());
+            controller.saveInstanceState(saved);
+        }
+        try(ActivityController<SetupActivity> controller=Robolectric.buildActivity(SetupActivity.class).create(saved).start().resume().visible()) {
+            layout(controller.get(),420,650);shadowOf(android.os.Looper.getMainLooper()).idle();
+            for(View view:views(root(controller.get()))) if(view instanceof ScrollView) assertEquals(260,view.getScrollY());
+        }
+    }
+    @Test public void emptyClipboardDraftDoesNotOfferSendButTypedTextEnablesItImmediately() {
+        try(ActivityController<ClipboardActivity> controller=Robolectric.buildActivity(ClipboardActivity.class).setup()) {
+            Activity activity=controller.get();Button send=button(activity,"Отправить в буфер ПК");assertFalse(send.isEnabled());
+            for(View view:views(root(activity))) if(view instanceof EditText) ((EditText)view).setText("https://example.com");
+            assertTrue(send.isEnabled());assertNull(shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
+        }
+    }
+    @Test @Config(qualifiers="w320dp-h640dp-mdpi") public void narrowScreenWithLargeTextDoesNotClipLongActionLabels() {
+        RuntimeEnvironment.setFontScale(2f);
+        try(ActivityController<SetupActivity> controller=Robolectric.buildActivity(SetupActivity.class).setup()) {
+            Activity activity=controller.get();button(activity,"Настройки").performClick();layout(activity,320,640);
+            Button action=button(activity,"Переходы мыши и общий буфер");assertNotNull(action.getLayout());
+            assertTrue(action.getLayout().getLineCount()>1);
+            assertTrue(action.getHeight()>=action.getLayout().getHeight()+action.getCompoundPaddingTop()+action.getCompoundPaddingBottom());
+            assertTrue(button(activity,"Настройки").getBottom()<=640);
+        } finally { RuntimeEnvironment.setFontScale(1f); }
+    }
 }

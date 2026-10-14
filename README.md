@@ -1,6 +1,17 @@
 # Galaxy Bridge — no-debugging edition
 
-Windows **0.7.36** / Android **0.7.34**. The application starts directly in its LAN
+## Release preparation · 0.7.37
+
+Connection screens now explain QR setup, saved-pair reconnection, and permissions.
+Windows exposes receive settings directly on Files, explains unavailable actions,
+and confirms forgetting a phone. Android preserves tab scroll positions and
+rejects a selection over 100 files as a whole instead of silently truncating it.
+Both packages use 0.7.37; manual Android builds require an explicit VersionCode.
+See the [review and roadmap](docs/RELEASE_REVIEW.ru.md) and device checklist.
+This is a release candidate until the new installer/APK and physical-device
+checks have been completed.
+
+Windows **0.7.37** / Android **0.7.37**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -150,7 +161,7 @@ does not yet include a Classic HID backend. See [the analysis](docs/GLIDEX_WINDO
 
 Builds run **manually only**: Actions → Build Windows installer → Run workflow.
 Two artifacts are published: **GalaxyBridge-Windows-Setup** and **GalaxyBridgeLan-android**.
-The Windows artifact contains `GalaxyBridge-Setup-0.7.36-x64.exe`, an Inno Setup
+The Windows artifact contains `GalaxyBridge-Setup-0.7.37-x64.exe`, an Inno Setup
 installer with Russian/English UI, Start menu and optional desktop shortcuts,
 and a registered uninstaller. It installs for the current user, with the .NET
 runtime included. Update by running the next installer after closing the app;

@@ -130,4 +130,24 @@ public class SendActivityTest {
         ConnectionService owner=busyService();enqueue(owner,new ArrayList<>(Arrays.asList(Uri.parse("https://example.com/file"))));
         assertTrue(queue(owner).isEmpty());
     }
+    @Test public void selectionOverLimitRejectsWholeShareInsteadOfSendingOnlyFirstHundred() {
+        ArrayList<Uri> selection=new ArrayList<>();
+        for(int i=0;i<101;i++) selection.add(Uri.parse("content://example.files/"+i));
+        open(new Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM,selection),null);
+        assertNull(nextService());assertTrue(ConnectionService.fileStatus.contains("Ничего не отправлено"));
+        assertTrue(activity.get().isFinishing());assertNull(shadowOf(activity.get()).getNextStartedActivity());
+    }
+    @Test public void exactlyOneHundredFilesStillSendTogether() {
+        ArrayList<Uri> selection=new ArrayList<>();
+        for(int i=0;i<100;i++) selection.add(Uri.parse("content://example.files/"+i));
+        open(new Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM,selection),null);
+        assertEquals(selection,files(nextService()));
+    }
+    @Test public void duplicateClipItemsDoNotHideALaterUniqueFile() {
+        ClipData clip=ClipData.newRawUri("files",first);
+        for(int i=1;i<100;i++) clip.addItem(new ClipData.Item(first));
+        clip.addItem(new ClipData.Item(second));
+        Intent intent=new Intent(Intent.ACTION_SEND_MULTIPLE);intent.setClipData(clip);open(intent,null);
+        assertEquals(Arrays.asList(first,second),files(nextService()));
+    }
 }

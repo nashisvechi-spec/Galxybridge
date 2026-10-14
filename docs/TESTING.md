@@ -1,5 +1,38 @@
 # Testing the no-debugging edition
 
+## Release candidate 0.7.37
+
+Run the full Android UI/display suite (82 tests), portable core suite, source
+checks, and the existing manual Windows installer workflow. Android regression
+cases cover no-pairing reconnect, saved-pair reconnect, QR results received while
+Files is visible, scroll restoration across tabs/recreation, empty clipboard,
+320dp/200% text layout, exactly 100 files, an over-limit share, and late unique
+ClipData items after repeated duplicates. Over-limit sharing must send nothing.
+
+On the actual laptop and S25:
+- Install the new Setup and update the signed APK in place. Pairing, receive
+  folder, widget position/transparency and theme must survive.
+- Test first QR, saved-pair reconnect without a new QR, connection stop/resume,
+  permission denial/return, VPN and Wi-Fi interruption, and screen lock/resume.
+- On Windows Files change the receive folder and allow/deny receiving; verify
+  consistency with the separate file window. During reception, changing folder
+  is unavailable and Cancel reception cancels the actual transfer. Cancel send
+  is available only while sending. Check control/navigation disabled states.
+- Cancel Forget phone: pairing must remain. Confirm it: a new QR is required;
+  received files remain. Check the QR action remains visible on first launch.
+- Use keyboard navigation and 100/150/200% DPI with narrow Windows work areas.
+  Check button wrapping, hover, focus, and the borderless widget independently.
+- On Android switch tabs after scrolling, rotate, change theme, use TalkBack
+  headings and 200% font at 320dp/split-screen. System Back from Files/Settings
+  returns to Connection before leaving the app.
+- Send files both ways, including 100/101 files and a large video. Share from
+  My Files/Gallery must remain in the source app and send in the background.
+- Recheck phone wake, DeX monitor switching/return, emergency hotkey, smooth
+  cursor, clipboard, Android receipt sound/folder tap and Windows receipt notice.
+
+An Android framework test cannot verify Samsung DeX, hardware sound or Windows
+native rendering. Complete these checks before calling this version stable.
+
 ## Windows installer (0.7.36)
 
 The manual Windows workflow builds the actual Setup EXE with Inno Setup and

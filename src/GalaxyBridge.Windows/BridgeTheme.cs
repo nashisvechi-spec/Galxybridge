@@ -81,14 +81,20 @@ internal static class BridgeTheme
 
 internal sealed class BridgeButton : Button
 {
+    private bool hovered,pressed;
     public bool Primary { get; set; }
     public bool Selected { get; set; }
     public BridgeButton() { AutoSize=true;MinimumSize=new Size(100,42);Margin=new Padding(0,0,10,8);Padding=new Padding(14,8,14,8);FlatStyle=FlatStyle.Flat;SetStyle(ControlStyles.UserPaint|ControlStyles.OptimizedDoubleBuffer,true); }
+    protected override void OnMouseEnter(EventArgs e) { hovered=true;base.OnMouseEnter(e);Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { hovered=pressed=false;base.OnMouseLeave(e);Invalidate(); }
+    protected override void OnMouseDown(MouseEventArgs e) { pressed=e.Button==MouseButtons.Left;base.OnMouseDown(e);Invalidate(); }
+    protected override void OnMouseUp(MouseEventArgs e) { pressed=false;base.OnMouseUp(e);Invalidate(); }
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
         e.Graphics.Clear(Parent?.BackColor??BridgeTheme.Background);
         Color fill=Primary && Enabled?BridgeTheme.Blue:Selected?BridgeTheme.Dark?Color.FromArgb(28,57,92):Color.FromArgb(226,239,255):BridgeTheme.Surface;
+        if(Enabled && (hovered || pressed)) fill=Primary?pressed?Color.FromArgb(5,67,155):Color.FromArgb(22,115,225):BridgeTheme.Dark?Color.FromArgb(32,54,80):Color.FromArgb(231,240,252);
         using GraphicsPath path=BridgeTheme.Round(new RectangleF(.5f,.5f,Width-1,Height-1),10*DeviceDpi/96f);
         using SolidBrush brush=new(fill);e.Graphics.FillPath(brush,path);
         if(!Primary) { using Pen border=new(Selected?BridgeTheme.Blue:BridgeTheme.Border);e.Graphics.DrawPath(border,path); }
@@ -110,7 +116,9 @@ internal sealed class BridgeCard : FlowLayoutPanel
     {
         int available=Math.Max(150,ClientSize.Width-Padding.Horizontal);
         foreach(Control child in Controls) {
-            if(child is Label or FlowLayoutPanel) child.MaximumSize=new Size(available,0);
+            if(child is Label or FlowLayoutPanel or Button or CheckBox) child.MaximumSize=new Size(available,0);
+            if(child is FlowLayoutPanel row) foreach(Control item in row.Controls)
+                if(item is Button or CheckBox or Label) item.MaximumSize=new Size(Math.Max(100,available-item.Margin.Horizontal),0);
             if(child is DeviceMap or TextBox || child is Label { AutoSize:false }) child.Width=available;
         }
     }

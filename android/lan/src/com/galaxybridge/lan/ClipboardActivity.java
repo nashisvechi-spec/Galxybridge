@@ -16,8 +16,8 @@ public final class ClipboardActivity extends Activity {
     private Button send;
     private boolean readOnFocus;
     private final Runnable update=new Runnable() { public void run() {
-        progress.setText(ConnectionService.status+"\n\n"+ConnectionService.clipboardStatus);
-        send.setEnabled(!ConnectionService.sendingClipboard());handler.postDelayed(this,300);
+        BridgeUi.updateText(progress,ConnectionService.status+"\n\n"+ConnectionService.clipboardStatus);
+        updateSend();handler.postDelayed(this,500);
     }};
     @Override public void onCreate(Bundle state) {
         BridgeUi.prepare(this);super.onCreate(state);
@@ -33,13 +33,20 @@ public final class ClipboardActivity extends Activity {
             catch(IllegalArgumentException e) { ConnectionService.clipboardStatus=e.getMessage(); }
             progress.setText(ConnectionService.status+"\n\n"+ConnectionService.clipboardStatus);
         });
+        text.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s,int start,int count,int after) { }
+            public void onTextChanged(CharSequence s,int start,int before,int count) { updateSend(); }
+            public void afterTextChanged(android.text.Editable s) { }
+        });
         LinearLayout activity=BridgeUi.card(page,"Результат");progress=BridgeUi.text(this,"",16,false);activity.addView(progress);
         page.addView(BridgeUi.text(this,"На ПК включите общий текстовый буфер. Приложения должны быть подключены по Wi-Fi.",13,false));BridgeUi.show(this,root);
         String shared=getIntent().getStringExtra("sharedText");
         if(state!=null) { text.setText(state.getString("text",""));readOnFocus=false; }
         else if(shared!=null) { text.setText(shared);readOnFocus=false; }
         else readOnFocus=true;
+        updateSend();
     }
+    private void updateSend() { send.setEnabled(text.length()>0 && !ConnectionService.sendingClipboard()); }
     @Override public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
         if(focus && readOnFocus) { readOnFocus=false;readClipboard(); }
@@ -60,6 +67,6 @@ public final class ClipboardActivity extends Activity {
         progress.setText(ConnectionService.status+"\n\n"+ConnectionService.clipboardStatus);
     }
     @Override protected void onSaveInstanceState(Bundle state) { state.putString("text",text.getText().toString());super.onSaveInstanceState(state); }
-    @Override protected void onResume() { super.onResume();handler.post(update); }
+    @Override protected void onResume() { super.onResume();handler.removeCallbacks(update);handler.post(update); }
     @Override protected void onPause() { handler.removeCallbacks(update);super.onPause(); }
 }

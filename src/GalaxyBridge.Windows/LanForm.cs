@@ -24,6 +24,18 @@ internal sealed class LanForm : Form
     private readonly PictureBox qr = new() { Size = new Size(340, 340), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White, Visible = false };
     private readonly Label state = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly Label connectionDetail = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
+    private readonly Label controlHint = BridgeTheme.Label("");
+    private readonly Label sendHint = BridgeTheme.Label("");
+    private readonly BridgeButton pairing = BridgeTheme.Button("Подключить по QR", true);
+    private readonly BridgeButton pauseConnection = BridgeTheme.Button("Остановить связь");
+    private readonly BridgeButton cancelSend = BridgeTheme.Button("Отменить отправку");
+    private readonly CheckBox receiveAllowed = new() { Text = "Принимать файлы с телефона", AutoSize = true };
+    private readonly TextBox receiveFolderPath = new() { ReadOnly = true, AccessibleName = "Папка для файлов с телефона" };
+    private readonly BridgeButton changeReceiveFolder = BridgeTheme.Button("Изменить папку…");
+    private readonly BridgeButton cancelReceive = BridgeTheme.Button("Отменить приём");
+    private BridgeCard? firstConnectionHelp;
+    private readonly List<BridgeButton> androidNavigation = [];
+    private bool updatingReceive;
     private readonly Button toggle = new BridgeButton { Primary = true, Enabled = false, Text = "Управлять телефоном / DeX", AutoSize = true }, files = new BridgeButton { Primary = true, Enabled = false, Text = "Отправить файлы…", AutoSize = true };
     private readonly CheckBox edgeEntry = new() { Text = "Вход через край экрана", AutoSize = true };
     private readonly CheckBox showFileWidget = new() { Text = "Виджет отправки файлов на S25", AutoSize = true };
@@ -86,7 +98,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text="Galaxy Bridge • 0.7.36";Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;
+        Text="Galaxy Bridge • 0.7.37";Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;
         AutoScaleDimensions=new SizeF(96,96);StartPosition=FormStartPosition.CenterScreen;
         Size=new Size(1000,Math.Min(740,(Screen.PrimaryScreen?.WorkingArea.Height??850)-40));MinimumSize=new Size(740,500);
         TableLayoutPanel shell=new() { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
@@ -101,13 +113,16 @@ internal sealed class LanForm : Form
             nav.Click+=(_,_)=>SelectSection(index);sidebar.Controls.Add(nav);sectionButtons.Add(nav);
             Panel panel=new() { Dock=DockStyle.Fill,Visible=i==0 };sections.Add(panel);screenHost.Controls.Add(panel);
         }
-        sidebar.Controls.Add(BridgeTheme.Label("Версия 0.7.36\nWi-Fi · без отладки"));sidebar.Controls.Add(sidebarStatus);
+        sidebar.Controls.Add(BridgeTheme.Label("Версия 0.7.37\nWi-Fi · без отладки"));sidebar.Controls.Add(sidebarStatus);
         shell.Controls.Add(sidebar,0,0);shell.Controls.Add(screenHost,1,0);Controls.Add(shell);
         TableLayoutPanel devices=BridgeTheme.Page(sections[0],"Устройства","Один мост между телефоном и компьютером.");
         BridgeCard device=BridgeTheme.Card(devices,"Ваше подключение");device.Controls.Add(deviceName);device.Controls.Add(state);
+        device.Controls.Add(controlHint);device.Controls.Add(pairing);
         device.Controls.Add(deviceMap);device.Controls.Add(BridgeTheme.Row(toggle,BridgeTheme.Label("Ctrl + Alt + F12")));
         device.Controls.Add(connectionDetail);
-        BridgeButton renew=BridgeTheme.Button("Подключить по QR");device.Controls.Add(renew);
+        BridgeCard help=BridgeTheme.Card(devices,"Первое подключение");firstConnectionHelp=help;
+        help.Controls.Add(BridgeTheme.Label("1. Подключите ПК и телефон к одной сети Wi-Fi.\n2. Откройте QR на ПК и нажмите «Сканировать QR» на телефоне.\n3. Для мыши включите Galaxy Bridge в специальных возможностях Android. Для файлов это разрешение не требуется."));
+        BridgeButton connectionHelp=BridgeTheme.Button("Помощь с подключением");connectionHelp.Click+=(_,_)=>ShowConnectionHelp();help.Controls.Add(connectionHelp);
         BridgeCard quick=BridgeTheme.Card(devices,"Всё под рукой");
         BridgeButton quickFiles=BridgeTheme.Button("Файлы в обе стороны"),quickText=BridgeTheme.Button("Текст и ссылки");
         quickFiles.Click+=(_,_)=> { SelectSection(2);if(sections[2].Controls[0] is Panel scroll) scroll.AutoScrollPosition=Point.Empty; };
@@ -130,17 +145,22 @@ internal sealed class LanForm : Form
         wheelZoom.Checked=settings.WheelZoomEnabled;mouse.Controls.Add(wheelZoom);mouse.Controls.Add(BridgeTheme.Label("Ctrl + колёсико увеличивает PDF и изображения. Настройка выше включает масштабирование одним колёсиком."));
         BridgeCard navigation=BridgeTheme.Card(management,"Навигация Android");
         FlowLayoutPanel navigationButtons=BridgeTheme.Row();
-        foreach(var(label,action) in new[]{("Назад","back"),("Домой","home"),("Недавние","recents")}) { BridgeButton b=BridgeTheme.Button(label);b.Click+=(_,_)=>session?.Post(new { type="nav",action });navigationButtons.Controls.Add(b); }
-        navigation.Controls.Add(navigationButtons);navigation.Controls.Add(BridgeTheme.Label("Ctrl + Alt + F12 всегда возвращает управление на ПК."));
+        foreach(var(label,action) in new[]{("Назад","back"),("Домой","home"),("Недавние","recents")}) { BridgeButton b=BridgeTheme.Button(label);b.Click+=(_,_)=> { if(session is { IsAlive:true,InputReady:true,ScreenControlAllowed:true } current) current.Post(new { type="nav",action }); };navigationButtons.Controls.Add(b);androidNavigation.Add(b); }
+        navigation.Controls.Add(navigationButtons);navigation.Controls.Add(BridgeTheme.Label("Кнопки доступны при подключении по Wi-Fi и готовой службе управления Android. Ctrl + Alt + F12 возвращает управление на ПК."));
         TableLayoutPanel transfers=BridgeTheme.Page(sections[2],"Файлы","От компьютера к телефону — и обратно.");
         BridgeCard outgoing=BridgeTheme.Card(transfers,"ПК → телефон");outgoing.Controls.Add(BridgeTheme.Label("Перетащите файлы в окно или выберите их. На телефоне: Download/GalaxyBridge. До 2 ГБ на файл, без папок."));
         BridgeButton dropWindow=BridgeTheme.Button("Окно отправки и приёма");dropWindow.Click+=(_,_)=>OpenFiles();
-        BridgeButton cancel=BridgeTheme.Button("Отменить отправку");cancel.Click+=(_,_)=>transfer?.Cancel();
-        outgoing.Controls.Add(BridgeTheme.Row(files,dropWindow,cancel));outgoing.Controls.Add(transferState);
+        cancelSend.Enabled=false;cancelSend.Click+=(_,_)=>transfer?.Cancel();
+        outgoing.Controls.Add(BridgeTheme.Row(files,dropWindow,cancelSend));outgoing.Controls.Add(sendHint);outgoing.Controls.Add(transferState);
         showFileWidget.Checked=settings.FileWidgetVisible;outgoing.Controls.Add(showFileWidget);
-        BridgeCard incoming=BridgeTheme.Card(transfers,"Телефон → ПК");incoming.Controls.Add(receiveState);
+        BridgeCard incoming=BridgeTheme.Card(transfers,"Телефон → ПК");
+        receiveAllowed.Checked=settings.NativeReceiveEnabled;
+        receiveAllowed.CheckedChanged+=(_,_)=> { if(!updatingReceive) AllowReceive(receiveAllowed.Checked); };
+        incoming.Controls.Add(receiveAllowed);incoming.Controls.Add(receiveFolderPath);incoming.Controls.Add(receiveState);
         incoming.Controls.Add(BridgeTheme.Label("На телефоне: Поделиться → Galaxy Bridge Wi-Fi. Отправка идёт в фоне. После сохранения на ПК появится уведомление."));
-        BridgeButton receiveFolder=BridgeTheme.Button("Открыть папку приёма");receiveFolder.Click+=(_,_)=>OpenReceiveFolder();incoming.Controls.Add(receiveFolder);
+        BridgeButton receiveFolder=BridgeTheme.Button("Открыть папку приёма");receiveFolder.Click+=(_,_)=>OpenReceiveFolder();
+        changeReceiveFolder.Click+=(_,_)=>ChooseReceiveFolder();cancelReceive.Click+=(_,_)=>session?.CancelReceive();
+        incoming.Controls.Add(BridgeTheme.Row(receiveFolder,changeReceiveFolder,cancelReceive));
         BridgeCard recent=BridgeTheme.Card(transfers,"Последние передачи");recent.Controls.Add(recentTransfers);recent.Controls.Add(BridgeTheme.Label("Последние 10 завершённых файлов в текущем сеансе."));
         BridgeCard text=BridgeTheme.Card(transfers,"Текст и ссылки");clipboardCard=text;share.Checked=settings.ClipboardEnabled;text.Controls.Add(share);
         clipboardState.Text="Копируйте на ПК и вставляйте на телефоне. Скопировав на телефоне, верните курсор на ПК и вставьте через Ctrl+V. Разрешите «Поверх других приложений».";text.Controls.Add(clipboardState);
@@ -174,9 +194,10 @@ internal sealed class LanForm : Form
         bluetoothState.Text="Готовая BLE HID-связь включает системную мышь Android. Если адаптер её не поддерживает, доступно управление через Wi-Fi.";
         native.Controls.Add(BridgeTheme.Label("Для возврата через край подключите телефон по QR и разрешите «Поверх других приложений»."));
         BridgeCard connection=BridgeTheme.Card(preferences,"Подключение и доступ");
-        BridgeButton pause=BridgeTheme.Button("Остановить / возобновить связь");pause.Click+=(_,_)=>ToggleConnection();
-        BridgeButton forget=BridgeTheme.Button("Забыть телефон");forget.Click+=(_,_)=> { try { StopControl();host.Forget();ClearQr();UpdateState(); } catch(IOException) { state.Text="Не удалось сохранить изменение. Попробуйте ещё раз."; } };
-        connection.Controls.Add(BridgeTheme.Row(pause,forget));connection.Controls.Add(BridgeTheme.Label("Управляет только сопряжённое устройство. Для мыши по Wi-Fi нужна служба Galaxy Bridge в специальных возможностях Android. При обрыве проверьте общую сеть, VPN и брандмауэр."));
+        pauseConnection.Click+=(_,_)=>ToggleConnection();
+        BridgeButton forget=BridgeTheme.Button("Забыть телефон");forget.Click+=(_,_)=>ForgetPhone();
+        connection.Controls.Add(BridgeTheme.Row(pauseConnection,forget));connection.Controls.Add(BridgeTheme.Label("Управляет только сопряжённое устройство. Для мыши по Wi-Fi нужна служба Galaxy Bridge в специальных возможностях Android. При обрыве проверьте общую сеть, VPN и брандмауэр."));
+        BridgeButton receiveSettings=BridgeTheme.Button("Настроить приём файлов");receiveSettings.Click+=(_,_)=> { SelectSection(2);if(sections[2].Controls[0] is Panel scroll) scroll.ScrollControlIntoView(incoming); };connection.Controls.Add(receiveSettings);
         SelectSection(0);ApplyDesign();SystemEvents.UserPreferenceChanged+=ThemeChanged;
         share.CheckedChanged += (_, _) =>
         {
@@ -204,7 +225,7 @@ internal sealed class LanForm : Form
             settings.FileWidgetVisible = showFileWidget.Checked;SaveSettings();
             if (showFileWidget.Checked) OpenFileWidget();else fileWidget?.Close();
         };
-        renew.Click += (_, _) => { host.ClosePairing(); RefreshAddresses(); ShowQr(); }; addresses.SelectedIndexChanged += (_, _) => { if (host.PairingOpen) ShowQr(); };
+        pairing.Click += (_, _) => { host.ClosePairing(); RefreshAddresses(); ShowQr(); }; addresses.SelectedIndexChanged += (_, _) => { if (host.PairingOpen) ShowQr(); };
         side.SelectedIndexChanged += (_, _) => { StopControl(); settings.PhoneSide = (PhoneSide)side.SelectedIndex; armed = false; SaveSettings(); };
         edgeEntry.CheckedChanged += (_, _) => { wakeTransition.Cancel(); settings.EdgeEntryEnabled = edgeEntry.Checked; SaveSettings(); };
         speed.ValueChanged += (_, _) =>
@@ -249,6 +270,19 @@ internal sealed class LanForm : Form
         paused = !paused; StopControl(); armed = false;
         if (paused) { ClearQr(); host.Pause(); } else if (!suspended) host.Resume();
         UpdateState();
+    }
+    private void ForgetPhone()
+    {
+        if(MessageBox.Show(this,"Удалить сопряжение с телефоном? Для следующего подключения потребуется новый QR. Полученные файлы сохранятся.",
+            "Забыть телефон",MessageBoxButtons.OKCancel,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.OK) return;
+        try { StopControl();host.Forget();ClearQr();UpdateState(); }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException)
+        { connectionDetail.Text="Не удалось удалить сопряжение. Проверьте доступ к папке настроек и повторите."; }
+    }
+    private void ShowConnectionHelp()
+    {
+        MessageBox.Show(this,"Оба устройства должны быть в одной локальной сети.\n\nНа телефоне откройте Galaxy Bridge → Связь → Подключиться к сохранённому ПК. Если сопряжения ещё нет, отсканируйте QR.\n\nЕсли включён VPN, разрешите в нём доступ к локальной сети. Проверьте разрешение Galaxy Bridge в брандмауэре Windows. Гостевая Wi-Fi сеть может запрещать связь устройств.\n\nФайлы работают без специальных возможностей. Для курсора включите службу Galaxy Bridge на телефоне. При DeX экран выбирается автоматически.",
+            "Помощь с подключением",MessageBoxButtons.OK,MessageBoxIcon.Information);
     }
     private void SaveSettings()
     {
@@ -464,7 +498,12 @@ internal sealed class LanForm : Form
     private void UpdateState()
     {
         deviceName.Text=session?.IsAlive==true?session.Name:"Ваш телефон";
-        sidebarStatus.Text=session?.IsAlive==true?"Подключено\n"+session.Name:nativeMouse?.InputReady==true?"Bluetooth готов":"Ожидаем телефон";
+        sidebarStatus.Text=suspended?"ПК заблокирован":paused?"Связь остановлена":session?.IsAlive==true?"Подключено\n"+session.Name:nativeMouse?.InputReady==true?"Bluetooth готов":"Ожидаем телефон";
+        pauseConnection.Text=paused?"Возобновить связь":"Остановить связь";
+        pairing.Text=host.HasPhone?"Показать новый QR":"Подключить по QR";
+        pairing.Primary=!host.HasPhone;
+        if(firstConnectionHelp is not null) firstConnectionHelp.Visible=!host.HasPhone;
+        pairing.Enabled=!suspended && !closing;
         sidebarStatus.ForeColor=session?.IsAlive==true?BridgeTheme.Success:BridgeTheme.Muted;
         state.ForeColor=session?.IsAlive==true?BridgeTheme.Success:BridgeTheme.Muted;
         foreach(DeviceMap map in new[]{deviceMap,placementMap}) {
@@ -479,16 +518,20 @@ internal sealed class LanForm : Form
         route.Update(nativeMouse, session, session?.PreferWifiInput==true);
         toggle.Enabled = !closing && !suspended && !paused && sending is null && (CanStartControl || wakeTransition.Pending) && capture is not null;
         files.Enabled = !closing && !suspended && !paused && sending is null && session?.IsAlive == true;
+        controlHint.Text=suspended?"Разблокируйте ПК, чтобы продолжить.":paused?"Связь приостановлена. Возобновите её в настройках.":
+            session?.IsAlive!=true?nativeMouse?.InputReady==true?"Мышь по Bluetooth готова. Для файлов и общего буфера подключите телефон по Wi-Fi.":host.HasPhone?"Сопряжение сохранено. На телефоне откройте Galaxy Bridge и подключитесь к сохранённому ПК.":"Начните с QR. На телефоне: Galaxy Bridge → Сканировать QR.":
+            CanStartControl?"Можно передавать файлы и управлять устройством. Ctrl + Alt + F12 возвращает курсор на ПК.":"Файлы доступны. Для курсора включите специальные возможности Galaxy Bridge и разблокируйте нужный экран.";
+        foreach(BridgeButton button in androidNavigation) button.Enabled=!closing && !paused && !suspended && session is { IsAlive:true,InputReady:true,ScreenControlAllowed:true };
         UpdateFiles();
         toggle.Text = wakeTransition.Pending ? "Отменить переход" : capture?.Active == true ? "Вернуть курсор на ПК" : "Управлять телефоном / DeX";
         if (qr.Image is not null) return;
         if (route.Current is BleHidSession)
         {
-            state.Text = paused ? "Подключение остановлено." : "Мышь: системная, по Bluetooth. " +
+            state.Text = suspended ? "Подключение приостановлено до разблокировки ПК." : paused ? "Подключение остановлено." : "Мышь: системная, по Bluetooth. " +
                 (session?.IsAlive == true ? "Файлы и общий буфер подключены через Wi-Fi." : "Для файлов и общего буфера подключите приложение телефона по QR.");
             return;
         }
-        state.Text = paused ? "Подключение остановлено." : session?.IsAlive == true ? "Подключён: " + session.Name +
+        state.Text = suspended ? "Подключение приостановлено до разблокировки ПК." : paused ? "Подключение остановлено." : session?.IsAlive == true ? "Подключён: " + session.Name +
             (session.InputReady ? session.PreferWifiInput ? ". Экран DeX: курсор приложения, по Wi-Fi." : ". Мышь: курсор приложения, по Wi-Fi." : ". Для управления проверьте выбранный экран и специальные возможности.") : "Ожидаем телефон по Wi-Fi или Bluetooth.";
     }
     private void StopControl() { wakeTransition.Cancel();displaySwitch.Cancel();capture?.Stop(); }
@@ -632,6 +675,12 @@ internal sealed class LanForm : Form
         receiveProgress.Update(current, progressSnapshot?.State ?? received, Handle,
             id => current?.CancelReceive(id, progressSnapshot?.Staging == true));
         if (session is not null) received = session.ReceiveState;
+        cancelSend.Enabled=sending is not null;
+        sendHint.Text=sending is not null?"Идёт отправка. Её можно отменить.":suspended?"Для отправки разблокируйте ПК.":paused?"Для отправки возобновите связь в настройках.":session?.IsAlive==true?"Выберите файлы или перетащите их в окно. Отправка доступна.":"Для отправки подключите телефон по Wi-Fi. Откройте QR в разделе «Устройства».";
+        updatingReceive=true;receiveAllowed.Checked=settings.NativeReceiveEnabled;updatingReceive=false;
+        if(receiveFolderPath.Text!=settings.NativeReceiveFolder) receiveFolderPath.Text=settings.NativeReceiveFolder;
+        changeReceiveFolder.Enabled=!received.Busy;
+        cancelReceive.Enabled=current is not null && received.Busy;
         string progress = received.Busy ? (received.Size > 0 ? $" · {received.Bytes * 100 / received.Size}%" : "") + $" · {received.Bytes / 1048576d:N1} МБ" : "";
         string text = received.Message + progress;
         if (receiveState.Text != text) receiveState.Text = text;

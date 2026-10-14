@@ -100,6 +100,17 @@ def main() -> None:
     require(windows.findtext('.//WindowsSdkPackageVersion') == '10.0.19041.56', 'Pinned Windows SDK projections')
     require(windows.findtext('.//UseWindowsForms') == 'true', 'WinForms enabled')
     require(windows.findtext('.//OutputType') == 'WinExe', 'Windows executable configuration')
+    version = windows.findtext('.//Version')
+    require(version is not None and re.fullmatch(r'\d+\.\d+\.\d+', version) is not None,
+            'Numeric release version for the Windows installer')
+    android_build = read('scripts/Build-LanCompanion.ps1')
+    require(f'--version-name {version} ' in android_build,
+            'Windows and Android packages must have the same release version')
+    require('$VersionCode =' not in android_build and '[Parameter(Mandatory = $true)]' in android_build,
+            'Manual APK builds must explicitly choose an increasing version code')
+    require(f'Galaxy Bridge · {version}' in read('android/lan/src/com/galaxybridge/lan/SetupActivity.java')
+            and f'Galaxy Bridge • {version}' in read('src/GalaxyBridge.Windows/LanForm.cs'),
+            'Visible app versions must match the packages')
     qr_package = windows.find('.//PackageReference[@Include="QRCoder"]')
     require(qr_package is not None and qr_package.get('Version') == '1.8.0', 'QR dependency must be pinned')
     drawing_package = windows.find('.//PackageReference[@Include="System.Drawing.Common"]')

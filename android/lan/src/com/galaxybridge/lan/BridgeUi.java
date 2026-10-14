@@ -44,14 +44,17 @@ final class BridgeUi {
         v.setTypeface(Typeface.create(bold?"sans-serif-medium":"sans-serif",Typeface.NORMAL));v.setLineSpacing(dp(c,2),1);
         v.setPadding(0,0,0,dp(c,8));return v;
     }
+    static void updateText(TextView view,String value) {
+        if(view!=null && !value.contentEquals(view.getText())) view.setText(value);
+    }
     static LinearLayout card(LinearLayout parent,String heading) {
         Context c=parent.getContext();Palette p=palette(c);LinearLayout card=column(c);int pad=dp(c,18);card.setPadding(pad,pad,pad,pad);
         card.setBackground(shape(c,p.surface,p.border,18));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(c,16);parent.addView(card,lp);
-        if(heading!=null) card.addView(text(c,heading,18,true));return card;
+        if(heading!=null) { TextView title=text(c,heading,18,true);title.setAccessibilityHeading(true);card.addView(title); }return card;
     }
     static Button button(LinearLayout parent,String label,boolean primary,Runnable action) {
         Context c=parent.getContext();Palette p=palette(c);Button b=new Button(c);b.setText(label);b.setAllCaps(false);b.setTextSize(16);
-        b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setMinHeight(dp(c,52));b.setMinimumHeight(dp(c,52));b.setMaxLines(3);
+        b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setMinHeight(dp(c,52));b.setMinimumHeight(dp(c,52));
         b.setPadding(dp(c,16),dp(c,12),dp(c,16),dp(c,12));b.setBackgroundTintList(null);
         StateListDrawable background=new StateListDrawable();background.addState(new int[]{-android.R.attr.state_enabled},shape(c,p.selected,p.border,12));
         background.addState(new int[]{},shape(c,primary?BLUE:p.surface,primary?0:p.border,12));
@@ -78,10 +81,10 @@ final class BridgeUi {
             b.setContentDescription("Назад");b.setOnClickListener(v -> back.run());row.addView(b,new LinearLayout.LayoutParams(dp(c,48),dp(c,48)));
         } else {
             ImageView icon=new ImageView(c);int id=c.getResources().getIdentifier("ic_launcher","mipmap",c.getPackageName());
-            if(id!=0) icon.setImageResource(id);row.addView(icon,new LinearLayout.LayoutParams(dp(c,28),dp(c,28)));
+            if(id!=0) icon.setImageResource(id);icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);row.addView(icon,new LinearLayout.LayoutParams(dp(c,28),dp(c,28)));
         }
         TextView brand=text(c,"Galaxy Bridge",16,true);brand.setPadding(dp(c,10),0,0,0);row.addView(brand);body.addView(row);
-        TextView heading=text(c,title,28,true);heading.setPadding(0,dp(c,20),0,dp(c,8));body.addView(heading);
+        TextView heading=text(c,title,28,true);heading.setAccessibilityHeading(true);heading.setPadding(0,dp(c,20),0,dp(c,8));body.addView(heading);
         if(subtitle!=null) body.addView(text(c,subtitle,14,false));
     }
     static void show(Activity activity,LinearLayout root) { activity.setContentView(root);root.requestApplyInsets(); }

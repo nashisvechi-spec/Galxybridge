@@ -1,4 +1,39 @@
-# Validation — Windows 0.7.36 / Android 0.7.34
+# Validation — Windows 0.7.37 / Android 0.7.37
+
+## Release preparation (0.7.37)
+
+Based on main e40ac91, whose Windows installer workflow completed successfully
+on 2026-10-13 (run 38399830748). This does not validate the new source revision.
+
+Changes: contextual QR/reconnect guidance; direct receive configuration on the
+Windows Files page; send/cancel/navigation availability; explicit pause/lock
+status; confirmed pairing deletion; button wrapping/hover feedback; Android tab
+scroll restoration, accessible headings, unrestricted multiline action labels,
+guarded reconnect and null-safe QR-result handling. File shares retain an
+overflow marker and reject over 100 files rather than truncating the selection.
+Duplicate ClipData items no longer hide later unique files. Manual APK builds
+require an explicit VersionCode; package and visible versions are checked together.
+
+Validation performed in the Linux workspace:
+- All 2527 portable core assertions pass, including real pinned TLS, transfers,
+  receipt publication, clipboard, wake and control transitions.
+- All 82 Android Robolectric UI/display/share/notification tests pass (9 new
+  regression cases). Native-rendered light/dark/Files/Settings previews were
+  inspected and saved under docs/ui. The large-text case uses 320dp and 200% font.
+- All Windows/Core production C# sources compile with C# 12 and .NET 8/Windows
+  reference assemblies and resources. Warnings are errors except the existing
+  QRCoder 1701/1702 reference-unification warnings.
+- All Android LAN production Java sources compile with Java 8 language settings
+  against the Android 35 framework and ZXing 3.5.3.
+- Source-package and whitespace checks pass.
+
+The SDK CLI cannot inspect its own process in this workspace, so C# validation
+uses the SDK's Roslyn compiler directly. This is compilation, not MSBuild publish.
+No 0.7.37 Setup/APK was packaged, no new Actions build was started, and Windows
+native UI, physical S25 audio, real network handoff and DeX were not executed here.
+The existing manual workflow still enforces Windows TLS, signed APK packaging,
+installation, repeated installation and uninstall/data-preservation checks.
+Use the 0.7.37 device checklist in TESTING.md before a stable release.
 
 ## Windows installer (0.7.36)
 

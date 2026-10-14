@@ -46,15 +46,20 @@ public final class ShareActivity extends Activity {
             if(shared!=null) for(Uri uri:shared) add(files,uri);
         }
         ClipData clip=intent.getClipData();
-        if(clip!=null) for(int i=0;i<clip.getItemCount() && i<100;i++) add(files,clip.getItemAt(i).getUri());
+        if(clip!=null) for(int i=0;i<clip.getItemCount() && files.size()<=100;i++) add(files,clip.getItemAt(i).getUri());
         add(files,intent.getData());
         return files;
     }
     private static void add(ArrayList<Uri> files,Uri uri) {
-        if(uri!=null && "content".equals(uri.getScheme()) && files.size()<100 && !files.contains(uri)) files.add(uri);
+        // Retain one overflow item so the whole selection can be rejected visibly.
+        if(uri!=null && "content".equals(uri.getScheme()) && files.size()<=100 && !files.contains(uri)) files.add(uri);
     }
     static void submit(Activity activity,ArrayList<Uri> files) {
         if(files.isEmpty()) return;
+        if(files.size()>100) {
+            ConnectionService.fileStatus="Выбрано больше 100 файлов. Разделите отправку на несколько подборок. Ничего не отправлено.";
+            Toast.makeText(activity,ConnectionService.fileStatus,Toast.LENGTH_LONG).show();return;
+        }
         if(!Wire.hex(activity.getSharedPreferences("lan",MODE_PRIVATE).getString("token",""),64)) {
             ConnectionService.fileStatus="Сначала выполните QR-сопряжение в Galaxy Bridge Wi-Fi, затем поделитесь файлами снова.";
             Toast.makeText(activity,ConnectionService.fileStatus,Toast.LENGTH_LONG).show();return;
