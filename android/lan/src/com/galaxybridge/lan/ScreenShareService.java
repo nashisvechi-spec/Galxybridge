@@ -10,8 +10,6 @@ import android.media.ImageReader;
 import android.media.projection.*;
 import android.os.*;
 import android.view.Display;
-import java.io.ByteArrayOutputStream;
-import java.nio.ByteBuffer;
 import java.util.*;
 import org.json.JSONObject;
 
@@ -30,9 +28,11 @@ public final class ScreenShareService extends Service {
     private ImageReader reader;
     private int width,height;
     private volatile int revision;
-    private long lastFrame,awaitingSince;
+    private long lastFrame,awaitingSince,startedAt;
     private String awaiting;
-    private boolean cleaned;
+    private boolean cleaned,firstAcknowledged,surfaceRetried;
+    private volatile boolean failed;
+    private volatile String terminalMessage;
     static String pendingRequest() { return pending; }
     static boolean allowed(String id) { return id!=null && id.equals(pending) && SystemClock.elapsedRealtime()<expires && ConnectionService.screenOwner(pendingOwner); }
     static void request(Context c,Object owner,String id) {
@@ -62,7 +62,10 @@ public final class ScreenShareService extends Service {
     }
     static void ack(Object owner,String id,String frame) {
         ScreenShareService active=instance;if(active!=null && active.owner==owner && id.equals(active.request) && active.worker!=null)
-            active.worker.post(() -> { if(frame.equals(active.awaiting)) active.awaiting=null; });
+            active.worker.post(() -> { if(frame.equals(active.awaiting)) {
+                active.awaiting=null;
+                if(!active.firstAcknowledged) { active.firstAcknowledged=true;status(owner,id,"active","Первый кадр получен на ПК. Экран телефона подключён."); }
+            } });
     }
     static void input(Object owner,JSONObject command) {
         ScreenShareService active=instance;
@@ -90,7 +93,7 @@ public final class ScreenShareService extends Service {
                 .setContentText("Нажмите «Остановить», чтобы завершить показ.").setOngoing(true).addAction(new Notification.Action.Builder(null,"Остановить",stop).build()).build();
             startForeground(113,notice,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
             thread=new HandlerThread("GalaxyBridge-screen");thread.start();worker=new Handler(thread.getLooper());worker.post(() -> capture(grant));
-        } catch(RuntimeException e) { status(owner,request,"error","Не удалось начать показ экрана. Повторите запрос.");stopSelf(); }
+        } catch(RuntimeException e) { fail("START",e,"Не удалось начать показ экрана."); }
         return START_NOT_STICKY;
     }
     private void capture(Intent grant) {
@@ -101,12 +104,15 @@ public final class ScreenShareService extends Service {
                 @Override public void onStop() { stopSelf(); }
                 @Override public void onCapturedContentResize(int w,int h) { if(running && display!=null) resize(w,h); }
             },worker);
-            Point dimensions=new Point();getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY).getRealSize(dimensions);
-            setSize(dimensions.x,dimensions.y);reader=createReader();
+            Display phone=getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY);
+            Rect bounds=createDisplayContext(phone).getSystemService(android.view.WindowManager.class).getMaximumWindowMetrics().getBounds();
+            setSize(bounds.width(),bounds.height());reader=createReader();
             display=projection.createVirtualDisplay("GalaxyBridge-phone",width,height,getResources().getConfiguration().densityDpi,DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,reader.getSurface(),null,worker);
-            status(owner,request,"active","Экран телефона подключён. Нажатия и перетаскивание работают при включённых специальных возможностях.");
-            worker.post(heartbeat);
-        } catch(RuntimeException e) { status(owner,request,"error","Android остановил захват экрана. Запросите показ заново.");stopSelf(); }
+            if(display==null) throw new IllegalStateException("No virtual display");
+            startedAt=SystemClock.elapsedRealtime();
+            status(owner,request,"starting","Android разрешил захват. Ожидаем первый кадр телефона…");
+            worker.post(framePump);worker.post(heartbeat);
+        } catch(RuntimeException e) { fail("CAPTURE",e,"Android не запустил захват экрана."); }
     }
     private void setSize(int w,int h) {
         if(w<1 || h<1) throw new IllegalArgumentException("Invalid screen size");
@@ -116,31 +122,52 @@ public final class ScreenShareService extends Service {
         ImageReader result=ImageReader.newInstance(width,height,PixelFormat.RGBA_8888,2);result.setOnImageAvailableListener(this::frame,worker);return result;
     }
     private void resize(int w,int h) {
-        try { setSize(w,h);ImageReader old=reader;reader=createReader();display.resize(width,height,getResources().getConfiguration().densityDpi);display.setSurface(reader.getSurface());if(old!=null) old.close();awaiting=null; }
-        catch(RuntimeException e) { stopSelf(); }
+        try {
+            double scale=Math.min(1,960d/Math.max(w,h));
+            if(width==Math.max(1,(int)Math.round(w*scale)) && height==Math.max(1,(int)Math.round(h*scale))) return;
+            setSize(w,h);ImageReader old=reader;reader=createReader();display.resize(width,height,getResources().getConfiguration().densityDpi);display.setSurface(reader.getSurface());if(old!=null) old.close();awaiting=null;lastFrame=0;startedAt=SystemClock.elapsedRealtime();surfaceRetried=false;
+        } catch(RuntimeException e) { fail("RESIZE",e,"Не удалось изменить размер трансляции."); }
     }
     private final Runnable heartbeat=new Runnable() { public void run() {
-        if(!running) return;if(ConnectionService.screenTransferBusy(owner)) awaitingSince=SystemClock.elapsedRealtime();if(!ConnectionService.screenOwner(owner) || awaiting!=null && SystemClock.elapsedRealtime()-awaitingSince>8000) { stopSelf();return; }
+        if(!running || failed) return;
+        long now=SystemClock.elapsedRealtime();
+        if(!ConnectionService.screenOwner(owner)) { stopSelf();return; }
+        if(ConnectionService.screenTransferBusy(owner)) { awaitingSince=now;startedAt=now; }
+        else if(awaiting!=null && now-awaitingSince>8000) { fail("FRAME_ACK",null,"ПК не подтвердил получение кадра. Закройте окно и повторите показ.");return; }
+        else if(lastFrame==0 && now-startedAt>15000) { fail("NO_FRAMES",null,"Android разрешил захват, но не передал изображение. Разблокируйте телефон и повторите показ.");return; }
+        else if(lastFrame==0 && !surfaceRetried && now-startedAt>4000 && display!=null) {
+            surfaceRetried=true;
+            try { ImageReader old=reader;reader=createReader();display.setSurface(null);display.setSurface(reader.getSurface());if(old!=null) old.close(); }
+            catch(RuntimeException e) { fail("SURFACE",e,"Не удалось подключить изображение экрана.");return; }
+        }
         worker.postDelayed(this,1000);
     }};
+    // Poll as well as listening: retain a frame skipped by the rate limiter and
+    // recover when a device delivers an ImageReader callback before capture is ready.
+    private final Runnable framePump=new Runnable() { public void run() {
+        if(!running || failed) return;
+        if(reader!=null) frame(reader);
+        worker.postDelayed(this,250);
+    }};
     private void frame(ImageReader source) {
-        if(source!=reader) return;
+        if(source!=reader || !running || failed || ConnectionService.screenTransferBusy(owner) || awaiting!=null ||
+            lastFrame!=0 && SystemClock.elapsedRealtime()-lastFrame<250 || !ConnectionService.screenOwner(owner)) return;
         try(Image image=source.acquireLatestImage()) {
-            if(image==null || !running || ConnectionService.screenTransferBusy(owner) || awaiting!=null || SystemClock.elapsedRealtime()-lastFrame<250 || !ConnectionService.screenOwner(owner)) return;
-            lastFrame=SystemClock.elapsedRealtime();Image.Plane plane=image.getPlanes()[0];int padded=plane.getRowStride()/plane.getPixelStride();
-            ByteBuffer buffer=plane.getBuffer();int needed=plane.getRowStride()*height;
-            if(buffer.remaining()<needed) { ByteBuffer complete=ByteBuffer.allocate(needed);complete.put(buffer);complete.rewind();buffer=complete; }
-            Bitmap raw=Bitmap.createBitmap(padded,height,Bitmap.Config.ARGB_8888),cropped=null;
+            if(image==null) return;
+            if(image.getWidth()!=width || image.getHeight()!=height) throw new IllegalArgumentException("Capture dimensions changed");
+            Image.Plane plane=image.getPlanes()[0];
+            Bitmap bitmap=ScreenCaptureFrame.bitmap(plane.getBuffer(),width,height,plane.getRowStride(),plane.getPixelStride());
             try {
-                raw.copyPixelsFromBuffer(buffer);cropped=Bitmap.createBitmap(raw,0,0,width,height);
-                ByteArrayOutputStream bytes=new ByteArrayOutputStream();cropped.compress(Bitmap.CompressFormat.JPEG,55,bytes);byte[] jpeg=bytes.toByteArray();if(jpeg.length>512000) return;
-                String frame=UUID.randomUUID().toString().replace("-","");List<JSONObject> packets=new ArrayList<>();
-                packets.add(Wire.message("screenBegin","request",request,"frame",frame,"width",width,"height",height,"revision",revision,"size",jpeg.length));
-                int sequence=0;for(int offset=0;offset<jpeg.length;offset+=Wire.CHUNK) packets.add(Wire.message("screenChunk","request",request,"frame",frame,"seq",sequence++,"data",java.util.Base64.getEncoder().encodeToString(Arrays.copyOfRange(jpeg,offset,Math.min(jpeg.length,offset+Wire.CHUNK)))));
-                packets.add(Wire.message("screenEnd","request",request,"frame",frame));
-                if(ConnectionService.screenPackets(owner,packets)) { awaiting=frame;awaitingSince=SystemClock.elapsedRealtime(); }
-            } finally { if(cropped!=null && cropped!=raw) cropped.recycle();raw.recycle(); }
-        } catch(RuntimeException e) { if(running) stopSelf(); }
+                byte[] jpeg=ScreenCaptureFrame.jpeg(bitmap);
+                String frame=UUID.randomUUID().toString().replace("-","");List<JSONObject> packets=ScreenCaptureFrame.packets(jpeg,width,height,revision,request,frame);
+                if(ConnectionService.screenPackets(owner,packets)) { awaiting=frame;awaitingSince=SystemClock.elapsedRealtime();lastFrame=awaitingSince; }
+            } finally { bitmap.recycle(); }
+        } catch(RuntimeException e) { if(running) fail("IMAGE",e,"Не удалось прочитать кадр телефона."); }
+    }
+    private void fail(String stage,RuntimeException error,String message) {
+        if(failed) return;failed=true;
+        terminalMessage=message+" ["+stage+(error==null?"":": "+error.getClass().getSimpleName())+"]";
+        status(owner,request,"error",terminalMessage);stopSelf();
     }
     private void release() {
         if(cleaned) return;cleaned=true;
@@ -150,7 +177,7 @@ public final class ScreenShareService extends Service {
         if(thread!=null) thread.quitSafely();
     }
     @Override public void onDestroy() {
-        running=false;if(ControlService.instance!=null) ControlService.instance.stopScreenGestures();status(owner,request,"stopped","Показ экрана завершён. Для нового показа подтвердите запрос на телефоне.");
+        running=false;if(ControlService.instance!=null) ControlService.instance.stopScreenGestures();status(owner,request,failed?"error":"stopped",terminalMessage!=null?terminalMessage:"Показ экрана завершён. Для нового показа подтвердите запрос на телефоне.");
         if(instance==this) instance=null;if(request!=null && request.equals(pending)) { pending=null;pendingOwner=null; }
         if(worker!=null) worker.post(this::release);else release();stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();
     }

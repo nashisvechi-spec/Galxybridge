@@ -447,3 +447,18 @@ or the behavior of Android applications. See VALIDATION.md for this revision.
 - Exit control, lock or disconnect while waiting for hold classification and
   during an injected hold. No deferred click/hold may run after release/reset.
   Re-enter and click again. Check wheel zoom and Bluetooth routing.
+
+## Screen startup regression (0.8.1)
+
+On Windows and a real Samsung phone, start screen viewing and accept Android's
+system consent. Keep the phone unlocked on an ordinary visible app. The viewer
+must show the first image, not just permission/connected text. Repeat from a
+static screen and rotate the phone during startup. Test again after closing
+the viewer; fresh Android consent must still be required.
+
+If capture stalls, the viewer must show NO_FRAMES after the surface retry, or
+FRAME_ACK if a sent frame is not acknowledged. IMAGE/CAPTURE/SURFACE errors must
+retain their stage after the foreground service stops. The LAN connection must
+remain usable. Verify that starting a file transfer pauses capture and its
+startup timeout, and frames resume after the transfer. These physical checks
+remain pending; 103 framework tests and portable wire checks are automated.

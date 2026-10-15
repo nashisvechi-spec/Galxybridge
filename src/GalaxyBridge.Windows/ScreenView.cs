@@ -14,11 +14,15 @@ internal sealed class ScreenView : Form
         private Point? down;
         private long downAt;
         private int downRevision;
-        public Canvas() { DoubleBuffered=true;BackColor=Color.FromArgb(13,20,34);SetStyle(ControlStyles.Selectable,true);TabStop=true; }
+        public Canvas() { DoubleBuffered=true;BackColor=Color.FromArgb(13,20,34);SetStyle(ControlStyles.Selectable|ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.ResizeRedraw,true);TabStop=true; }
         private Rectangle ImageArea {
             get { if(Image is null) return Rectangle.Empty;double scale=Math.Min(ClientSize.Width/(double)Image.Width,ClientSize.Height/(double)Image.Height);int w=(int)(Image.Width*scale),h=(int)(Image.Height*scale);return new((ClientSize.Width-w)/2,(ClientSize.Height-h)/2,w,h); }
         }
-        protected override void OnPaint(PaintEventArgs e) { base.OnPaint(e);if(Image is not null) e.Graphics.DrawImage(Image,ImageArea); }
+        protected override void OnPaint(PaintEventArgs e) {
+            base.OnPaint(e);
+            if(Image is not null) e.Graphics.DrawImage(Image,ImageArea);
+            else TextRenderer.DrawText(e.Graphics,"Ожидаем изображение телефона…",Font,ClientRectangle,ForeColor,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.WordBreak);
+        }
         private (double X,double Y)? Map(Point point,bool clamp=false) {
             Rectangle area=ImageArea;if(area.Width<=1 || area.Height<=1 || !clamp && !area.Contains(point)) return null;
             return (Math.Clamp((point.X-area.Left)/(double)(area.Width-1),0,1),Math.Clamp((point.Y-area.Top)/(double)(area.Height-1),0,1));
@@ -63,7 +67,11 @@ internal sealed class ScreenView : Form
         AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
         status.Text="Подтвердите показ экрана на телефоне. Android запрашивает подтверждение для каждого нового сеанса.";
         Resize+=(_,_)=>status.MaximumSize=new Size(Math.Max(100,ClientSize.Width),0);
-        canvas.Gesture=gesture;canvas.TextInput=textInput;canvas.KeyInput=keyInput;Controls.Add(canvas);Controls.Add(status);Shown+=(_,_)=>BridgeTheme.FitWindow(this);BridgeTheme.Apply(this);
+        canvas.Gesture=gesture;canvas.TextInput=textInput;canvas.KeyInput=keyInput;
+        TableLayoutPanel layout=new() { Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=Padding.Empty,Padding=Padding.Empty };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        status.Dock=DockStyle.Fill;status.Margin=Padding.Empty;canvas.Margin=Padding.Empty;layout.Controls.Add(status,0,0);layout.Controls.Add(canvas,0,1);Controls.Add(layout);
+        Shown+=(_,_)=>BridgeTheme.FitWindow(this);BridgeTheme.Apply(this);
     }
     public void SetStatus(string message) { if(!IsDisposed) status.Text=message; }
     public void Accept(ScreenFrame frame)
@@ -77,8 +85,10 @@ internal sealed class ScreenView : Form
         if(frame is null || IsDisposed) return;
         try {
             using MemoryStream stream=new(frame.Jpeg,false);using Image decoded=Image.FromStream(stream,true,true);
-            if(decoded.Width!=frame.Width || decoded.Height!=frame.Height) return;
+            if(decoded.Width!=frame.Width || decoded.Height!=frame.Height) { status.Text="Размер полученного кадра не совпадает с изображением. Запросите трансляцию заново.";return; }
+            bool first=canvas.Image is null;
             Image? previous=canvas.Image;canvas.Image=new Bitmap(decoded);canvas.Revision=frame.Revision;previous?.Dispose();canvas.Invalidate();
+            if(first) status.Text=$"Экран телефона · {frame.Width}×{frame.Height}. Нажмите на изображение для управления.";
         } catch(Exception e) when(e is ArgumentException or OutOfMemoryException) { status.Text="Кадр не удалось показать. Запросите трансляцию заново."; }
     }
     protected override void Dispose(bool disposing) { Interlocked.Exchange(ref latest,null);base.Dispose(disposing); }

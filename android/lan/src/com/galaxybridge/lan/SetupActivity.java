@@ -116,7 +116,7 @@ public final class SetupActivity extends Activity {
         BridgeUi.button(link,"Проверить подключение",false,() -> Diagnostics.show(this));
         BridgeUi.button(body,"Забыть компьютер",false,() -> new AlertDialog.Builder(this).setTitle("Забыть компьютер?").setMessage("Для следующего подключения потребуется новый QR. Полученные файлы сохранятся.").setNegativeButton("Отмена",null)
             .setPositiveButton("Забыть",(d,w) -> { stopService(new Intent(this,ConnectionService.class));prefs().edit().clear().commit();ConnectionService.status="Компьютер забыт.";showTab(selectedTab); }).show());
-        body.addView(BridgeUi.text(this,"Galaxy Bridge · 0.8.0",13,false));
+        body.addView(BridgeUi.text(this,"Galaxy Bridge · 0.8.1",13,false));
     }
     private boolean paired() { return Wire.hex(prefs().getString("token",""),64); }
     private void reconnect() {

@@ -140,4 +140,40 @@ public class NewFeaturesTest {
         ScreenEditing.Result selected=ScreenEditing.apply("abcd",2,2,null,"selectAll");assertEquals(0,selected.start);assertEquals(4,selected.end);
         assertNull(ScreenEditing.apply("abcd",2,2,null,"unsupported"));
     }
+    private static void field(Object target,String name,Object value) throws Exception {
+        java.lang.reflect.Field field=target.getClass().getDeclaredField(name);field.setAccessible(true);field.set(target,value);
+    }
+    private static void heartbeat(ScreenShareService service) throws Exception {
+        java.lang.reflect.Field field=ScreenShareService.class.getDeclaredField("heartbeat");field.setAccessible(true);((Runnable)field.get(service)).run();
+    }
+    @Test public void captureWithoutFramesReportsSpecificErrorAndLeavesConnectionAlive() throws Exception {
+        Object owner=pairedLink();
+        org.robolectric.android.controller.ServiceController<ScreenShareService> capture=Robolectric.buildService(ScreenShareService.class).create();
+        try {
+            ScreenShareService service=capture.get();field(service,"owner",owner);field(service,"request",id);field(service,"running",true);field(service,"startedAt",android.os.SystemClock.elapsedRealtime()-16000);
+            heartbeat(service);assertTrue(shadowOf(service).isStoppedBySelf());assertTrue(ConnectionService.screenOwner(owner));
+            capture.destroy();
+            java.lang.reflect.Field queue=owner.getClass().getDeclaredField("queue");queue.setAccessible(true);JSONObject last=null;
+            for(Object message:(java.util.Queue<?>)queue.get(owner)) if("screenStatus".equals(((JSONObject)message).optString("type"))) last=(JSONObject)message;
+            assertNotNull(last);assertEquals("error",last.getString("state"));assertTrue(last.getString("text").contains("NO_FRAMES"));
+        } finally { capture.destroy(); }
+    }
+    @Test public void fileTransferPausesCaptureStartupDeadline() throws Exception {
+        Object owner=pairedLink();field(owner,"downloading",true);
+        org.robolectric.android.controller.ServiceController<ScreenShareService> capture=Robolectric.buildService(ScreenShareService.class).create();
+        try {
+            ScreenShareService service=capture.get();field(service,"owner",owner);field(service,"request",id);field(service,"running",true);field(service,"startedAt",android.os.SystemClock.elapsedRealtime()-16000);
+            field(service,"worker",new android.os.Handler(android.os.Looper.getMainLooper()));heartbeat(service);
+            assertFalse(shadowOf(service).isStoppedBySelf());field(owner,"downloading",false);
+            java.lang.reflect.Field started=ScreenShareService.class.getDeclaredField("startedAt");started.setAccessible(true);assertEquals(android.os.SystemClock.elapsedRealtime(),started.getLong(service));
+        } finally { capture.destroy(); }
+    }
+    @Test public void initialSizeCallbackDoesNotRecreateIdenticalCaptureSurface() throws Exception {
+        org.robolectric.android.controller.ServiceController<ScreenShareService> capture=Robolectric.buildService(ScreenShareService.class).create();
+        try {
+            ScreenShareService service=capture.get();field(service,"width",432);field(service,"height",960);field(service,"revision",3);
+            java.lang.reflect.Method resize=ScreenShareService.class.getDeclaredMethod("resize",int.class,int.class);resize.setAccessible(true);resize.invoke(service,1080,2400);
+            assertFalse(shadowOf(service).isStoppedBySelf());java.lang.reflect.Field revision=ScreenShareService.class.getDeclaredField("revision");revision.setAccessible(true);assertEquals(3,revision.getInt(service));
+        } finally { capture.destroy(); }
+    }
 }
