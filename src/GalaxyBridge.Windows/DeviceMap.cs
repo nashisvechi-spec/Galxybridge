@@ -29,9 +29,9 @@ internal sealed class DeviceMap : Control
         using GraphicsPath path=BridgeTheme.Round(rect,phone?9:6);using SolidBrush body=new(BridgeTheme.Surface);using Pen edge=new(BridgeTheme.Muted,2);
         g.FillPath(body,path);g.DrawPath(edge,path);
         RectangleF screen=RectangleF.Inflate(rect,-6,-8);
-        using LinearGradientBrush gradient=new(screen,Color.FromArgb(13,64,121),Color.FromArgb(0,122,151),45);g.FillRectangle(gradient,screen);
+        using SolidBrush fill=new(BridgeTheme.Selected);g.FillRectangle(fill,screen);
         using Font font=new("Segoe UI",phone?8:13,FontStyle.Bold);
-        TextRenderer.DrawText(g,label,font,Rectangle.Round(screen),Color.FromArgb(130,237,240),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);
+        TextRenderer.DrawText(g,label,font,Rectangle.Round(screen),BridgeTheme.Link,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);
         if(!phone) g.DrawLine(edge,rect.Left-8,rect.Bottom+5,rect.Right+8,rect.Bottom+5);
     }
 }

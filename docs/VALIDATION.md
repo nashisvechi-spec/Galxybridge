@@ -1,4 +1,25 @@
-# Validation — Windows 0.8.1 / Android 0.8.1
+# Validation — Windows 0.8.2 / Android 0.8.2
+
+## Minimal interface (2026-10-19)
+
+Windows and Android share a neutral palette and quiet navigation. The home
+screens omit decorative device diagrams and repeated explanations. Placement
+remains in Management; diagnostics and pairing another device remain in Settings.
+First-run QR help and actionable errors stay visible. The independent widget
+is now a flat vector drawing at 320x184 logical pixels with shared drawing/hit
+coordinates; it no longer embeds the previous PNG artwork.
+
+Validation:
+- Windows Release production build passes with zero warnings/errors on .NET 8.
+- 2559 portable assertions pass, including the resized widget's four scales.
+- All 103 Android framework tests pass. After resetting preview fixture state,
+  all 16 design/navigation tests pass again and regenerate the four screenshots.
+- Source-package and whitespace checks pass.
+
+Android images in docs/ui are real view renders from Robolectric, not S25
+screenshots. The widget SVG is an illustrative drawing with the implementation's
+coordinates and colors, not a Windows screenshot. Physical WinForms rendering,
+DPI, S25/DeX and the signed installer/APK still need a manual build/device check.
 
 ## Screen startup and empty viewer fix (2026-10-15)
 

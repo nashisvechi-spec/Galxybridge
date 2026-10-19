@@ -26,6 +26,8 @@ public class DesignUiTest {
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS);
         RuntimeEnvironment.getApplication().getSharedPreferences("appearance",Context.MODE_PRIVATE).edit().clear().commit();
         RuntimeEnvironment.getApplication().getSharedPreferences("lan",Context.MODE_PRIVATE).edit().clear().commit();
+        ConnectionService.status="Подключение выключено.";
+        ConnectionService.fileStatus=ConnectionService.READY_FILES;
         ControlService.instance=null;
     }
     private static List<View> views(View view) {
@@ -154,6 +156,10 @@ public class DesignUiTest {
             Button reconnect=button(controller.get(),"Подключиться к сохранённому ПК");assertTrue(reconnect.isEnabled());reconnect.performClick();
             Intent started=shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService();assertNotNull(started);
             assertEquals(ConnectionService.class.getName(),started.getComponent().getClassName());assertFalse(started.hasExtra("qr"));
+            assertEquals(View.GONE,button(controller.get(),"Сканировать QR").getVisibility());
+            button(controller.get(),"Настройки").performClick();Button scan=button(controller.get(),"Сканировать QR");
+            assertEquals(View.VISIBLE,scan.getVisibility());scan.performClick();
+            assertEquals(ScanActivity.class.getName(),shadowOf(RuntimeEnvironment.getApplication()).getNextStartedActivity().getComponent().getClassName());
         }
     }
     @Test public void qrResultWhileFilesTabIsVisibleDoesNotDereferenceMissingStatusView() {

@@ -1,5 +1,21 @@
 # Testing the no-debugging edition
 
+## Minimal interface (0.8.2)
+
+Run the portable suite, Android display/UI suite and Windows build. Widget hit
+tests cover both arrows, the circular close button, drag borders, cancel priority
+and the same area while idle at 75%, 100%, 150% and 200% scale. Android tests
+verify that a saved pair can reconnect and scan a different QR from Settings,
+plus existing navigation, text scaling, rotation, theme and inset checks.
+
+On Windows, check light/dark/system themes, a narrow window and 100/150/200% DPI.
+New users must still see QR setup; connected users can start a new pairing from
+Settings. Check control, files, diagnostics and the placement map in Management.
+Verify the independent 320x184 logical-pixel widget: title/frame dragging, both
+arrow click areas, file drop, close, known/unknown progress, cancel, keyboard,
+transparency persistence and a lost connection. Closing must leave transfer and
+the main app alive. Repeat on the actual S25 with large text and DeX.
+
 ## Five new features (0.8.0)
 
 Run source checks, the portable suite (2559 assertions), full Android suite

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="184" viewBox="0 0 320 184">
+  <title>Схема виджета Galaxy Bridge 0.8.2, подключённый телефон</title>
+  <rect x="1" y="1" width="318" height="182" rx="20" fill="#182438"/>
+  <rect x="12" y="52" width="296" height="120" rx="12" fill="#1d2b41"/>
+  <circle cx="23.5" cy="25.5" r="3.5" fill="#7bcea6"/>
+  <text x="36" y="30" font-family="Segoe UI, DejaVu Sans, sans-serif" font-size="12" fill="#e1e8f3">S25</text>
+  <circle cx="292" cy="26" r="16" fill="#27354a"/>
+  <g fill="none" stroke="#c3cedf" stroke-width="1.5" stroke-linecap="round">
+    <path d="M288 22 296 30 M296 22 288 30"/>
+  </g>
+  <g fill="none" stroke="#9cbaf8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M124 89 H196 L184 77 M196 89 184 101"/>
+    <path d="M196 116 H124 L136 104 M124 116 136 128"/>
+  </g>
+</svg>

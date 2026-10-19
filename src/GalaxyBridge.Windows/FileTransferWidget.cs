@@ -8,10 +8,9 @@ internal sealed class FileTransferWidget : Form
 {
     private readonly Func<string[], Task> send;
     private readonly Action cancelTransfer;
-    private readonly Bitmap artwork;
     private readonly ToolTip tip = new();
     private readonly System.Windows.Forms.Timer animation = new() { Interval = 80 };
-    private bool available, busy, choosing, dropping, submitting, disposed;
+    private bool available, busy, choosing, dropping, submitting, disposed, initialized;
     private int? percent;
     private int animationStep;
     private byte opacity = 255;
@@ -25,15 +24,12 @@ internal sealed class FileTransferWidget : Form
     public FileTransferWidget(Func<string[], Task> send, Action cancelTransfer)
     {
         this.send = send;this.cancelTransfer = cancelTransfer;
-        using Stream stream = typeof(FileTransferWidget).Assembly.GetManifestResourceStream("GalaxyBridge.FileWidget.png")
-            ?? throw new InvalidOperationException("Missing file widget artwork.");
-        using Image image = Image.FromStream(stream);artwork = new Bitmap(image);
         Text = "Передача файлов · Galaxy Bridge";Icon = AppIcon.Value;Font = new Font("Segoe UI", 9);
         AccessibleName = "Виджет передачи файлов на телефон";
         AutoScaleMode = AutoScaleMode.Dpi;AutoScaleDimensions = new SizeF(96, 96);
         FormBorderStyle = FormBorderStyle.None;ShowInTaskbar = false;
         MaximizeBox = false;MinimizeBox = false;TopMost = true;StartPosition = FormStartPosition.Manual;
-        ClientSize = new Size(420, 247);AllowDrop = true;KeyPreview = true;
+        ClientSize = new Size(FileWidgetLayout.ArtWidth, FileWidgetLayout.ArtHeight);AllowDrop = true;KeyPreview = true;
         animation.Tick += (_, _) => { animationStep = (animationStep + 1) % 24;Render(); };
         Shown += (_, _) => { BridgeTheme.FitWindow(this);Render(); };
         DragEnter += (_, e) => UpdateDrop(e);
@@ -46,6 +42,7 @@ internal sealed class FileTransferWidget : Form
             dropping = false;Render();
             if (allowed) await SendFilesAsync(paths!);
         };
+        initialized = true;
     }
 
     private void UpdateDrop(DragEventArgs e)
@@ -71,9 +68,9 @@ internal sealed class FileTransferWidget : Form
     {
         // Gate before awaiting: a second drop/click cannot start another transfer.
         if (submitting || !FileWidgetLayout.CanDrop(available, busy, paths)) return;
-        submitting = true;busy = true;Render();
+        submitting = true;busy = true;keyboardAction = FileWidgetAction.Cancel;Render();
         try { await send(paths); }
-        finally { submitting = false;if (!IsDisposed) { busy = false;animation.Stop();Render(); } }
+        finally { submitting = false;if (!IsDisposed) { busy = false;if (keyboardAction == FileWidgetAction.Cancel) keyboardAction = FileWidgetAction.Send;animation.Stop();Render(); } }
     }
     private async Task ActivateAsync(FileWidgetAction action)
     {
@@ -94,6 +91,8 @@ internal sealed class FileTransferWidget : Form
         if (IsDisposed) return;
         bool changed = available != canSend || this.busy != busy || this.phone != phone || this.message != message || this.percent != percent;
         available = canSend;this.busy = busy;this.phone = phone;this.message = message;
+        if (keyboardAction == FileWidgetAction.Send && busy) keyboardAction = FileWidgetAction.Cancel;
+        else if (keyboardAction == FileWidgetAction.Cancel && !busy) keyboardAction = FileWidgetAction.Send;
         this.percent = percent.HasValue ? Math.Clamp(percent.Value, 0, 100) : null;
         if (busy && !percent.HasValue) animation.Start();else animation.Stop();
         if (changed) { UpdateTip(hover);Render(); }
@@ -160,40 +159,54 @@ internal sealed class FileTransferWidget : Form
 
     private void Render()
     {
-        // Size/handle callbacks can arrive before the constructor loads the image.
-        if (disposed || artwork is null || !IsHandleCreated || IsDisposed || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        if (!initialized || disposed || !IsHandleCreated || IsDisposed || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
         using Bitmap frame = new(ClientSize.Width, ClientSize.Height, PixelFormat.Format32bppPArgb);
         using (Graphics g = Graphics.FromImage(frame))
         {
-            g.SmoothingMode = SmoothingMode.AntiAlias;g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            g.DrawImage(artwork, new Rectangle(Point.Empty, ClientSize));
-            g.ScaleTransform(Width / (float)FileWidgetLayout.ArtWidth, Height / (float)FileWidgetLayout.ArtHeight);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.ScaleTransform(ClientSize.Width / (float)FileWidgetLayout.ArtWidth, ClientSize.Height / (float)FileWidgetLayout.ArtHeight);
+            using GraphicsPath body = BridgeTheme.Round(new RectangleF(1, 1, 318, 182), 20);
+            using SolidBrush navy = new(Color.FromArgb(24, 36, 56));g.FillPath(navy, body);
+            using GraphicsPath target = BridgeTheme.Round(FileWidgetLayout.SendBounds, 12);
+            using SolidBrush inset = new(Color.FromArgb(29, 43, 65));g.FillPath(inset, target);
+            using SolidBrush dot = new(available ? Color.FromArgb(123, 206, 166) : Color.FromArgb(147, 161, 181));
+            g.FillEllipse(dot, 20, 22, 7, 7);
+            using Font titleFont = new("Segoe UI", 12, FontStyle.Regular, GraphicsUnit.Pixel);
+            using SolidBrush ink = new(Color.FromArgb(225, 232, 243));
+            using StringFormat format = new() { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap, LineAlignment = StringAlignment.Center };
+            string title = available ? phone.StartsWith("Телефон: ", StringComparison.Ordinal) ? phone[9..] : phone : "Файлы";
+            g.DrawString(title, titleFont, ink, new RectangleF(36, 12, 226, 28), format);
+            using SolidBrush closeFill = new(hover == FileWidgetAction.Close ? Color.FromArgb(64, 78, 99) : Color.FromArgb(39, 53, 74));
+            g.FillEllipse(closeFill, FileWidgetLayout.CloseBounds);
+            using Pen cross = new(Color.FromArgb(195, 206, 223), 1.5f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawLine(cross, 288, 22, 296, 30);g.DrawLine(cross, 296, 22, 288, 30);
+            using Pen arrow = new(available ? Color.FromArgb(156, 186, 248) : Color.FromArgb(129, 145, 166), 3) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+            g.DrawLines(arrow, [new PointF(124, 89), new PointF(196, 89), new PointF(184, 77)]);
+            g.DrawLine(arrow, 196, 89, 184, 101);
+            g.DrawLines(arrow, [new PointF(196, 116), new PointF(124, 116), new PointF(136, 104)]);
+            g.DrawLine(arrow, 124, 116, 136, 128);
             if (dropping || hover == FileWidgetAction.Send && available && !busy) {
-                using GraphicsPath outline = BridgeTheme.Round(FileWidgetLayout.SendBounds, 65);
-                using Pen glow = new(Color.FromArgb(170, 112, 255, 255), 9);g.DrawPath(glow, outline);
+                using Pen edge = new(Color.FromArgb(139, 173, 241), 1.5f);g.DrawPath(edge, target);
             }
             if (Focused && ShowFocusCues) {
                 RectangleF focus = keyboardAction switch { FileWidgetAction.Close => FileWidgetLayout.CloseBounds,
                     FileWidgetAction.Cancel => FileWidgetLayout.CancelBounds, _ => FileWidgetLayout.SendBounds };
-                using Pen cue = new(Color.White, 5) { DashStyle = DashStyle.Dot };
-                using GraphicsPath outline = BridgeTheme.Round(focus, 35);g.DrawPath(cue, outline);
+                using Pen cue = new(Color.White, 1) { DashStyle = DashStyle.Dot };
+                using GraphicsPath outline = BridgeTheme.Round(focus, keyboardAction == FileWidgetAction.Close ? 16 : 12);g.DrawPath(cue, outline);
             }
             if (!available || busy) {
-                RectangleF badge = new(180, 635, 1290, 110);
-                using GraphicsPath path = BridgeTheme.Round(badge, 30);
-                using SolidBrush shade = new(Color.FromArgb(235, 5, 24, 43));g.FillPath(shade, path);
-                using Font textFont = new("Segoe UI", 35, FontStyle.Regular, GraphicsUnit.Pixel);
-                using SolidBrush ink = new(Color.FromArgb(230, 247, 255));
-                using StringFormat format = new() { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap, LineAlignment = StringAlignment.Center };
-                string text = busy ? (string.IsNullOrEmpty(message) ? "Передача файлов…" : message) : phone;
-                g.DrawString(text, textFont, ink, new RectangleF(205, 644, busy ? 1020 : 1240, 65), format);
+                using Font textFont = new("Segoe UI", 11, FontStyle.Regular, GraphicsUnit.Pixel);
+                string text = busy ? (string.IsNullOrEmpty(message) ? "Передача файлов…" : message) : "Нет связи";
+                format.Alignment = busy ? StringAlignment.Near : StringAlignment.Center;
+                g.DrawString(text, textFont, ink, new RectangleF(24, 136, busy ? 208 : 272, 24), format);
                 if (busy) {
-                    using SolidBrush cyan = new(Color.FromArgb(80, 243, 250));
-                    float width = percent.HasValue ? 1015 * percent.Value / 100f : 180;
-                    float left = percent.HasValue ? 205 : 205 + animationStep * (835f / 23);
-                    g.FillRectangle(cyan, left, 718, width, 8);
-                    using GraphicsPath cancel = BridgeTheme.Round(FileWidgetLayout.CancelBounds, 24);
-                    using Pen edge = new(Color.FromArgb(90, 231, 242), 4);g.DrawPath(edge, cancel);
+                    using SolidBrush track = new(Color.FromArgb(56, 72, 96));g.FillRectangle(track, 24, 165, 208, 2);
+                    using SolidBrush blue = new(Color.FromArgb(156, 186, 248));
+                    float width = percent.HasValue ? 208 * percent.Value / 100f : 32;
+                    float left = percent.HasValue ? 24 : 24 + animationStep * (176f / 23);
+                    g.FillRectangle(blue, left, 165, width, 2);
+                    using GraphicsPath cancel = BridgeTheme.Round(FileWidgetLayout.CancelBounds, 8);
+                    using SolidBrush cancelFill = new(hover == FileWidgetAction.Cancel ? Color.FromArgb(64, 78, 99) : Color.FromArgb(39, 53, 74));g.FillPath(cancelFill, cancel);
                     format.Alignment = StringAlignment.Center;g.DrawString("Отмена", textFont, ink, FileWidgetLayout.CancelBounds, format);
                 }
             }
@@ -228,7 +241,7 @@ internal sealed class FileTransferWidget : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing && !disposed) { disposed = true;animation.Stop();animation.Dispose();tip.Dispose();artwork.Dispose(); }
+        if (disposing && !disposed) { disposed = true;animation.Stop();animation.Dispose();tip.Dispose(); }
         base.Dispose(disposing);
     }
 }

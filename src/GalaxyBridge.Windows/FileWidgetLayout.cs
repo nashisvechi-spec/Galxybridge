@@ -4,19 +4,20 @@ namespace GalaxyBridge.Windows;
 
 internal enum FileWidgetAction { None, Send, Close, Cancel, Move }
 
-// Hit targets share the reference PNG coordinates, including after DPI changes.
+// Drawing and hit targets share logical coordinates, including after DPI changes.
 internal static class FileWidgetLayout
 {
-    public const int ArtWidth = 1635, ArtHeight = 962;
-    public static readonly RectangleF SendBounds = new(150, 220, 1330, 525);
-    public static readonly RectangleF CloseBounds = new(1372, 121, 136, 136);
-    public static readonly RectangleF CancelBounds = new(1250, 650, 220, 75);
+    public const int ArtWidth = 320, ArtHeight = 184;
+    public static readonly RectangleF SendBounds = new(12, 52, 296, 120);
+    public static readonly RectangleF CloseBounds = new(276, 10, 32, 32);
+    public static readonly RectangleF CancelBounds = new(244, 136, 60, 28);
     public static FileWidgetAction Hit(Point point, Size size, bool busy)
     {
         if (size.Width <= 0 || size.Height <= 0 || point.X < 0 || point.Y < 0 || point.X >= size.Width || point.Y >= size.Height)
             return FileWidgetAction.None;
         float x = point.X * (float)ArtWidth / size.Width, y = point.Y * (float)ArtHeight / size.Height;
-        float dx = (x - 1440) / 68, dy = (y - 189) / 68;
+        float dx = (x - CloseBounds.X - CloseBounds.Width / 2) / (CloseBounds.Width / 2);
+        float dy = (y - CloseBounds.Y - CloseBounds.Height / 2) / (CloseBounds.Height / 2);
         if (dx * dx + dy * dy <= 1) return FileWidgetAction.Close;
         if (busy && CancelBounds.Contains(x, y)) return FileWidgetAction.Cancel;
         return SendBounds.Contains(x, y) ? FileWidgetAction.Send : FileWidgetAction.Move;
