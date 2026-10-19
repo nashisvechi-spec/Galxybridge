@@ -1,5 +1,19 @@
 # Testing the no-debugging edition
 
+## First visible widget frame (0.8.4)
+
+The existing Windows widget test now initializes status/tooltips/transparency
+before ShowWidget, as the real main window does. It verifies an accepted native
+frame and visible HWND, checks that the opaque body is returned by WindowFromPoint
+and that the transparent corner passes through, and repeats hide/reopen, progress,
+transparency and DPI changes. Geometry checks alone are insufficient.
+
+Run it in the manual workflow before publishing the new installer. On the laptop,
+verify opening from Files, Settings and the tray, startup with a saved visible
+widget, reopening while the main app is hidden, existing transparency and file
+transfer/cancel. A rendering error should show its message instead of a silent
+missing widget. Use the new 0.8.4 Setup; #57 packaged the preceding 0.8.3 source.
+
 ## Widget size regression (0.8.3)
 
 Run the portable suite (2587 assertions) and the Windows widget regression:

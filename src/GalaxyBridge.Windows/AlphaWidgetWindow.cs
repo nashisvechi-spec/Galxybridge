@@ -7,7 +7,7 @@ namespace GalaxyBridge.Windows;
 // Painting must not resize/move a Form while WinForms is processing its bounds.
 internal static class AlphaWidgetWindow
 {
-    public static bool Present(IntPtr window, Bitmap bitmap, byte opacity)
+    public static unsafe bool Present(IntPtr window, Bitmap bitmap, byte opacity)
     {
         if (!GetWindowRect(window, out WindowRect bounds)) throw new Win32Exception(Marshal.GetLastWin32Error());
         // A resize/DPI callback can still have the previous client dimensions.
@@ -21,10 +21,17 @@ internal static class AlphaWidgetWindow
             if (memory == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             if (bitmap.PixelFormat != PixelFormat.Format32bppPArgb) throw new ArgumentException("Expected premultiplied bitmap.", nameof(bitmap));
             image = bitmap.GetHbitmap(Color.FromArgb(0));previous = SelectObject(memory, image);
-            Point source = Point.Empty;
+            Point source = Point.Empty;Size size = bitmap.Size;
             Blend blend = new() { SourceConstantAlpha = opacity, AlphaFormat = 1 };
-            // NULL position/size keep the geometry owned by WinForms unchanged.
-            if (!UpdateLayeredWindow(window, screen, IntPtr.Zero, IntPtr.Zero, memory, ref source, 0, ref blend, 2))
+            // Explicit dimensions initialize the first surface as well as later
+            // frames. NORESIZE prevents a stale frame changing the HWND bounds.
+            LayeredUpdate update = new() {
+                StructSize = (uint)sizeof(LayeredUpdate), DestinationDc = screen,
+                Position = IntPtr.Zero, ColorKey = 0, DirtyRect = IntPtr.Zero,
+                Size = (IntPtr)(&size), SourceDc = memory, Source = (IntPtr)(&source),
+                Blend = (IntPtr)(&blend), Flags = 2 | 8 // ULW_ALPHA | ULW_EX_NORESIZE
+            };
+            if (!UpdateLayeredWindowIndirect(window, ref update))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             return true;
         }
@@ -42,6 +49,16 @@ internal static class AlphaWidgetWindow
     private struct Blend { public byte BlendOp, BlendFlags, SourceConstantAlpha, AlphaFormat; }
     [StructLayout(LayoutKind.Sequential)]
     private struct WindowRect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LayeredUpdate
+    {
+        public uint StructSize;
+        public IntPtr DestinationDc, Position, Size, SourceDc, Source;
+        public uint ColorKey;
+        public IntPtr Blend;
+        public uint Flags;
+        public IntPtr DirtyRect;
+    }
     [DllImport("user32.dll", SetLastError = true)] private static extern bool GetWindowRect(IntPtr window, out WindowRect bounds);
     [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr GetDC(IntPtr window);
     [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr window, IntPtr dc);
@@ -51,8 +68,7 @@ internal static class AlphaWidgetWindow
     [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr obj);
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool UpdateLayeredWindow(IntPtr window, IntPtr destination, IntPtr position, IntPtr size,
-        IntPtr sourceDc, ref Point source, uint colorKey, ref Blend blend, uint flags);
+    private static extern bool UpdateLayeredWindowIndirect(IntPtr window, ref LayeredUpdate update);
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 }

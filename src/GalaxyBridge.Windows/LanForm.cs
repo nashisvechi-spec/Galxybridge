@@ -134,7 +134,7 @@ internal sealed class LanForm : Form
         Icon = AppIcon.Value;
         this.settings = settings; host = new(settings);
         route = new(() => { capture?.Stop(); armed = false; edgeSince = null; });
-        Text="Galaxy Bridge • 0.8.3";Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;
+        Text="Galaxy Bridge • 0.8.4";Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;
         AutoScaleDimensions=new SizeF(96,96);StartPosition=FormStartPosition.CenterScreen;
         Size=new Size(940,Math.Min(700,(Screen.PrimaryScreen?.WorkingArea.Height??850)-40));MinimumSize=new Size(740,500);
         TableLayoutPanel shell=new() { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
@@ -148,7 +148,7 @@ internal sealed class LanForm : Form
             nav.Click+=(_,_)=>SelectSection(index);sidebar.Controls.Add(nav);sectionButtons.Add(nav);
             Panel panel=new() { Dock=DockStyle.Fill,Visible=i==0 };sections.Add(panel);screenHost.Controls.Add(panel);
         }
-        sidebar.Controls.Add(BridgeTheme.Label("0.8.3"));sidebar.Controls.Add(sidebarStatus);
+        sidebar.Controls.Add(BridgeTheme.Label("0.8.4"));sidebar.Controls.Add(sidebarStatus);
         shell.Controls.Add(sidebar,0,0);shell.Controls.Add(screenHost,1,0);Controls.Add(shell);
         TableLayoutPanel devices=BridgeTheme.Page(sections[0],"Устройства","");
         BridgeCard device=BridgeTheme.Card(devices,"");device.Controls.Add(deviceName);device.Controls.Add(state);
@@ -733,7 +733,7 @@ internal sealed class LanForm : Form
     private void OpenFileWidget()
     {
         if (closing) return;
-        if (fileWidget is { IsDisposed: false }) { fileWidget.Show();fileWidget.Activate();return; }
+        if (fileWidget is { IsDisposed: false }) { ShowFileWidget(fileWidget);return; }
         FileTransferWidget widget = new(SendAsync, () => transfer?.Cancel());fileWidget = widget;
         widget.SetTransparency(settings.FileWidgetTransparency);
         Rectangle area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1000, 700);
@@ -747,7 +747,17 @@ internal sealed class LanForm : Form
             if (fileWidget == widget) fileWidget = null;
             if (!closing) { showFileWidget.Checked = false;settings.FileWidgetVisible = false;SaveSettings(); }
         };
-        UpdateFiles();widget.Show(); // No owner: minimizing the main window must not hide the widget.
+        UpdateFiles();ShowFileWidget(widget); // No owner: minimizing the main window must not hide the widget.
+    }
+    private void ShowFileWidget(FileTransferWidget widget)
+    {
+        try { widget.ShowWidget(); }
+        catch (ExternalException ex)
+        {
+            widget.Close();if (fileWidget == widget) fileWidget = null;
+            showFileWidget.Checked = false;
+            MessageBox.Show(this,"Не удалось отобразить виджет Windows.\n\n"+ex.Message,"Виджет передачи файлов",MessageBoxButtons.OK,MessageBoxIcon.Error);
+        }
     }
     private void UpdateFiles()
     {

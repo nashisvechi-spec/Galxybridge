@@ -22,6 +22,16 @@ internal static class Program
         Check(GetWindowRect(window.Handle, out NativeRect native), "Cannot read actual HWND bounds");
         Check(new Size(native.Right - native.Left, native.Bottom - native.Top) == expected, "Native bounds diverged from managed size");
     }
+    private static void CheckVisibleFrame(FileTransferWidget window)
+    {
+        Pump();Check(window.Visible && IsWindowVisible(window.Handle), "Widget HWND is hidden");
+        Check(window.PresentedFrames > 0, "Widget has no accepted first frame");
+        float scale = FileWidgetLayout.Viewport(window.ClientSize).Width / FileWidgetLayout.ArtWidth;
+        Point body = window.PointToScreen(new Point((int)(24 * scale), (int)(80 * scale)));
+        Check(WindowFromPoint(body) == window.Handle, "Opaque widget body is not present/hittable on the desktop");
+        Point corner = window.PointToScreen(Point.Empty);
+        Check(WindowFromPoint(corner) != window.Handle, "Transparent corner intercepts the desktop");
+    }
     [STAThread]
     private static void Main()
     {
@@ -33,12 +43,16 @@ internal static class Program
         {
             using FileTransferWidget window = new(_ => { sendCalls++;return Task.CompletedTask; }, () => cancelCalls++);
             window.Location = Screen.PrimaryScreen!.WorkingArea.Location;
-            window.Show();Pump();CheckGeometry(window);
+            // Match production: status/tooltips and transparency are set before Show.
+            window.UpdateTransfer(true, false, "Телефон: S25", "", null);window.SetTransparency(attempt == 1 ? 40 : 0);
+            window.ShowWidget();Pump();CheckGeometry(window);CheckVisibleFrame(window);
+            window.Hide();window.ShowWidget();Pump();CheckGeometry(window);CheckVisibleFrame(window);
             for (int frame = 0; frame < 24; frame++)
             {
                 window.UpdateTransfer(true, frame % 2 == 0, "Телефон: S25", "photo.jpg", frame % 3 == 0 ? null : frame * 4);
                 window.SetTransparency(frame % 2 == 0 ? 80 : 0);Pump();CheckGeometry(window);
             }
+            CheckVisibleFrame(window);
             // Simulate stale bounds from creation/resize before the next layout turn.
             window.ClientSize = new Size(window.Width, 56);Pump();CheckGeometry(window);
             Rectangle before = window.Bounds;
@@ -58,6 +72,7 @@ internal static class Program
                 finally { Marshal.FreeHGlobal(pointer); }
                 Pump();CheckGeometry(window);
             }
+            CheckVisibleFrame(window);
             window.Close();Check(window.IsDisposed, "Widget did not close");
         }
         Check(sendCalls == 0 && cancelCalls == 0, "Layout/progress/close must not send or cancel files");
@@ -67,4 +82,6 @@ internal static class Program
     private struct NativeRect { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll", SetLastError = true)] private static extern bool GetWindowRect(IntPtr window, out NativeRect bounds);
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
 }

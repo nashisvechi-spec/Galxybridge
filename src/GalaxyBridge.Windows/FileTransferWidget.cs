@@ -10,7 +10,8 @@ internal sealed class FileTransferWidget : Form
     private readonly Action cancelTransfer;
     private readonly ToolTip tip = new();
     private readonly System.Windows.Forms.Timer animation = new() { Interval = 80 };
-    private bool available, busy, choosing, dropping, submitting, disposed, initialized, shown, layoutQueued, sizing;
+    private bool available, busy, choosing, dropping, submitting, disposed, initialized, surfaceReady, layoutQueued, sizing, rendering;
+    internal int PresentedFrames { get; private set; }
     private int? percent;
     private int animationStep;
     private byte opacity = 255;
@@ -97,9 +98,19 @@ internal sealed class FileTransferWidget : Form
         if (busy && !percent.HasValue) animation.Start();else animation.Stop();
         if (changed) { UpdateTip(hover);Render(); }
     }
+    public void ShowWidget()
+    {
+        if (IsDisposed) return;
+        WindowState = FormWindowState.Normal;Show();
+        ApplyWidgetBounds(DeviceDpi);surfaceReady = true;Render();Activate();
+    }
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);ApplyWidgetBounds(DeviceDpi);surfaceReady = true;Render();
+    }
     protected override void OnShown(EventArgs e)
     {
-        ApplyWidgetBounds(DeviceDpi);shown = true;base.OnShown(e);Render();
+        ApplyWidgetBounds(DeviceDpi);surfaceReady = true;base.OnShown(e);Render();
     }
     private void ApplyWidgetBounds(int dpi, Point? location = null)
     {
@@ -116,7 +127,7 @@ internal sealed class FileTransferWidget : Form
     }
     private void QueueLayout()
     {
-        if (!initialized || !shown || sizing || layoutQueued || !IsHandleCreated || IsDisposed) return;
+        if (!initialized || !surfaceReady || sizing || layoutQueued || !IsHandleCreated || IsDisposed) return;
         layoutQueued = true;
         BeginInvoke(new Action(() => {
             layoutQueued = false;
@@ -124,7 +135,12 @@ internal sealed class FileTransferWidget : Form
             ApplyWidgetBounds(DeviceDpi);Render();
         }));
     }
-    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e);QueueLayout(); }
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);PresentedFrames = 0;
+        if (initialized && Visible) surfaceReady = true;
+        QueueLayout();
+    }
     protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e);QueueLayout(); }
     protected override bool OnGetDpiScaledSize(int oldDpi, int newDpi, ref Size desiredSize)
     {
@@ -193,7 +209,13 @@ internal sealed class FileTransferWidget : Form
 
     private void Render()
     {
-        if (!initialized || !shown || disposed || !IsHandleCreated || IsDisposed || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        if (!initialized || !surfaceReady || rendering || disposed || !IsHandleCreated || IsDisposed || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        rendering = true;
+        try { RenderFrame(); }
+        finally { rendering = false; }
+    }
+    private void RenderFrame()
+    {
         using Bitmap frame = new(ClientSize.Width, ClientSize.Height, PixelFormat.Format32bppPArgb);
         using (Graphics g = Graphics.FromImage(frame))
         {
@@ -246,7 +268,8 @@ internal sealed class FileTransferWidget : Form
                 }
             }
         }
-        if (!AlphaWidgetWindow.Present(Handle, frame, opacity)) QueueLayout();
+        if (AlphaWidgetWindow.Present(Handle, frame, opacity)) PresentedFrames++;
+        else QueueLayout();
     }
 
     protected override AccessibleObject CreateAccessibilityInstance() => new WidgetAccessibleObject(this);

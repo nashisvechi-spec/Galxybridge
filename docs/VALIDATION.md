@@ -1,4 +1,29 @@
-# Validation — Windows 0.8.3 / Android 0.8.3
+# Validation — Windows 0.8.4 / Android 0.8.4
+
+## Widget first presentation (2026-10-19)
+
+Reviewed the actual GitHub run #57 (39293601876), commit 3cadb127: all steps
+succeeded, including 2587 core assertions, 406 native widget geometry assertions,
+103 Android framework tests and installer install/update/uninstall checks.
+The 0.8.3 Setup and signed APK artifacts were both published. This does not
+confirm the reported widget was visibly drawn on the user's laptop: the native
+regression only checked bounds and did not inspect a first accepted surface.
+
+0.8.4 changes first-frame initialization to UpdateLayeredWindowIndirect with
+explicit surface dimensions and ULW_EX_NORESIZE. It keeps rejection of stale
+client-size frames. Load/show paths now actively submit a frame; opening an
+existing/hidden widget also redraws it. Native presentation errors during open
+are shown instead of leaving the user without an explanation.
+
+The Windows regression now follows production status/transparency-before-show
+ordering, checks the accepted-frame counter, IsWindowVisible and WindowFromPoint
+for opaque body/transparent corner points, and repeats hide/reopen/progress/DPI.
+
+Validated here: Windows application and native widget test compile with zero
+warnings/errors; 2587 portable assertions pass; source and whitespace checks
+pass. The extended Windows visibility test and signed 0.8.4 packaging have not
+yet run. A fresh manual workflow and laptop confirmation are still required.
+Android logic is unchanged apart from the aligned visible/package version.
 
 ## Widget collapsing to a strip (2026-10-19)
 
