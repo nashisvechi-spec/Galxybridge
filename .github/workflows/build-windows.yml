@@ -35,6 +35,9 @@ jobs:
       - name: Test LAN certificate import and TLS on Windows
         timeout-minutes: 3
         run: dotnet run --project tests/GalaxyBridge.LanTls.Tests/GalaxyBridge.LanTls.Tests.csproj -c Release
+      - name: Test native file widget geometry and DPI
+        timeout-minutes: 2
+        run: dotnet run --project tests/GalaxyBridge.Widget.Tests/GalaxyBridge.Widget.Tests.csproj -c Release
       - name: Publish Windows x64
         run: >-
           dotnet publish src/GalaxyBridge.Windows/GalaxyBridge.Windows.csproj

@@ -1,5 +1,25 @@
 # Testing the no-debugging edition
 
+## Widget size regression (0.8.3)
+
+Run the portable suite (2587 assertions) and the Windows widget regression:
+
+```powershell
+dotnet run --project tests/GalaxyBridge.Widget.Tests -c Release
+```
+
+This uses the production widget in STA/PerMonitorV2 mode on Windows, comparing
+managed, client and actual HWND bounds after first show, progress/transparency
+updates, a stale thin client size, simulated DPI messages and reopen/close.
+A stale bitmap must not resize or move the native window. No transfer is sent
+or cancelled. The manual workflow runs it before publishing the installer.
+The executable cross-compiles on Linux; native UI execution requires Windows.
+
+On the reported laptop install the new Setup and check first open, 100/125/150/200%
+Windows scale, closing/reopening, display changes and dragging between monitors.
+The body must retain 320:184 proportions, with a circular close button and
+matching file-drop/click areas. Check known and unknown progress and cancellation.
+
 ## Minimal interface (0.8.2)
 
 Run the portable suite, Android display/UI suite and Windows build. Widget hit

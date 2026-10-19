@@ -1,5 +1,13 @@
 # Galaxy Bridge — no-debugging edition
 
+## Widget proportions · 0.8.3
+
+Fixes the widget collapsing into a thin strip. Painting now preserves HWND
+bounds, stale client-size frames are discarded, and one DPI scale controls
+window size, drawing and hit targets. A native Windows widget regression runs
+in the manual installer workflow. Build/install the new 0.8.3 Setup; Android
+only receives the matching package version.
+
 0.8.2 simplifies Windows and Android with neutral themes, less repeated text,
 quieter navigation and a compact flat file widget. QR setup remains visible
 on first launch; diagnostics and pairing another device are in Settings.
@@ -26,7 +34,7 @@ See the [review and roadmap](docs/RELEASE_REVIEW.ru.md) and device checklist.
 This is a release candidate until the new installer/APK and physical-device
 checks have been completed.
 
-Windows **0.8.2** / Android **0.8.2**. The application starts directly in its LAN
+Windows **0.8.3** / Android **0.8.3**. The application starts directly in its LAN
 window. Developer options, USB debugging and wireless debugging are unnecessary.
 Only this edition is maintained; the previous debugging edition remains in Git history.
 
@@ -176,7 +184,7 @@ does not yet include a Classic HID backend. See [the analysis](docs/GLIDEX_WINDO
 
 Builds run **manually only**: Actions → Build Windows installer → Run workflow.
 Two artifacts are published: **GalaxyBridge-Windows-Setup** and **GalaxyBridgeLan-android**.
-The Windows artifact contains `GalaxyBridge-Setup-0.8.2-x64.exe`, an Inno Setup
+The Windows artifact contains `GalaxyBridge-Setup-0.8.3-x64.exe`, an Inno Setup
 installer with Russian/English UI, Start menu and optional desktop shortcuts,
 and a registered uninstaller. It installs for the current user, with the .NET
 runtime included. Update by running the next installer after closing the app;

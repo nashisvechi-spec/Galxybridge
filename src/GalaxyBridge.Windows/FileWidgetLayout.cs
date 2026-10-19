@@ -11,11 +11,27 @@ internal static class FileWidgetLayout
     public static readonly RectangleF SendBounds = new(12, 52, 296, 120);
     public static readonly RectangleF CloseBounds = new(276, 10, 32, 32);
     public static readonly RectangleF CancelBounds = new(244, 136, 60, 28);
+    public static Size SizeForDpi(int dpi, Size available)
+    {
+        if (available.Width <= 0 || available.Height <= 0) return Size.Empty;
+        double scale = Math.Min((dpi > 0 ? dpi : 96) / 96d, Math.Min(available.Width / (double)ArtWidth, available.Height / (double)ArtHeight));
+        return new Size(Math.Max(1, (int)Math.Round(ArtWidth * scale)), Math.Max(1, (int)Math.Round(ArtHeight * scale)));
+    }
+    public static RectangleF Viewport(Size size)
+    {
+        if (size.Width <= 0 || size.Height <= 0) return RectangleF.Empty;
+        float scale = Math.Min(size.Width / (float)ArtWidth, size.Height / (float)ArtHeight);
+        float width = ArtWidth * scale, height = ArtHeight * scale;
+        return new RectangleF((size.Width - width) / 2, (size.Height - height) / 2, width, height);
+    }
     public static FileWidgetAction Hit(Point point, Size size, bool busy)
     {
         if (size.Width <= 0 || size.Height <= 0 || point.X < 0 || point.Y < 0 || point.X >= size.Width || point.Y >= size.Height)
             return FileWidgetAction.None;
-        float x = point.X * (float)ArtWidth / size.Width, y = point.Y * (float)ArtHeight / size.Height;
+        RectangleF viewport = Viewport(size);
+        if (!viewport.Contains(point)) return FileWidgetAction.None;
+        float scale = viewport.Width / ArtWidth;
+        float x = (point.X - viewport.X) / scale, y = (point.Y - viewport.Y) / scale;
         float dx = (x - CloseBounds.X - CloseBounds.Width / 2) / (CloseBounds.Width / 2);
         float dy = (y - CloseBounds.Y - CloseBounds.Height / 2) / (CloseBounds.Height / 2);
         if (dx * dx + dy * dy <= 1) return FileWidgetAction.Close;
@@ -27,7 +43,7 @@ internal static class FileWidgetLayout
     public static Rectangle Bounds(FileWidgetAction action, Size size)
     {
         RectangleF b = action switch { FileWidgetAction.Close => CloseBounds, FileWidgetAction.Cancel => CancelBounds, _ => SendBounds };
-        return Rectangle.Round(new RectangleF(b.X * size.Width / ArtWidth, b.Y * size.Height / ArtHeight,
-            b.Width * size.Width / ArtWidth, b.Height * size.Height / ArtHeight));
+        RectangleF viewport = Viewport(size);float scale = viewport.Width / ArtWidth;
+        return Rectangle.Round(new RectangleF(viewport.X + b.X * scale, viewport.Y + b.Y * scale, b.Width * scale, b.Height * scale));
     }
 }

@@ -89,7 +89,7 @@ def main() -> None:
     require(props.findtext('.//LangVersion') == '12.0', 'C# 12 configuration')
     require(props.findtext('.//Nullable') == 'enable', 'Nullable analysis configuration')
     projects = list(ROOT.glob('**/*.csproj'))
-    require(len(projects) == 4, 'Expected Windows, Core, portable and LAN TLS test projects')
+    require(len(projects) == 5, 'Expected Windows, Core, portable, LAN TLS and native widget test projects')
     for path in projects:
         tree = ET.parse(path)
         for reference in tree.findall('.//ProjectReference'):
@@ -158,6 +158,8 @@ def main() -> None:
             'Workflow must run portable tests')
     require('dotnet run --project tests/GalaxyBridge.LanTls.Tests/' in workflow,
             'Workflow must test the production certificate import with Windows TLS')
+    require('dotnet run --project tests/GalaxyBridge.Widget.Tests/' in workflow,
+            'Workflow must test actual native widget bounds and DPI on Windows')
     require('--self-contained true' in workflow and '-r win-x64' in workflow,
             'Self-contained Windows x64 publish configuration')
     installer = read('installer/GalaxyBridge.iss')

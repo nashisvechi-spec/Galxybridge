@@ -10,7 +10,7 @@ internal sealed class FileTransferWidget : Form
     private readonly Action cancelTransfer;
     private readonly ToolTip tip = new();
     private readonly System.Windows.Forms.Timer animation = new() { Interval = 80 };
-    private bool available, busy, choosing, dropping, submitting, disposed, initialized;
+    private bool available, busy, choosing, dropping, submitting, disposed, initialized, shown, layoutQueued, sizing;
     private int? percent;
     private int animationStep;
     private byte opacity = 255;
@@ -26,12 +26,12 @@ internal sealed class FileTransferWidget : Form
         this.send = send;this.cancelTransfer = cancelTransfer;
         Text = "Передача файлов · Galaxy Bridge";Icon = AppIcon.Value;Font = new Font("Segoe UI", 9);
         AccessibleName = "Виджет передачи файлов на телефон";
-        AutoScaleMode = AutoScaleMode.Dpi;AutoScaleDimensions = new SizeF(96, 96);
+        // This is one vector canvas, not a control layout. Scale both axes once.
+        AutoScaleMode = AutoScaleMode.None;
         FormBorderStyle = FormBorderStyle.None;ShowInTaskbar = false;
-        MaximizeBox = false;MinimizeBox = false;TopMost = true;StartPosition = FormStartPosition.Manual;
+        ControlBox = false;MaximizeBox = false;MinimizeBox = false;TopMost = true;StartPosition = FormStartPosition.Manual;
         ClientSize = new Size(FileWidgetLayout.ArtWidth, FileWidgetLayout.ArtHeight);AllowDrop = true;KeyPreview = true;
         animation.Tick += (_, _) => { animationStep = (animationStep + 1) % 24;Render(); };
-        Shown += (_, _) => { BridgeTheme.FitWindow(this);Render(); };
         DragEnter += (_, e) => UpdateDrop(e);
         DragOver += (_, e) => UpdateDrop(e);
         DragLeave += (_, _) => { dropping = false;Render(); };
@@ -97,9 +97,43 @@ internal sealed class FileTransferWidget : Form
         if (busy && !percent.HasValue) animation.Start();else animation.Stop();
         if (changed) { UpdateTip(hover);Render(); }
     }
-    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e);Render(); }
-    protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e);Render(); }
-    protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e);Render(); }
+    protected override void OnShown(EventArgs e)
+    {
+        ApplyWidgetBounds(DeviceDpi);shown = true;base.OnShown(e);Render();
+    }
+    private void ApplyWidgetBounds(int dpi, Point? location = null)
+    {
+        if (sizing || IsDisposed) return;
+        sizing = true;
+        try
+        {
+            Point wanted = location ?? Location;Rectangle work = Screen.FromPoint(wanted).WorkingArea;
+            Size size = FileWidgetLayout.SizeForDpi(dpi, work.Size);
+            SetBounds(Math.Clamp(wanted.X, work.Left, Math.Max(work.Left, work.Right - size.Width)),
+                Math.Clamp(wanted.Y, work.Top, Math.Max(work.Top, work.Bottom - size.Height)), size.Width, size.Height);
+        }
+        finally { sizing = false; }
+    }
+    private void QueueLayout()
+    {
+        if (!initialized || !shown || sizing || layoutQueued || !IsHandleCreated || IsDisposed) return;
+        layoutQueued = true;
+        BeginInvoke(new Action(() => {
+            layoutQueued = false;
+            if (IsDisposed || !IsHandleCreated) return;
+            ApplyWidgetBounds(DeviceDpi);Render();
+        }));
+    }
+    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e);QueueLayout(); }
+    protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e);QueueLayout(); }
+    protected override bool OnGetDpiScaledSize(int oldDpi, int newDpi, ref Size desiredSize)
+    {
+        desiredSize = FileWidgetLayout.SizeForDpi(newDpi, new Size(int.MaxValue, int.MaxValue));return true;
+    }
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        e.Cancel = true;base.OnDpiChanged(e);ApplyWidgetBounds(e.DeviceDpiNew, e.SuggestedRectangle.Location);QueueLayout();
+    }
     protected override void OnPaintBackground(PaintEventArgs e) { }
     protected override void OnPaint(PaintEventArgs e) { }
     protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e);Render(); }
@@ -159,12 +193,13 @@ internal sealed class FileTransferWidget : Form
 
     private void Render()
     {
-        if (!initialized || disposed || !IsHandleCreated || IsDisposed || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        if (!initialized || !shown || disposed || !IsHandleCreated || IsDisposed || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
         using Bitmap frame = new(ClientSize.Width, ClientSize.Height, PixelFormat.Format32bppPArgb);
         using (Graphics g = Graphics.FromImage(frame))
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.ScaleTransform(ClientSize.Width / (float)FileWidgetLayout.ArtWidth, ClientSize.Height / (float)FileWidgetLayout.ArtHeight);
+            RectangleF viewport = FileWidgetLayout.Viewport(ClientSize);float scale = viewport.Width / FileWidgetLayout.ArtWidth;
+            g.TranslateTransform(viewport.X, viewport.Y);g.ScaleTransform(scale, scale);
             using GraphicsPath body = BridgeTheme.Round(new RectangleF(1, 1, 318, 182), 20);
             using SolidBrush navy = new(Color.FromArgb(24, 36, 56));g.FillPath(navy, body);
             using GraphicsPath target = BridgeTheme.Round(FileWidgetLayout.SendBounds, 12);
@@ -211,7 +246,7 @@ internal sealed class FileTransferWidget : Form
                 }
             }
         }
-        AlphaWidgetWindow.Present(Handle, frame, Location, opacity);
+        if (!AlphaWidgetWindow.Present(Handle, frame, opacity)) QueueLayout();
     }
 
     protected override AccessibleObject CreateAccessibilityInstance() => new WidgetAccessibleObject(this);

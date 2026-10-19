@@ -1,4 +1,30 @@
-# Validation — Windows 0.8.2 / Android 0.8.2
+# Validation — Windows 0.8.3 / Android 0.8.3
+
+## Widget collapsing to a strip (2026-10-19)
+
+The supplied laptop photo shows the vector widget compressed vertically.
+The previous render path passed ClientSize as the new HWND size to
+UpdateLayeredWindow, including synchronous creation/size callbacks. Painting
+could feed transitional client bounds back into window sizing, and independent
+X/Y transforms then stretched all content to the resulting rectangle.
+
+The new presenter keeps native position/size unchanged and discards frames
+whose dimensions differ from the current window. Rendering starts after Shown;
+resize work is queued. The widget owns its DPI bounds explicitly, keeps them
+inside the work area and uses one uniform viewport for graphics, pointer hits
+and accessibility. Close and cancel targets stay aligned.
+
+Validation on this Linux host:
+- Windows application Release build passes with zero warnings/errors.
+- The new native Windows widget regression compiles against the production app.
+- 2587 portable assertions pass, including exact 100/125/150/175/200/300% sizes,
+  constrained work areas and 320x56/640x100/200x400 distorted host rectangles.
+- Source and whitespace checks pass. Android logic is unchanged; only its
+  visible/package version is advanced to 0.8.3.
+
+Native HWND/UI checks are wired into the manual Windows workflow, but were not
+executed on this Linux host. A new signed Setup/APK and actual laptop DPI/mixed
+monitor verification are still pending. The existing design preview is unchanged.
 
 ## Minimal interface (2026-10-19)
 
